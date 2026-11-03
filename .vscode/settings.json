@@ -1,0 +1,10 @@
+{
+    "chat.mcp.serverSampling": {
+        "AllOnline/.vscode/mcp.json: supabase-allonline": {
+            "allowedModels": [
+                "copilot/auto",
+                "copilotcli/auto"
+            ]
+        }
+    }
+}
