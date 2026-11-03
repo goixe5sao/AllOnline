@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { currentPosition, type ScreenState } from "@/core/screen";
 import type { PollViewDto, StageAd } from "@/core/protocol";
-import { demoProvider } from "./market-data";
+import { StageChart, TradingViewWidget } from "./stage-chart";
 
 export interface ScreenProps {
   state: ScreenState;
@@ -164,58 +164,6 @@ function AudioSync({ url, title, state, serverNow, volume, muted }: { url: strin
   );
 }
 
-// ---------- candlestick chart (vector SVG: stays sharp when zoomed) ----------
-
-function CandleChart({ symbol, serverNow }: { symbol: string; serverNow: () => number }) {
-  const [now, setNow] = useState(() => serverNow());
-  useEffect(() => {
-    const id = setInterval(() => setNow(serverNow()), 5000);
-    return () => clearInterval(id);
-  }, [serverNow]);
-  const candles = useMemo(() => demoProvider.candles(symbol, 60, now), [symbol, now]);
-  const W = 960;
-  const H = 540;
-  const pad = 50;
-  const hi = Math.max(...candles.map((c) => c.h));
-  const lo = Math.min(...candles.map((c) => c.l));
-  const y = (v: number) => pad + ((hi - v) / (hi - lo || 1)) * (H - pad * 2);
-  const step = (W - pad * 2) / candles.length;
-  const last = candles[candles.length - 1];
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%" role="img" aria-label={`Biểu đồ nến ${symbol} (dữ liệu demo)`}>
-      <rect width={W} height={H} fill="#0b1117" />
-      {[0, 0.25, 0.5, 0.75, 1].map((f) => {
-        const v = hi - (hi - lo) * f;
-        return (
-          <g key={f}>
-            <line x1={pad} x2={W - pad} y1={y(v)} y2={y(v)} stroke="#223" strokeWidth={1} />
-            <text x={W - pad + 4} y={y(v) + 4} fill="#8899aa" fontSize={12}>
-              {v.toFixed(1)}
-            </text>
-          </g>
-        );
-      })}
-      {candles.map((c, i) => {
-        const x = pad + i * step + step / 2;
-        const up = c.c >= c.o;
-        const col = up ? "#26a69a" : "#ef5350";
-        return (
-          <g key={c.t}>
-            <line x1={x} x2={x} y1={y(c.h)} y2={y(c.l)} stroke={col} strokeWidth={1.2} />
-            <rect x={x - step * 0.35} width={step * 0.7} y={y(Math.max(c.o, c.c))} height={Math.max(1, Math.abs(y(c.o) - y(c.c)))} fill={col} />
-          </g>
-        );
-      })}
-      <text x={pad} y={32} fill="#e8eef2" fontSize={24} fontWeight={700}>
-        {symbol} · {last.c.toFixed(2)}
-      </text>
-      <text x={W - pad} y={32} fill="#f0b860" fontSize={16} textAnchor="end" fontWeight={700}>
-        DỮ LIỆU DEMO — không phải giá thật
-      </text>
-    </svg>
-  );
-}
-
 function PollOnScreen({ poll }: { poll: PollViewDto | undefined }) {
   if (!poll) return <div className="screen-text">Bình chọn không còn.</div>;
   return (
@@ -280,7 +228,21 @@ export function ScreenContent(p: ScreenProps) {
       body = p.active ? <AudioSync url={c.url} title={c.title} {...p} /> : <div className="screen-text">♪ {c.title}</div>;
       break;
     case "chart":
-      body = <CandleChart symbol={c.symbol} serverNow={p.serverNow} />;
+      // Re-keyed on the owner's shared settings so local (full-screen) tweaks reset when they change.
+      body = (
+        <div style={{ position: "absolute", inset: p.ad ? "0 0 9% 0" : 0 }}>
+          <StageChart key={JSON.stringify(c)} symbol={c.symbol} interval={c.interval} chartType={c.chartType} indicators={c.indicators} interactive={!!p.fullscreen} />
+        </div>
+      );
+      break;
+    case "tradingview":
+      body = p.active ? (
+        <div style={{ position: "absolute", inset: p.ad ? "0 0 9% 0" : 0 }}>
+          <TradingViewWidget symbol={c.symbol} interval={c.interval} interactive={!!p.fullscreen} />
+        </div>
+      ) : (
+        <div className="screen-text">TradingView · {c.symbol}</div>
+      );
       break;
     case "chat":
       body = (

@@ -9,6 +9,7 @@ import type { Storage } from "./storage";
 import { sniffMime } from "./storage";
 import { clientIp, readBody, readJson, sameOrigin, sendJson } from "./http";
 import { AVATARS, MAP_INFO } from "@/core/maps";
+import { CHART_INTERVALS, demoMarketProvider, type CandleResult } from "@/core/market";
 import { getPriceTiers, getSettings, priceTiersSchema, replacePriceTiers, settingsPatchSchema, slotBudget, updateSettings } from "./services/settings";
 import {
   AppError,
@@ -319,6 +320,23 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     if (!r || r.status !== "open") throw new AppError("NOT_FOUND", "Link mời không hợp lệ hoặc phòng đã đóng.", 404);
     if (r.password_hash && !verifyPassword(b.password, r.password_hash)) throw new AppError("INVALID_ROOM_PASSWORD", "Mật mã phòng không đúng.", 403);
     return { roomId: r.id, pass: auth.roomPass(u.id, r.id) };
+  });
+
+  // ----- market data for the stage chart (provider keys stay on the server) -----
+  const candleCache = new Map<string, { at: number; body: CandleResult }>();
+  route("GET", "/api/market/candles", async (ctx) => {
+    needAttendee(ctx);
+    const q = z
+      .object({ symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9.]{1,12}$/), interval: z.enum(CHART_INTERVALS).default("D"), count: z.coerce.number().int().min(20).max(1000).default(300) })
+      .parse(Object.fromEntries(ctx.url.searchParams));
+    const key = `${q.symbol}|${q.interval}|${q.count}`;
+    const hit = candleCache.get(key);
+    if (hit && Date.now() - hit.at < 5000) return hit.body;
+    const provider = demoMarketProvider;
+    const body: CandleResult = { symbol: q.symbol, interval: q.interval, source: provider.id, isDemo: provider.isDemo, candles: await provider.candles(q.symbol, q.interval, q.count, Date.now()) };
+    candleCache.set(key, { at: Date.now(), body });
+    if (candleCache.size > 200) candleCache.delete(candleCache.keys().next().value!);
+    return body;
   });
 
   // ----- orders -----

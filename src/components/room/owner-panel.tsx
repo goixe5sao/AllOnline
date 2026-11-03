@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { api, ApiError, fmtDuration, fmtTime, useApi } from "@/lib/api";
 import { currentPosition, parseYouTubeId, type ScreenContent, type ScreenState } from "@/core/screen";
+import { CHART_INTERVALS, INDICATORS, INTERVAL_LABEL, type ChartInterval, type ChartType, type Indicator } from "@/core/market";
 import type { ClientMsg, PollViewDto, RoomInfoDto } from "@/core/protocol";
 import type { PublicMember } from "@/core/room-engine";
 import type { ChatLine } from "./use-room";
@@ -14,6 +15,9 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
   const [kind, setKind] = useState<ScreenContent["kind"]>("text");
   const [value, setValue] = useState("");
   const [title, setTitle] = useState("");
+  const [interval, setIntervalOpt] = useState<ChartInterval>("D");
+  const [chartType, setChartType] = useState<ChartType>("candles");
+  const [inds, setInds] = useState<Indicator[]>(["volume", "ma20"]);
   const [err, setErr] = useState("");
   const [uploading, setUploading] = useState(false);
 
@@ -27,7 +31,8 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
       if (!id) return setErr("Link YouTube không hợp lệ.");
     } else if (kind === "image") content = value ? { kind: "image", url: value.trim() } : null;
     else if (kind === "audio") content = value ? { kind: "audio", url: value.trim(), title: title.trim() || "Âm thanh" } : null;
-    else if (kind === "chart") content = { kind: "chart", symbol: (value.trim() || "VNINDEX").toUpperCase(), source: "demo" };
+    else if (kind === "chart") content = { kind: "chart", symbol: (value.trim() || "VNINDEX").toUpperCase(), source: "demo", interval, chartType, indicators: inds };
+    else if (kind === "tradingview") content = { kind: "tradingview", symbol: (value.trim() || "NASDAQ:AAPL").toUpperCase(), interval };
     else if (kind === "blank") content = { kind: "blank" };
     if (!content) return setErr("Hãy nhập nội dung.");
     send({ t: "screen", action: "set", content });
@@ -81,13 +86,14 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
           <option value="image">Hình ảnh (https hoặc tải lên)</option>
           <option value="youtube">Video YouTube</option>
           <option value="audio">Âm thanh (https hoặc tải lên)</option>
-          <option value="chart">Biểu đồ nến (dữ liệu demo)</option>
+          <option value="chart">Biểu đồ chứng khoán VN kiểu TradingView (dữ liệu demo)</option>
+          <option value="tradingview">TradingView chính thức — mã quốc tế (dữ liệu thật)</option>
           <option value="blank">Màn hình trống</option>
         </select>
       </label>
       {kind === "text" && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
-      {(kind === "image" || kind === "audio" || kind === "youtube" || kind === "chart") && (
-        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "youtube" ? "https://www.youtube.com/watch?v=…" : kind === "chart" ? "Mã chứng khoán, ví dụ VNINDEX" : "https://…"} />
+      {(kind === "image" || kind === "audio" || kind === "youtube" || kind === "chart" || kind === "tradingview") && (
+        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "youtube" ? "https://www.youtube.com/watch?v=…" : kind === "chart" ? "Mã, ví dụ VNINDEX, VN30, FPT" : kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
       )}
       {kind === "audio" && <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tiêu đề" />}
       {(kind === "image" || kind === "audio") && (
@@ -96,7 +102,41 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
           <input type="file" accept={kind === "image" ? "image/png,image/jpeg,image/webp,image/gif" : "audio/*"} disabled={uploading} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
         </label>
       )}
-      {kind === "chart" && <small>Chưa có nguồn dữ liệu thị trường thật — biểu đồ ghi rõ “DỮ LIỆU DEMO”.</small>}
+      {(kind === "chart" || kind === "tradingview") && (
+        <label className="field">
+          Khung thời gian
+          <select value={interval} onChange={(e) => setIntervalOpt(e.target.value as ChartInterval)}>
+            {CHART_INTERVALS.map((iv) => (
+              <option key={iv} value={iv}>
+                {INTERVAL_LABEL[iv]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {kind === "chart" && (
+        <>
+          <label className="field">
+            Kiểu biểu đồ
+            <select value={chartType} onChange={(e) => setChartType(e.target.value as ChartType)}>
+              <option value="candles">Nến</option>
+              <option value="bars">Thanh OHLC</option>
+              <option value="line">Đường</option>
+              <option value="area">Vùng</option>
+            </select>
+          </label>
+          <div className="row">
+            {INDICATORS.map((ind) => (
+              <label className="check" key={ind}>
+                <input type="checkbox" checked={inds.includes(ind)} onChange={(e) => setInds(e.target.checked ? [...inds, ind] : inds.filter((x) => x !== ind))} />
+                {({ volume: "Khối lượng", ma20: "MA20", ema50: "EMA50", bb: "Bollinger", rsi: "RSI" } as const)[ind]}
+              </label>
+            ))}
+          </div>
+          <small>Chưa có nguồn dữ liệu chứng khoán VN có giấy phép — biểu đồ ghi rõ “DỮ LIỆU DEMO”. Người xem bấm “Xem màn hình” để tự kéo/zoom/đổi chỉ báo.</small>
+        </>
+      )}
+      {kind === "tradingview" && <small>TradingView không cho nhúng mã sàn Việt Nam (HOSE/HNX). Dùng cho cổ phiếu quốc tế, crypto, vàng, ngoại tệ. Ở chế độ “Xem màn hình”, người xem dùng đủ công cụ vẽ/chỉ báo của TradingView.</small>}
       {kind === "youtube" && <small>Dùng trình phát nhúng chính thức của YouTube. Video bị chủ sở hữu chặn nhúng sẽ báo lỗi trên màn hình.</small>}
       <button className="hud-btn primary" onClick={show}>
         Hiển thị lên màn hình

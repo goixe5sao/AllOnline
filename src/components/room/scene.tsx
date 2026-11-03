@@ -459,7 +459,11 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
       sf.x = me.x;
       sf.z = me.z;
       c.yaw = me.status === "seated" || me.status === "invited" ? 0 : me.rotY;
-      c.pitch = 0;
+      // Look at the centre of the stage screen (front rows tilt up, back rows level).
+      const seatNow = me.seatId ? layout.seats.find((s) => s.id === me.seatId) : undefined;
+      const sc = layout.screen;
+      const eyeY = (seatNow?.y ?? floorY(layout, me.z, me.status !== "waiting")) + layout.eyeHeight;
+      c.pitch = Math.max(-0.7, Math.min(0.7, Math.atan2(sc.y - eyeY, Math.max(1, Math.hypot(sc.x - me.x, sc.z - me.z)))));
     }
     if (store.correction) {
       sf.x = store.correction.x;

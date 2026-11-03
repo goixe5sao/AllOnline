@@ -33,6 +33,8 @@ Bản prototype (supabase/legacy) có các lỗi không vá được bằng ch�
 | Camera: người tham dự góc nhìn mắt/ghế lái, quay đầu, zoom FOV; chủ phòng camera tự do | Thật |
 | Xem riêng màn hình (Fullscreen API, fallback lớp phủ cố định) | Thật |
 | Màn hình: văn bản, ảnh (https/tải lên), YouTube IFrame API, âm thanh, chat được chọn, bình chọn, biểu đồ nến | Thật; **biểu đồ dùng dữ liệu DEMO** (ghi nhãn rõ) — có lớp `MarketDataProvider` chờ nguồn thật |
+| Biểu đồ chứng khoán VN kiểu TradingView (Lightweight Charts, Apache-2.0): khung 1p→1T, nến/thanh/đường/vùng, KL, MA20, EMA50, Bollinger, RSI, chữ thập OHLC; chủ phòng đặt mặc định, người xem tự kéo/zoom/đổi ở chế độ xem màn hình | Thật về giao diện; **dữ liệu DEMO** (lớp MarketDataProvider phía server chờ nguồn có giấy phép, ví dụ SSI FastConnect Data) |
+| Widget TradingView chính thức (dữ liệu thật, đủ công cụ vẽ) cho mã quốc tế | Thật. TradingView **không cho nhúng mã HOSE/HNX** (đã kiểm chứng: “Mã giao dịch này chỉ có trên TradingView”) |
 | Đồng bộ phát/dừng/tua theo mốc giờ server; người vào sau bắt kịp; âm lượng riêng | Thật |
 | Chat gần: lọc người nhận phía server, không lưu, giới hạn độ dài/tốc độ/lặp, bong bóng 8 giây | Thật, có test |
 | Bình chọn: tạo/mở/đóng, 1 phiếu/tài khoản, đổi đáp án, nhiều cuộc lần lượt, kết quả lên màn hình, log | Thật, có test |
@@ -55,7 +57,7 @@ Bản prototype (supabase/legacy) có các lỗi không vá được bằng ch�
 ```text
 npm run typecheck   PASS
 npm run lint        0 lỗi (1 cảnh báo có chủ đích: tải lại trang sau đăng xuất)
-npm test            47/47 PASS
+npm test            51/51 PASS
   - tests/room-engine.test.ts (21): tranh ghế, hàng chờ, 5 phút tìm chỗ, cooldown, mất mạng/kết nối lại, kick, chat gần, layout
   - tests/pure.test.ts (12): slot 20%, giá, đồng bộ màn hình, YouTube URL, lọc chat
   - tests/services.test.ts (14, SQL thật trên PGlite): 12 yêu cầu tạo phòng đồng thời → đúng 8 phòng, giữ/hết hạn đơn,

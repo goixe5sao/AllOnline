@@ -1,3 +1,4 @@
+import { bollinger, demoMarketProvider, ema, rsi, sma } from "@/core/market";
 import { describe, expect, it } from "vitest";
 import { totalSlots, waitingCapacity, summarizeBudget, canReserve } from "@/core/slots";
 import { quoteRoom } from "@/core/pricing";
@@ -83,5 +84,36 @@ describe("chat safety", () => {
   it("blocks repeated spam", () => {
     const d = new DuplicateFilter(10_000, 2);
     expect([d.allow("u", "a", 0), d.allow("u", "a", 1), d.allow("u", "a", 2)]).toEqual([true, true, false]);
+  });
+});
+
+
+describe("market indicators & demo data", () => {
+  it("SMA / EMA", () => {
+    expect(sma([1, 2, 3, 4, 5], 3)).toEqual([null, null, 2, 3, 4]);
+    const e = ema([1, 2, 3, 4, 5], 3);
+    expect(e.slice(0, 2)).toEqual([null, null]);
+    expect(e[2]).toBeCloseTo(2);
+    expect(e[4]).toBeCloseTo(4);
+  });
+  it("Bollinger bands are symmetric around the SMA", () => {
+    const b = bollinger([1, 2, 3, 4, 5, 6], 3, 2);
+    expect(b[1]).toBeNull();
+    expect(b[5]!.mid).toBeCloseTo(5);
+    expect(b[5]!.upper - b[5]!.mid).toBeCloseTo(b[5]!.mid - b[5]!.lower);
+  });
+  it("RSI is 100 on a pure uptrend and stays within 0..100", () => {
+    const up = Array.from({ length: 30 }, (_, i) => i + 1);
+    expect(rsi(up, 14)[29]).toBe(100);
+    const zig = Array.from({ length: 60 }, (_, i) => 100 + Math.sin(i) * 5);
+    for (const v of rsi(zig, 14)) if (v !== null) expect(v).toBeGreaterThanOrEqual(0), expect(v).toBeLessThanOrEqual(100);
+  });
+  it("demo candles are deterministic and well-formed", async () => {
+    const a = await demoMarketProvider.candles("VNINDEX", "D", 50, 1_800_000_000_000);
+    const b = await demoMarketProvider.candles("VNINDEX", "D", 50, 1_800_000_000_000);
+    expect(a).toEqual(b);
+    expect(a).toHaveLength(50);
+    for (const c of a) expect(c.high).toBeGreaterThanOrEqual(Math.max(c.open, c.close)), expect(c.low).toBeLessThanOrEqual(Math.min(c.open, c.close));
+    expect(a[1].time - a[0].time).toBe(86400);
   });
 });
