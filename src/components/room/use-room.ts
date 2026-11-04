@@ -21,7 +21,7 @@ export interface RoomSession {
   conn: ConnState;
   endReason: string | null;
   role: RoomRole | null;
-  you: { userId: string; name: string; isGuest: boolean } | null;
+  you: { userId: string; name: string; isGuest: boolean; isRoomOwner: boolean } | null;
   room: RoomInfoDto | null;
   screen: ScreenState;
   polls: PollViewDto[];
@@ -42,7 +42,7 @@ export class MemberStore {
   correction: { x: number; z: number } | null = null;
 }
 
-export function useRoom(roomId: string, opts: { pass: string | null; avatar: { group: AvatarGroup; model: string } | null }) {
+export function useRoom(roomId: string, opts: { pass: string | null; avatar: { group: AvatarGroup; model: string } | null; asParticipant?: boolean }) {
   const store = useRef(new MemberStore()).current;
   const [s, setS] = useState<RoomSession>({
     conn: "connecting",
@@ -165,7 +165,7 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
         const ws = new WebSocket(`${proto}://${location.host}/ws?ticket=${encodeURIComponent(ticket)}`);
         wsRef.current = ws;
         ws.onopen = () => {
-          ws.send(JSON.stringify({ t: "join", roomId, pass: opts.pass ?? undefined, avatar: opts.avatar ?? undefined } satisfies ClientMsg));
+          ws.send(JSON.stringify({ t: "join", roomId, pass: opts.pass ?? undefined, avatar: opts.avatar ?? undefined, asParticipant: opts.asParticipant || undefined } satisfies ClientMsg));
           pingTimer = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: "ping", c: Date.now() })), 10_000);
         };
         ws.onmessage = (e) => {

@@ -332,7 +332,8 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     joinLimiter.set(u.id, lim && now - lim.at < 60_000 ? { n: lim.n + 1, at: lim.at } : { n: 1, at: now });
     const r = await getRoomByInvite(db, b.inviteCode);
     if (!r || r.status !== "open") throw new AppError("NOT_FOUND", "Link mời không hợp lệ hoặc phòng đã đóng.", 404);
-    if (r.password_hash && !verifyPassword(b.password, r.password_hash)) throw new AppError("INVALID_ROOM_PASSWORD", "Mật mã phòng không đúng.", 403);
+    // The room owner does not need the room password to attend their own room.
+    if (r.owner_id !== u.id && r.password_hash && !verifyPassword(b.password, r.password_hash)) throw new AppError("INVALID_ROOM_PASSWORD", "Mật mã phòng không đúng.", 403);
     return { roomId: r.id, pass: auth.roomPass(u.id, r.id) };
   });
 

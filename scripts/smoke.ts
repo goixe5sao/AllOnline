@@ -245,6 +245,25 @@ async function main() {
   await owner.call(`/api/rooms/${room2.data.roomId}/close`, {});
   sG.ws.close();
 
+  // ---- room owner attends their own room as a participant ----
+  const ownRoom = await owner.call("/api/rooms", { config: { ...cfg, name: "Chủ phòng ngồi ghế", officialCapacity: 4, entryMode: "auto_assign", password: "xyz" }, useTrial: true });
+  const oj = await owner.call("/api/join", { inviteCode: ownRoom.data.inviteCode, password: "" });
+  ok(oj.status === 200, "the owner opens their own invite link without the room password");
+  const sp = await new Sock().open(owner);
+  sp.send({ t: "join", roomId: ownRoom.data.roomId, pass: oj.data.pass, avatar: { group: "people", model: "person-teal" }, asParticipant: true });
+  const wp = await sp.wait((m) => m.t === "welcome");
+  ok(wp?.role === "participant" && wp.personal?.status === "seated" && wp.you.isRoomOwner === true, "owner attends as a seated participant and is still flagged as room owner");
+  sp.send({ t: "screen", action: "set", content: { kind: "text", text: "Chủ phòng điều khiển từ ghế" } });
+  ok((await sp.wait((m) => m.t === "screen"))?.state.content.text === "Chủ phòng điều khiển từ ghế", "owner keeps screen controls while seated");
+  sp.send({ t: "poll_create", question: "Q?", options: ["A", "B"] });
+  const opoll = (await sp.wait((m) => m.t === "poll"))?.poll;
+  sp.send({ t: "poll_open", id: opoll.id });
+  await sleep(300);
+  sp.send({ t: "vote", pollId: opoll.id, optionId: "o1" });
+  ok(!!(await sp.wait((m) => m.t === "my_vote")), "owner attending as a participant can vote");
+  sp.ws.close();
+  await owner.call(`/api/rooms/${ownRoom.data.roomId}/close`, {});
+
   // ---- discount code ASDFG = 100% off ----
   const pcfg = { ...cfg, name: "Phòng mã ASDFG", officialCapacity: 4, entryMode: "auto_assign" };
   const pq = await owner.call("/api/rooms/quote", { ...pcfg, promoCode: "asdfg" });

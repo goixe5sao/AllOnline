@@ -22,6 +22,7 @@ Bản prototype (supabase/legacy) có các lỗi không vá được bằng ch�
 | Bình chọn “chỉ tài khoản đã đăng ký” (chủ phòng chọn khi tạo): khách xem kết quả nhưng không vote được | Thật, có smoke test — cách chống vote gian đáng tin |
 | Dải quảng cáo cố định cuối màn hình sân khấu (mặc định goixe5sao.vn), bấm được trong 3D và khi xem toàn màn hình; sửa trong /admin | Thật |
 | Mã giảm giá (/admin → Mã giảm giá): % giảm, tổng lượt, lượt/tài khoản, hạn dùng, bật/tắt; kiểm tra + đếm lượt trong cùng transaction với đơn. Đơn 0 ₫ (giảm 100%) được server tự xác nhận và tạo phòng/gia hạn ngay. Mã **ASDFG = 100%** tạo sẵn (không giới hạn lượt) | Thật, có test |
+| Chủ phòng mở link mời có thể **vào như người tham dự** (chọn nhân vật, ngồi ghế, góc nhìn khách, bình chọn, không cần mật mã phòng) mà vẫn giữ nút Điều khiển; nút chuyển qua lại với camera chủ phòng | Thật, có smoke test |
 | Đăng nhập demo, chọn vai trò chủ ứng dụng | **Demo**, chỉ khi không có `DATABASE_URL` |
 | Vai trò: chủ ứng dụng (CLI `grant-owner`), chủ phòng (theo `rooms.owner_id`), người tham dự | Thật, kiểm ở server |
 | Ngân sách slot cấu hình được, chờ = floor(chính thức × tỷ lệ), cấp nguyên tử, trả đúng một lần, giữ slot cho đơn | Thật, có test |
@@ -63,7 +64,7 @@ npm test            61/61 PASS
   - tests/pure.test.ts (12): slot 20%, giá, đồng bộ màn hình, YouTube URL, lọc chat
   - tests/services.test.ts (14, SQL thật trên PGlite): 12 yêu cầu tạo phòng đồng thời → đúng 8 phòng, giữ/hết hạn đơn,
     trả slot đúng một lần, webhook trùng, thiếu tiền, trễ hạn hết slot, gia hạn, quyền gia hạn, vote
-scripts/smoke.ts    55/55 PASS (ổn định qua 3 lần chạy liên tiếp) (server demo thật, HTTP + WebSocket, 5 người dùng + khách)
+scripts/smoke.ts    59/59 PASS (ổn định qua 3 lần chạy liên tiếp) (server demo thật, HTTP + WebSocket, 5 người dùng + khách)
 Supabase thật: schema app tạo bằng migration, 14/14 bảng RLS, Data API không truy cập được schema app (PGRST106),
   12 yêu cầu tạo phòng đồng thời → đúng 8 phòng (khoá FOR UPDATE trên Postgres 17 thật), đóng song song → trả slot đúng 1 lần
 npm run build       PASS

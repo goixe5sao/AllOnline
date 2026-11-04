@@ -60,7 +60,7 @@ function MyRooms() {
           </p>
           {r.status === "open" && (
             <div className="row">
-              <Link className="btn primary small" href={`/room/${r.id}`}>
+              <Link className="btn primary small" href={`/room/${r.id}`} onClick={() => sessionStorage.removeItem(`ao-mode-${r.id}`)}>
                 Vào điều khiển
               </Link>
               <button className="btn small" onClick={() => navigator.clipboard?.writeText(`${location.origin}/join/${r.invite_code}`)}>

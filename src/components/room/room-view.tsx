@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildLayout, MAP_INFO, type AvatarGroup, type Layout } from "@/core/maps";
-import { fmtDuration } from "@/lib/api";
+import { api, fmtDuration } from "@/lib/api";
 import type { PollViewDto } from "@/core/protocol";
 import { RoomScene, type Controls } from "./scene";
 import { ScreenContent } from "./screen-content";
@@ -131,6 +131,8 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [boot] = useState(() => ({
     pass: typeof window === "undefined" ? null : sessionStorage.getItem(`ao-pass-${roomId}`),
     avatar: typeof window === "undefined" ? null : readSession<{ group: AvatarGroup; model: string }>(`ao-avatar-${roomId}`),
+    // The room owner chose "attend as a participant" on the invite page.
+    asParticipant: typeof window !== "undefined" && sessionStorage.getItem(`ao-mode-${roomId}`) === "participant",
   }));
   const { session: s, store, send, serverNow, leave } = useRoom(roomId, boot);
   const controls = useRef<Controls>({ yaw: 0, pitch: 0, fov: 60, keys: new Set(), joy: { x: 0, y: 0 } });
@@ -369,9 +371,27 @@ export function RoomView({ roomId }: { roomId: string }) {
         >
           {lite ? "Đồ hoạ: nhẹ" : "Đồ hoạ: đầy đủ"}
         </button>
-        {s.role === "owner" && (
+        {s.you.isRoomOwner && (
           <button className="hud-btn primary" onClick={() => setPanel(panel === "owner" ? null : "owner")}>
             Điều khiển
+          </button>
+        )}
+        {s.you.isRoomOwner && (
+          <button
+            className="hud-btn"
+            onClick={async () => {
+              if (isParticipant) {
+                // Back to the owner's free camera.
+                sessionStorage.removeItem(`ao-mode-${roomId}`);
+                leave();
+                window.location.reload();
+              } else {
+                const r = await api<{ room: { invite_code: string } }>(`/api/rooms/${roomId}`);
+                window.location.href = `/join/${r.room.invite_code}`;
+              }
+            }}
+          >
+            {isParticipant ? "Chế độ chủ phòng" : "Ngồi như khách"}
           </button>
         )}
         {isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" && (
@@ -458,7 +478,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         </div>
       )}
 
-      {panel === "owner" && s.role === "owner" && (
+      {panel === "owner" && s.you.isRoomOwner && (
         <OwnerPanel send={send} screen={s.screen} serverNow={serverNow} polls={s.polls} members={members} room={s.room} chat={s.chat} onClose={() => setPanel(null)} />
       )}
       {panel === "seats" && me && (

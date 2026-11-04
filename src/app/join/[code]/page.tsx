@@ -23,20 +23,6 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  if (data.isOwner)
-    return (
-      <div className="card stack">
-        <h1>{r.name}</h1>
-        <p className="notice warn">
-          Bạn là <strong>chủ phòng</strong> này. Link mời dành cho khách; chủ phòng vào với camera tự do và bảng điều khiển. Để thử vai trò khách, mở link này trong cửa sổ ẩn danh.
-        </p>
-        <button className="btn primary" onClick={() => router.push(`/room/${r.id}`)}>
-          Vào phòng với vai trò chủ phòng
-        </button>
-        <small>Mỗi tài khoản chỉ có một phiên trong phòng: nếu phòng đang mở ở tab khác, tab đó sẽ được thay bằng tab này.</small>
-      </div>
-    );
-
   if (!isAccount && !data.guestJoinEnabled)
     return (
       <div className="card stack">
@@ -61,6 +47,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
           const j = await api<{ roomId: string; pass: string }>("/api/join", { body: { inviteCode: code, password } });
           sessionStorage.setItem(`ao-pass-${j.roomId}`, j.pass);
           sessionStorage.setItem(`ao-avatar-${j.roomId}`, JSON.stringify(avatar));
+          if (data.isOwner) sessionStorage.setItem(`ao-mode-${j.roomId}`, "participant");
           router.push(`/room/${j.roomId}`);
         } catch (e) {
           setErr((e as ApiError).message);
@@ -77,6 +64,24 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
         {MAP_INFO[r.map].name} · {r.entryMode === "auto_assign" ? "Tự xếp chỗ" : "Vào từ cổng, tự tìm chỗ"} · đến {fmtTime(r.expiresAt)}
       </p>
 
+      {data.isOwner && (
+        <div className="notice warn stack" style={{ gap: 8 }}>
+          <span>
+            Bạn là <strong>chủ phòng</strong>. Bạn có thể vào <strong>như người tham dự</strong> (chọn nhân vật, ngồi ghế, nhìn như khách, vẫn giữ nút “Điều khiển”), hoặc vào với camera tự do của chủ phòng.
+          </span>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              sessionStorage.removeItem(`ao-mode-${r.id}`);
+              router.push(`/room/${r.id}`);
+            }}
+          >
+            Vào với vai trò chủ phòng (camera tự do)
+          </button>
+          <small>Mỗi tài khoản chỉ có một phiên trong phòng: tab đang mở phòng (nếu có) sẽ được thay bằng tab này.</small>
+        </div>
+      )}
       {isAccount ? (
         <p className="notice">
           Bạn vào với tài khoản <strong>{me!.displayName}</strong>.
@@ -105,7 +110,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
         ))}
       </div>
 
-      {r.hasPassword && (
+      {r.hasPassword && !data.isOwner && (
         <label className="field">
           Mật mã phòng
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="off" placeholder="Do chủ phòng cung cấp" />
@@ -114,10 +119,10 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
 
       {err && <p className="notice error">{err}</p>}
       <button className="btn primary" disabled={busy}>
-        {busy ? "Đang vào…" : "Vào phòng"}
+        {busy ? "Đang vào…" : data.isOwner ? "Vào như người tham dự" : "Vào phòng"}
       </button>
       <small>
-        Không cần tài khoản. Phòng không có voice/webcam; chat chỉ đến người ở gần bạn và không được lưu lại.
+        {!isAccount && "Không cần tài khoản. "}Phòng không có voice/webcam; chat chỉ đến người ở gần bạn và không được lưu lại.
         {!isAccount && (
           <>
             {" "}

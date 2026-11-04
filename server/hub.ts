@@ -39,7 +39,7 @@ interface LiveRoom {
 
 const num = z.number().finite();
 const msgSchema = z.union([
-  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), avatar: z.object({ group: z.string(), model: z.string() }).optional() }),
+  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), avatar: z.object({ group: z.string(), model: z.string() }).optional(), asParticipant: z.boolean().optional() }),
   z.object({ t: z.literal("leave") }),
   z.object({ t: z.literal("move"), x: num, z: num, rotY: num }),
   z.object({ t: z.literal("claim"), seatId: z.string().max(10) }),
@@ -302,7 +302,8 @@ export class Hub {
     if (!room) return this.error(c, "ROOM_NOT_OPEN", "Bạn chưa ở trong phòng.");
     const uid = c.user.id;
     const now = Date.now();
-    const isOwner = c.role === "owner";
+    // Owner powers follow the account (the owner may also attend as a seated participant).
+    const isOwner = room.row.owner_id === uid;
     const requireOwner = () => {
       if (!isOwner) throw new AppError("FORBIDDEN", "Chỉ chủ phòng được thao tác này.", 403);
     };
@@ -416,10 +417,10 @@ export class Hub {
     const uid = c.user.id;
     const isOwner = room.row.owner_id === uid;
     let role: RoomRole;
-    if (isOwner) role = "owner";
-    else if (c.user.role === "app_owner" && !m.pass) role = "observer";
+    if (isOwner && !m.asParticipant) role = "owner";
+    else if (!isOwner && c.user.role === "app_owner" && !m.pass) role = "observer";
     else {
-      if (!this.auth.verifyRoomPass(m.pass, uid, room.row.id)) return this.error(c, "NO_PASS");
+      if (!isOwner && !this.auth.verifyRoomPass(m.pass, uid, room.row.id)) return this.error(c, "NO_PASS");
       if (!m.avatar || !isValidAvatar(m.avatar.group, m.avatar.model) || !room.row.avatar_groups.includes(m.avatar.group)) return this.error(c, "AVATAR_NOT_ALLOWED");
       // System-wide (members in reconnect grace still count): one participant per device,
       // at most N participants per IP (shared Wi-Fi / mobile CGNAT can hold a few people).
@@ -453,7 +454,7 @@ export class Hub {
     this.send(c, {
       t: "welcome",
       role,
-      you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest },
+      you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner },
       room: this.roomInfo(room.row),
       members: room.engine.publicMembers(),
       screen: room.screen,
@@ -478,7 +479,7 @@ export class Hub {
     for (const rc of room.clients) {
       if (!recipients.has(rc.user.id) || rc.ws.readyState !== rc.ws.OPEN) continue;
       rc.ws.send(data);
-      if (rc.role === "owner") room.ownerInbox.set(msg.id, { text, name: c.user.display_name, at: now });
+      if (rc.user.id === room.row.owner_id) room.ownerInbox.set(msg.id, { text, name: c.user.display_name, at: now });
     }
   }
 

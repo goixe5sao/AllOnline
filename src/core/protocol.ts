@@ -33,7 +33,7 @@ export interface RoomInfoDto {
 }
 
 export type ClientMsg =
-  | { t: "join"; roomId: string; pass?: string; avatar?: { group: AvatarGroup; model: string } }
+  | { t: "join"; roomId: string; pass?: string; avatar?: { group: AvatarGroup; model: string }; asParticipant?: boolean }
   | { t: "leave" }
   | { t: "move"; x: number; z: number; rotY: number }
   | { t: "claim"; seatId: string }
@@ -56,7 +56,7 @@ export type ServerMsg =
   | {
       t: "welcome";
       role: RoomRole;
-      you: { userId: string; name: string; isGuest: boolean };
+      you: { userId: string; name: string; isGuest: boolean; isRoomOwner: boolean };
       room: RoomInfoDto;
       members: PublicMember[];
       screen: ScreenState;
