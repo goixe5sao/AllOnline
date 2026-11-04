@@ -10,6 +10,7 @@ import { sniffMime } from "./storage";
 import { clientIp, readBody, readJson, sameOrigin, sendJson } from "./http";
 import { AVATARS, MAP_INFO } from "@/core/maps";
 import { CHART_INTERVALS, demoMarketProvider, type CandleResult } from "@/core/market";
+import type { MarketService } from "./market/service";
 import { getPriceTiers, getSettings, priceTiersSchema, replacePriceTiers, settingsPatchSchema, slotBudget, updateSettings } from "./services/settings";
 import {
   AppError,
@@ -39,8 +40,8 @@ interface Ctx {
 
 type Handler = (ctx: Ctx) => Promise<unknown>;
 
-export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage }) {
-  const { cfg, db, auth, hub, storage } = deps;
+export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService }) {
+  const { cfg, db, auth, hub, storage, market } = deps;
   const routes: { method: string; re: RegExp; handler: Handler; public?: boolean }[] = [];
   const route = (method: string, pattern: string, handler: Handler, opts: { public?: boolean } = {}) =>
     routes.push({ method, re: new RegExp("^" + pattern.replace(/:\w+/g, "([^/]+)") + "$"), handler, public: opts.public });
@@ -332,8 +333,11 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     const key = `${q.symbol}|${q.interval}|${q.count}`;
     const hit = candleCache.get(key);
     if (hit && Date.now() - hit.at < 5000) return hit.body;
-    const provider = demoMarketProvider;
-    const body: CandleResult = { symbol: q.symbol, interval: q.interval, source: provider.id, isDemo: provider.isDemo, candles: await provider.candles(q.symbol, q.interval, q.count, Date.now()) };
+    // Real (collected) data first; synthetic DEMO data only if nothing has been collected yet.
+    const real = await market.candles(q.symbol, q.interval, q.count);
+    const body: CandleResult = real.length
+      ? { symbol: q.symbol, interval: q.interval, source: (await market.lastSourceLabel(q.symbol)) ?? "không chính thức", isDemo: false, candles: real }
+      : { symbol: q.symbol, interval: q.interval, source: "demo", isDemo: true, candles: await demoMarketProvider.candles(q.symbol, q.interval, q.count, Date.now()) };
     candleCache.set(key, { at: Date.now(), body });
     if (candleCache.size > 200) candleCache.delete(candleCache.keys().next().value!);
     return body;
@@ -414,7 +418,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
       ...(Number(review.rows[0].n) ? [{ kind: "payments", text: `${review.rows[0].n} giao dịch cần xem xét`, roomId: null }] : []),
       ...(budget.allocated > budget.budget ? [{ kind: "budget", text: "Slot đã phân bổ vượt ngân sách mới — chỉ ảnh hưởng phòng mới.", roomId: null }] : []),
     ];
-    return { budget, live: hub.stats(), rooms, pendingOrders: Number(pending.rows[0].n), reviewOrders: Number(review.rows[0].n), alerts };
+    return { market: market.status, budget, live: hub.stats(), rooms, pendingOrders: Number(pending.rows[0].n), reviewOrders: Number(review.rows[0].n), alerts };
   });
 
   route("GET", "/api/admin/settings", async (ctx) => {

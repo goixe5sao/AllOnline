@@ -15,6 +15,7 @@ import { Auth } from "./auth";
 import { Hub } from "./hub";
 import { createApi } from "./routes";
 import { createStorage } from "./storage";
+import { MarketService } from "./market/service";
 import { closeRoom, dueRooms, expireOrders } from "./services/rooms";
 import { getUser } from "./services/users";
 import { clientIp } from "./http";
@@ -30,7 +31,10 @@ async function main() {
   const hub = new Hub(db, auth);
   await hub.start();
   const storage = createStorage(cfg);
-  const api = createApi({ cfg, db, auth, hub, storage });
+  // Market data scheduler: 1-minute bars + daily bars every minute during the VN session.
+  const market = new MarketService(db);
+  if (process.env.MARKET_DATA !== "off") market.start();
+  const api = createApi({ cfg, db, auth, hub, storage, market });
 
   // Sweepers use the database clock (now()), never a browser clock.
   let sweeping = false;
@@ -98,6 +102,7 @@ async function main() {
 
   const shutdown = async () => {
     hub.stop();
+    market.stop();
     server.close();
     await db.close();
     process.exit(0);

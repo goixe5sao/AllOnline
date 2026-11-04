@@ -94,7 +94,11 @@ export function StageChart(p: StageChartProps) {
     });
     chartRef.current = chart;
     const cs = data.candles;
-    const t = (x: number) => x as UTCTimestamp;
+    // Lightweight Charts renders in UTC: shift intraday bars to Vietnam time (UTC+7). Daily bars are
+    // already keyed to 00:00 UTC of the Vietnam trading date.
+    const intraday = interval !== "D" && interval !== "W";
+    const off = intraday ? 7 * 3600 : 0;
+    const t = (x: number) => (x + off) as UTCTimestamp;
     const closes = cs.map((c) => c.close);
 
     let main;
@@ -136,14 +140,15 @@ export function StageChart(p: StageChartProps) {
       if (panes[1]) panes[1].setHeight(Math.round(el.clientHeight * 0.22));
     }
 
-    chart.timeScale().setVisibleLogicalRange({ from: cs.length - 120, to: cs.length + 3 });
+    if (cs.length > 120) chart.timeScale().setVisibleLogicalRange({ from: cs.length - 120, to: cs.length + 3 });
+    else chart.timeScale().fitContent();
 
     const onMove = (param: MouseEventParams<Time>) => {
       if (!param.time || !param.seriesData) return setLegend(null);
-      const idx = cs.findIndex((c) => c.time === (param.time as number));
+      const idx = cs.findIndex((c) => c.time + off === (param.time as number));
       const c = cs[idx];
       if (!c) return setLegend(null);
-      setLegend({ o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume, t: new Date(c.time * 1000).toLocaleString("vi-VN", { hour12: false }) });
+      setLegend({ o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume, t: intraday ? new Date(c.time * 1000).toLocaleString("vi-VN", { hour12: false, timeZone: "Asia/Ho_Chi_Minh" }) : new Date(c.time * 1000).toLocaleDateString("vi-VN", { timeZone: "UTC" }) });
     };
     chart.subscribeCrosshairMove(onMove);
     return () => {
@@ -188,7 +193,12 @@ export function StageChart(p: StageChartProps) {
             {IND_LABEL[ind]}
           </button>
         ))}
-        {data?.isDemo && <span style={{ marginLeft: "auto", color: "#f0b860", fontWeight: 700, fontSize: 12 }}>DỮ LIỆU DEMO — không phải giá thật</span>}
+        {data &&
+          (data.isDemo ? (
+            <span style={{ marginLeft: "auto", color: "#f0b860", fontWeight: 700, fontSize: 12 }}>DỮ LIỆU DEMO — không phải giá thật</span>
+          ) : (
+            <span style={{ marginLeft: "auto", color: C.muted, fontSize: 12 }}>Nguồn: {data.source} · cập nhật mỗi phút</span>
+          ))}
       </div>
       <div style={{ padding: "4px 10px", fontSize: 13, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
         {shown && (

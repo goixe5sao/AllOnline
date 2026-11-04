@@ -86,7 +86,7 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
           <option value="image">Hình ảnh (https hoặc tải lên)</option>
           <option value="youtube">Video YouTube</option>
           <option value="audio">Âm thanh (https hoặc tải lên)</option>
-          <option value="chart">Biểu đồ chứng khoán VN kiểu TradingView (dữ liệu demo)</option>
+          <option value="chart">Biểu đồ chứng khoán VN kiểu TradingView</option>
           <option value="tradingview">TradingView chính thức — mã quốc tế (dữ liệu thật)</option>
           <option value="blank">Màn hình trống</option>
         </select>
@@ -133,7 +133,7 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
               </label>
             ))}
           </div>
-          <small>Chưa có nguồn dữ liệu chứng khoán VN có giấy phép — biểu đồ ghi rõ “DỮ LIỆU DEMO”. Người xem bấm “Xem màn hình” để tự kéo/zoom/đổi chỉ báo.</small>
+          <small>Dữ liệu thật do server lấy mỗi phút từ API không chính thức (DNSE/Entrade, dự phòng SSI, VPS); nguồn ghi trên biểu đồ. Mã mới cần ~vài giây để tải lần đầu. Người xem bấm “Xem màn hình” để tự kéo/zoom/đổi chỉ báo.</small>
         </>
       )}
       {kind === "tradingview" && <small>TradingView không cho nhúng mã sàn Việt Nam (HOSE/HNX). Dùng cho cổ phiếu quốc tế, crypto, vàng, ngoại tệ. Ở chế độ “Xem màn hình”, người xem dùng đủ công cụ vẽ/chỉ báo của TradingView.</small>}
