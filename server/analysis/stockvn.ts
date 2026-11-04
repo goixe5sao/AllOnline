@@ -147,6 +147,19 @@ function vnDate(ms: number) {
   return new Date(ms + 7 * 3600_000).toISOString().slice(0, 10);
 }
 
+/**
+ * Start date of the analysis. Default: the last RANGE_DAYS. When the chart shows older candles the
+ * client passes the first visible date; it is rounded down (month for daily, day for intraday) so
+ * panning reuses cached results, and bounded (daily: 2000-01-01, intraday: 30 days).
+ */
+export function analysisFrom(sv: "1m" | "5m" | "15m" | "1d", requested: string | undefined, now = Date.now()): string {
+  const dflt = vnDate(now - RANGE_DAYS[sv] * 86400_000);
+  if (!requested || !/^\d{4}-\d{2}-\d{2}$/.test(requested) || requested >= dflt) return dflt;
+  if (sv === "1d") return requested < "2000-01-01" ? "2000-01-01" : requested.slice(0, 8) + "01";
+  const min = vnDate(now - 30 * 86400_000);
+  return requested < min ? min : requested;
+}
+
 export class StockVnAnalysis {
   private cache = new Map<string, { at: number; value: AnalysisResult }>();
   private inflight = new Map<string, Promise<AnalysisResult>>();
@@ -166,28 +179,30 @@ export class StockVnAnalysis {
    * Stale-while-revalidate: returns the cached overlay immediately (refreshing in the background
    * when older than the TTL); only the very first request for a symbol/interval waits.
    */
-  async get(symbol: string, interval: ChartInterval): Promise<AnalysisResult> {
+  async get(symbol: string, interval: ChartInterval, from?: string): Promise<AnalysisResult> {
     if (!this.baseUrl) return { available: false, reason: "Chưa kết nối dịch vụ phân tích StockVN (STOCKVN_URL)." };
     const sv = STOCKVN_INTERVAL[interval];
     if (!sv) return { available: false, reason: "Lớp phân tích StockVN có ở khung 1p, 5p, 15p và Ngày." };
-    const key = `${symbol}|${sv}`;
+    const start = analysisFrom(sv, from);
+    const key = `${symbol}|${sv}|${start}`;
     const hit = this.cache.get(key);
     const fresh = hit && Date.now() - hit.at < this.ttlMs;
-    if (hit && !fresh) void this.refresh(key, symbol, interval, sv).catch(() => undefined);
+    if (hit && !fresh) void this.refresh(key, symbol, interval, sv, start).catch(() => undefined);
     if (hit) return hit.value;
-    return this.refresh(key, symbol, interval, sv);
+    return this.refresh(key, symbol, interval, sv, start);
   }
 
-  private refresh(key: string, symbol: string, interval: ChartInterval, sv: "1m" | "5m" | "15m" | "1d"): Promise<AnalysisResult> {
+  private refresh(key: string, symbol: string, interval: ChartInterval, sv: "1m" | "5m" | "15m" | "1d", start: string): Promise<AnalysisResult> {
     const running = this.inflight.get(key);
     if (running) return running;
     // StockVN runs Python per request: one computation at a time keeps the host responsive.
-    const job = this.queue.then(() => this.fetchOverlay(symbol, interval, sv));
+    const job = this.queue.then(() => this.fetchOverlay(symbol, interval, sv, start));
     this.queue = job.catch(() => undefined);
     const p = job
       .then((value) => {
         // Errors are cached briefly too, so a down service is not hammered.
         this.cache.set(key, { at: value.available ? Date.now() : Date.now() - this.ttlMs + 15_000, value });
+        if (this.cache.size > 300) this.cache.delete(this.cache.keys().next().value!);
         return value;
       })
       .finally(() => this.inflight.delete(key));
@@ -195,15 +210,14 @@ export class StockVnAnalysis {
     return p;
   }
 
-  private async fetchOverlay(symbol: string, interval: ChartInterval, sv: "1m" | "5m" | "15m" | "1d"): Promise<AnalysisResult> {
-    const now = Date.now();
-    const qs = new URLSearchParams({ symbol, interval: sv, from: vnDate(now - RANGE_DAYS[sv] * 86400_000), to: vnDate(now) });
+  private async fetchOverlay(symbol: string, interval: ChartInterval, sv: "1m" | "5m" | "15m" | "1d", start: string): Promise<AnalysisResult> {
+    const qs = new URLSearchParams({ symbol, interval: sv, from: start, to: vnDate(Date.now()) });
     try {
       const res = await this.fetchImpl(`${this.baseUrl!.replace(/\/$/, "")}/api/ai/replay?${qs}`, { signal: AbortSignal.timeout(150_000) });
       const body = (await res.json().catch(() => null)) as (ReplayResult & { error?: string }) | null;
       if (!res.ok || !body || body.error) return { available: false, reason: `StockVN: ${body?.error ?? "HTTP " + res.status}` };
       if (body.mode !== "replay" || !Array.isArray(body.bars) || !body.bars.length) return { available: false, reason: "StockVN chưa có dữ liệu cho mã này." };
-      return { available: true, overlay: toOverlay(body, interval) };
+      return { available: true, overlay: { ...toOverlay(body, interval), from: start } };
     } catch (e) {
       return { available: false, reason: `Không gọi được StockVN (${(e as Error).name === "TimeoutError" ? "quá thời gian" : "không kết nối"}).` };
     }

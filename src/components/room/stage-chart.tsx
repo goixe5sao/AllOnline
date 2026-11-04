@@ -196,24 +196,16 @@ function layoutLabels(a: {
     byBar.set(m.time, g);
   }
   const barByTime = new Map(bars.map((c) => [c.time, c]));
-  let shown = 0;
-  const lastX = new Map<string, number>(); // same text nearby is labelled once (markers stay)
   for (const [time, g] of [...byBar].sort((p, q) => q[0] - p[0])) {
-    if (shown >= 12) break;
     const c = barByTime.get(time);
     const x = xOf(time);
     if (!c || x === null || x < 0 || x > W) continue;
     const yRef = g.above ? yOf(c.high) : yOf(c.low);
     if (yRef === null) continue;
     const text = g.texts.join(" · ");
-    const near = lastX.get(text);
-    if (near !== undefined && Math.abs(near - x) < 140) continue;
     const w = textWidth(text);
     const yStart = g.above ? yRef - 12 : yRef + 12; // clear of the marker symbol
-    if (put(text, g.color, away([x - w / 2, x - w + 6, x - 6], yStart, g.above, 16))) {
-      shown++;
-      lastX.set(text, x);
-    }
+    put(text, g.color, away([x - w / 2, x - w + 6, x - 6, x - w / 2 - 20, x - w / 2 + 20], yStart, g.above, 24));
   }
 }
 
@@ -238,6 +230,9 @@ export function StageChart(p: StageChartProps) {
   const layersRef = useRef(layers);
   layersRef.current = layers;
   const barsRef = useRef<Candle[]>([]);
+  /** First date the chart shows (YYYY-MM-DD) when older than the default analysis range. */
+  const analysisFromRef = useRef<string | null>(null);
+  const loadAnalysisRef = useRef<() => void>(() => undefined);
 
   // Full fetch on open / interval change, then every minute (live bars fill the gaps in between).
   useEffect(() => {
@@ -256,10 +251,12 @@ export function StageChart(p: StageChartProps) {
         })
         .catch(() => !cancelled && setErr("Không tải được dữ liệu biểu đồ."));
     const loadAnalysis = () =>
-      fetch(`/api/market/analysis?symbol=${encodeURIComponent(p.symbol)}&interval=${interval}`, { credentials: "same-origin" })
+      fetch(`/api/market/analysis?symbol=${encodeURIComponent(p.symbol)}&interval=${interval}${analysisFromRef.current ? `&from=${analysisFromRef.current}` : ""}`, { credentials: "same-origin" })
         .then((r) => (r.ok ? r.json() : null))
         .then((a: AnalysisState | null) => !cancelled && a && setAnalysis(a))
         .catch(() => undefined);
+    analysisFromRef.current = null;
+    loadAnalysisRef.current = loadAnalysis;
     load();
     loadAnalysis();
     const id = setInterval(() => {
@@ -340,6 +337,22 @@ export function StageChart(p: StageChartProps) {
       });
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(relayout);
+    let moreTimer: ReturnType<typeof setTimeout> | undefined;
+    const wantOlder = () => {
+      clearTimeout(moreTimer);
+      moreTimer = setTimeout(() => {
+        const r = chart.timeScale().getVisibleLogicalRange();
+        const bars = barsRef.current;
+        if (!r || !bars.length) return;
+        const first = bars[Math.max(0, Math.min(bars.length - 1, Math.floor(r.from)))];
+        const day = new Date((first.time + (intraday ? 7 * 3600 : 0)) * 1000).toISOString().slice(0, 10);
+        const covered = overlayRef.current?.from ?? analysisFromRef.current;
+        if (covered && day >= covered) return;
+        analysisFromRef.current = day;
+        loadAnalysisRef.current();
+      }, 700);
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(wantOlder);
     const ro = new ResizeObserver(relayout);
     ro.observe(el);
 
@@ -410,6 +423,8 @@ export function StageChart(p: StageChartProps) {
       ro.disconnect();
       chart.unsubscribeCrosshairMove(onMove);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(relayout);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(wantOlder);
+      clearTimeout(moreTimer);
       chart.remove();
       labelLayer.remove();
       chartRef.current = null;

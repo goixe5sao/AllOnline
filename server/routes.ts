@@ -382,8 +382,10 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   // Trendlines / channels / S-R / candle patterns / breakouts from the StockVN service (cached).
   route("GET", "/api/market/analysis", async (ctx) => {
     needAttendee(ctx);
-    const q = z.object({ symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{3,10}$/), interval: z.enum(CHART_INTERVALS).default("D") }).parse(Object.fromEntries(ctx.url.searchParams));
-    return analysis.get(q.symbol, q.interval);
+    const q = z
+      .object({ symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{3,10}$/), interval: z.enum(CHART_INTERVALS).default("D"), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })
+      .parse(Object.fromEntries(ctx.url.searchParams));
+    return analysis.get(q.symbol, q.interval, q.from);
   });
 
   // ----- orders -----

@@ -50,6 +50,11 @@ await p.screenshot({ path: `${OUT}/chon-co-phieu-man-hinh.png` });
 await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Xem màn hình")?.click());
 await sleep(6000);
 await p.screenshot({ path: `${OUT}/chon-co-phieu-toan-man-hinh.png` });
+// zoom out (older candles): their candle patterns must load too
+await p.mouse.move(600, 400);
+for (let i = 0; i < 6; i++) { await p.mouse.wheel({ deltaY: 400 }); await sleep(150); }
+await sleep(20000);
+await p.screenshot({ path: `${OUT}/chon-co-phieu-thu-nho.png` });
 const r = await p.evaluate(async (s) => {
   const d = await (await fetch(`/api/market/candles?symbol=${s}&interval=D&count=8000`)).json();
   return { isDemo: d.isDemo, n: d.candles.length, first: new Date(d.candles[0].time * 1000).toISOString().slice(0, 10) };

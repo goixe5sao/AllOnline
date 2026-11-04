@@ -16,8 +16,8 @@ export const LAYER_LABEL: Record<AnalysisLayer, string> = {
   mtf: "Đa khung",
 };
 
-/** Same defaults as StockVN's backtest page (common candle shapes hidden). */
-export const DEFAULT_LAYERS: AnalysisLayer[] = ["trendlines", "channel", "levels", "patterns", "breaks", "mtf"];
+/** All layers on by default (owner: show the candle patterns of every candle on screen). */
+export const DEFAULT_LAYERS: AnalysisLayer[] = ["trendlines", "channel", "levels", "patterns", "common", "breaks", "mtf"];
 
 export const LINE_COLORS = { resistance: "#d9480f", support: "#1c7ed6", channel_upper: "#f59f00", channel_lower: "#4dabf7" } as const;
 export const LEVEL_COLORS = { resistance: "#e8590c", support: "#1971c2" } as const;
@@ -46,6 +46,8 @@ export interface AnalysisOverlay {
   symbol: string;
   interval: string;
   source: string;
+  /** First date (YYYY-MM-DD) the analysis covers. */
+  from?: string;
   /** Time of the last bar the analysis was computed on. */
   asOf: number;
   lines: OverlayLine[];

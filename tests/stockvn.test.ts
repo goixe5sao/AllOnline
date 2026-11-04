@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { StockVnAnalysis, barTime, toOverlay, type ReplayResult } from "../server/analysis/stockvn";
+import { StockVnAnalysis, analysisFrom, barTime, toOverlay, type ReplayResult } from "../server/analysis/stockvn";
 
 const replay = (): ReplayResult => ({
   mode: "replay",
@@ -84,5 +84,32 @@ describe("price units", () => {
     expect(o.levels[0].price).toBeCloseTo(22.556, 3);
     expect(o.lines[0].points[0].value).toBeCloseTo(1.8, 3);
     expect(toOverlay(replay(), "D").levels[0].price).toBe(1650);
+  });
+});
+
+describe("analysis range follows the visible candles", () => {
+  const now = Date.UTC(2026, 10, 4, 3, 0);
+  it("defaults to the recent range; older visible dates round down to the month (daily)", () => {
+    expect(analysisFrom("1d", undefined, now)).toBe("2026-04-18");
+    expect(analysisFrom("1d", "2026-10-01", now)).toBe("2026-04-18"); // inside default → default
+    expect(analysisFrom("1d", "2021-03-17", now)).toBe("2021-03-01");
+    expect(analysisFrom("1d", "1999-05-05", now)).toBe("2000-01-01");
+    expect(analysisFrom("1m", "2026-11-01", now)).toBe("2026-11-01");
+    expect(analysisFrom("1m", "2026-01-01", now)).toBe("2026-10-05"); // intraday: at most 30 days
+    expect(analysisFrom("1d", "2021-3-1x", now)).toBe("2026-04-18");
+  });
+
+  it("requests StockVN from the visible start and caches per start", async () => {
+    const urls: string[] = [];
+    const fake = (async (url: string) => {
+      urls.push(url);
+      return new Response(JSON.stringify(replay()), { status: 200 });
+    }) as typeof fetch;
+    const s = new StockVnAnalysis("http://x", 60_000, fake);
+    const a = await s.get("VDS", "D", "2020-06-15");
+    await s.get("VDS", "D", "2020-06-28");
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain("from=2020-06-01");
+    expect(a.available && a.overlay.from).toBe("2020-06-01");
   });
 });
