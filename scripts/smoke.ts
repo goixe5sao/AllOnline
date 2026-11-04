@@ -245,6 +245,15 @@ async function main() {
   await owner.call(`/api/rooms/${room2.data.roomId}/close`, {});
   sG.ws.close();
 
+  // ---- discount code ASDFG = 100% off ----
+  const pcfg = { ...cfg, name: "Phòng mã ASDFG", officialCapacity: 4, entryMode: "auto_assign" };
+  const pq = await owner.call("/api/rooms/quote", { ...pcfg, promoCode: "asdfg" });
+  ok(pq.data.quote?.amount === 0 && pq.data.quote?.promo?.percentOff === 100, "quote with ASDFG shows 0 ₫ (100% off)");
+  ok((await owner.call("/api/rooms/quote", { ...pcfg, promoCode: "SAI" })).data.promoError, "an invalid code is reported in the quote");
+  const pr = await owner.call("/api/rooms", { config: pcfg, useTrial: false, promoCode: "ASDFG" });
+  ok(pr.status === 200 && !!pr.data.roomId && pr.data.free === true, "ASDFG creates the room immediately, no QR payment");
+  if (pr.data.roomId) await owner.call(`/api/rooms/${pr.data.roomId}/close`, {});
+
   // ---- per-device limits (all test users share one IP, like an office of 100 people) ----
   await admin.call("/api/admin/settings", { device_limit_room_creator: true, ip_max_participants: 0 }, "PATCH");
   const other = new User("Người tạo thứ hai");

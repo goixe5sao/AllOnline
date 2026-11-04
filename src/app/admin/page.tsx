@@ -446,6 +446,126 @@ function OrdersTab() {
   );
 }
 
+interface Promo {
+  code: string;
+  percent_off: number;
+  active: boolean;
+  max_uses: number | null;
+  per_user_limit: number | null;
+  used_count: number;
+  valid_from: string | null;
+  valid_to: string | null;
+  note: string;
+}
+
+function PromosTab() {
+  const { data, reload } = useApi<{ promos: Promo[] }>("/api/admin/promos");
+  const [form, setForm] = useState({ code: "", percent_off: 10, max_uses: "", per_user_limit: "1", valid_to: "", note: "" });
+  const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
+  const save = async (p: Partial<Promo> & { code: string; percent_off: number }) => {
+    setMsg(null);
+    try {
+      await api("/api/admin/promos", { body: { active: true, max_uses: null, per_user_limit: null, valid_from: null, valid_to: null, note: "", ...p } });
+      setMsg({ kind: "ok", text: "Đã lưu mã " + p.code + "." });
+      reload();
+    } catch (e) {
+      setMsg({ kind: "error", text: (e as ApiError).message });
+    }
+  };
+  return (
+    <div className="stack">
+      <div className="card stack">
+        <h2>Tạo / sửa mã giảm giá</h2>
+        <div className="grid grid-3">
+          <label className="field">
+            Mã
+            <input type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} maxLength={32} placeholder="VD: KHAITRUONG" />
+          </label>
+          <label className="field">
+            % giảm (1–100)
+            <input type="number" min={1} max={100} value={form.percent_off} onChange={(e) => setForm({ ...form, percent_off: Number(e.target.value) })} />
+          </label>
+          <label className="field">
+            Tổng lượt dùng tối đa <small>(trống = không giới hạn)</small>
+            <input type="number" min={1} value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: e.target.value })} />
+          </label>
+          <label className="field">
+            Lượt mỗi tài khoản <small>(trống = không giới hạn)</small>
+            <input type="number" min={1} value={form.per_user_limit} onChange={(e) => setForm({ ...form, per_user_limit: e.target.value })} />
+          </label>
+          <label className="field">
+            Hết hạn <small>(trống = không hết hạn)</small>
+            <input type="datetime-local" value={form.valid_to} onChange={(e) => setForm({ ...form, valid_to: e.target.value })} />
+          </label>
+          <label className="field">
+            Ghi chú
+            <input type="text" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} maxLength={200} />
+          </label>
+        </div>
+        <button
+          className="btn primary"
+          onClick={() =>
+            save({
+              code: form.code.trim(),
+              percent_off: form.percent_off,
+              max_uses: form.max_uses ? Number(form.max_uses) : null,
+              per_user_limit: form.per_user_limit ? Number(form.per_user_limit) : null,
+              valid_to: form.valid_to ? new Date(form.valid_to).toISOString() : null,
+              note: form.note,
+            })
+          }
+        >
+          Lưu mã
+        </button>
+        <small>Mã giảm 100% sẽ tạo phòng/gia hạn ngay không cần thanh toán, nhưng vẫn trừ slot hệ thống. Thay đổi % chỉ áp dụng cho đơn mới.</small>
+        {msg && <p className={"notice " + msg.kind}>{msg.text}</p>}
+      </div>
+      <div className="card table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Mã</th>
+              <th>Giảm</th>
+              <th>Đã dùng</th>
+              <th>Giới hạn</th>
+              <th>Hết hạn</th>
+              <th>Trạng thái</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {data?.promos.map((p) => (
+              <tr key={p.code}>
+                <td>
+                  <strong>{p.code}</strong>
+                  {p.note && (
+                    <>
+                      <br />
+                      <small>{p.note}</small>
+                    </>
+                  )}
+                </td>
+                <td>{p.percent_off}%</td>
+                <td>{p.used_count}</td>
+                <td>
+                  {p.max_uses ?? "∞"} tổng · {p.per_user_limit ?? "∞"}/tài khoản
+                </td>
+                <td>{p.valid_to ? fmtTime(p.valid_to) : "—"}</td>
+                <td>{p.active ? <span className="badge ok">đang bật</span> : <span className="badge">tắt</span>}</td>
+                <td>
+                  <button className="btn small" onClick={() => save({ ...p, active: !p.active })}>
+                    {p.active ? "Tắt" : "Bật"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function LogsTab() {
   const { data } = useApi<{ events: { id: string; type: string; data: unknown; created_at: string; actor_name: string | null }[] }>("/api/admin/logs");
   return (
@@ -470,7 +590,7 @@ function LogsTab() {
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<"overview" | "settings" | "orders" | "logs">("overview");
+  const [tab, setTab] = useState<"overview" | "settings" | "orders" | "promos" | "logs">("overview");
   return (
     <AppShell requireLogin>
       {(me) =>
@@ -485,6 +605,7 @@ export default function AdminPage() {
                   ["overview", "Tổng quan"],
                   ["settings", "Cài đặt & giá"],
                   ["orders", "Giao dịch"],
+                  ["promos", "Mã giảm giá"],
                   ["logs", "Log"],
                 ] as const
               ).map(([k, l]) => (
@@ -496,6 +617,7 @@ export default function AdminPage() {
             {tab === "overview" && <OverviewTab />}
             {tab === "settings" && <SettingsTab />}
             {tab === "orders" && <OrdersTab />}
+            {tab === "promos" && <PromosTab />}
             {tab === "logs" && <LogsTab />}
           </>
         )

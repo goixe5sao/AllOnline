@@ -29,6 +29,7 @@ import {
   verifyPassword,
 } from "./services/rooms";
 import { setDisplayName, type AppUser } from "./services/users";
+import { listPromos, promoInputSchema, upsertPromo } from "./services/promos";
 
 interface Ctx {
   req: IncomingMessage;
@@ -61,6 +62,12 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     const u = needUser(ctx);
     if (u.role !== "app_owner") throw new AppError("FORBIDDEN", "Chỉ chủ ứng dụng.", 403);
     return u;
+  };
+  /** A 100%-discounted order (amount 0) is confirmed immediately by the server, no QR needed. */
+  const settleFreeOrder = async (order: { code: string; id: string; amount_vnd: number; user_id: string }) => {
+    if (Number(order.amount_vnd) !== 0) return null;
+    const r = await confirmPayment(db, { orderCode: order.code, provider: "promo", txnId: "promo-" + order.id, amount: 0, actorId: order.user_id });
+    return r.roomId ? { roomId: r.roomId } : null;
   };
   const ownedRoom = async (ctx: Ctx, id: string, allowAdmin = true) => {
     const u = needUser(ctx);
@@ -179,16 +186,20 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   // ----- rooms -----
   route("POST", "/api/rooms/quote", async (ctx) => {
     const u = needUser(ctx);
-    const cfgIn = roomConfigSchema.parse(await readJson(ctx.req));
-    return previewQuote(db, u.id, cfgIn);
+    const raw = await readJson<Record<string, unknown>>(ctx.req);
+    const cfgIn = roomConfigSchema.parse(raw);
+    const promo = z.string().max(40).optional().parse(raw.promoCode);
+    return previewQuote(db, u.id, cfgIn, promo);
   });
 
   route("POST", "/api/rooms", async (ctx) => {
     const u = needUser(ctx);
-    const b = z.object({ config: roomConfigSchema, useTrial: z.boolean() }).parse(await readJson(ctx.req));
+    const b = z.object({ config: roomConfigSchema, useTrial: z.boolean(), promoCode: z.string().max(40).optional() }).parse(await readJson(ctx.req));
     const dev = auth.deviceId(ctx.req);
-    const r = await requestRoom(db, u.id, b.config, b.useTrial, dev ? auth.ipHash("dev:" + dev) : null);
-    return r.kind === "room" ? { roomId: r.room.id, inviteCode: r.room.invite_code } : { orderId: r.order.id };
+    const r = await requestRoom(db, u.id, b.config, b.useTrial, dev ? auth.ipHash("dev:" + dev) : null, b.useTrial ? undefined : b.promoCode);
+    if (r.kind === "room") return { roomId: r.room.id, inviteCode: r.room.invite_code };
+    const free = await settleFreeOrder(r.order);
+    return free?.roomId ? { roomId: free.roomId, orderId: r.order.id, free: true } : { orderId: r.order.id };
   });
 
   route("GET", "/api/rooms/mine", async (ctx) => {
@@ -211,9 +222,11 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
 
   route("POST", "/api/rooms/:id/extend", async (ctx) => {
     const u = needUser(ctx);
-    const b = z.object({ hours: z.number().int().min(1) }).parse(await readJson(ctx.req));
-    const order = await requestExtension(db, u.id, ctx.params[0], b.hours);
-    return { orderId: order.id };
+    const b = z.object({ hours: z.number().int().min(1), promoCode: z.string().max(40).optional() }).parse(await readJson(ctx.req));
+    const order = await requestExtension(db, u.id, ctx.params[0], b.hours, b.promoCode);
+    const free = await settleFreeOrder(order);
+    if (free?.roomId) await hub.refreshRoom(free.roomId);
+    return { orderId: order.id, free: !!free };
   });
 
   route("GET", "/api/rooms/:id/logs", async (ctx) => {
@@ -462,6 +475,17 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     if (!r.rows.length) throw new AppError("ORDER_NOT_PENDING", "Đơn không thể từ chối ở trạng thái hiện tại.", 409);
     await db.query("insert into app.system_events (actor_id, type, data) values ($1, 'order_rejected', $2)", [u.id, JSON.stringify({ orderId: ctx.params[0], note: b.note })]);
     return { ok: true };
+  });
+
+  route("GET", "/api/admin/promos", async (ctx) => {
+    needAdmin(ctx);
+    return { promos: await listPromos(db) };
+  });
+
+  route("POST", "/api/admin/promos", async (ctx) => {
+    const u = needAdmin(ctx);
+    await upsertPromo(db, u.id, promoInputSchema.parse(await readJson(ctx.req)));
+    return { promos: await listPromos(db) };
   });
 
   route("GET", "/api/admin/logs", async (ctx) => {

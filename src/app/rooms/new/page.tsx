@@ -23,6 +23,7 @@ interface Preview {
   totalSlots: number;
   waitingRatio: number;
   quote: Quote | null;
+  promoError: string | null;
   budget: SlotBudget;
   trial: { eligible: boolean; reason?: string; used: number };
 }
@@ -41,6 +42,8 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   const [screenKind, setScreenKind] = useState<"text" | "youtube" | "chart" | "blank">("text");
   const [screenValue, setScreenValue] = useState("Chào mừng đến với phòng!");
   const [useTrial, setUseTrial] = useState(false);
+  const [promoInput, setPromoInput] = useState("");
+  const [promo, setPromo] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -74,20 +77,20 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   useEffect(() => {
     const id = setTimeout(() => {
       if (!Number.isInteger(capacity) || capacity < 1 || !groups.length) return;
-      api<Preview>("/api/rooms/quote", { body: config })
+      api<Preview>("/api/rooms/quote", { body: { ...config, promoCode: promo || undefined } })
         .then(setPreview)
         .catch(() => setPreview(null));
     }, 250);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capacity, waitingEnabled, hours, map, groups.join(",")]);
+  }, [capacity, waitingEnabled, hours, map, groups.join(","), promo]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setErr("");
     try {
-      const r = await api<{ roomId?: string; orderId?: string }>("/api/rooms", { body: { config, useTrial } });
+      const r = await api<{ roomId?: string; orderId?: string }>("/api/rooms", { body: { config, useTrial, promoCode: useTrial ? undefined : promo || undefined } });
       if (r.roomId) router.push(`/room/${r.roomId}`);
       else router.push(`/orders/${r.orderId}`);
     } catch (e) {
@@ -252,12 +255,38 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
 
             {!useTrial &&
               (preview.quote ? (
-                <div className="notice">
+                <div className="notice stack" style={{ gap: 6 }}>
+                  {preview.quote.promo && (
+                    <>
+                      <div className="row between">
+                        <span>Giá gốc</span>
+                        <span style={{ textDecoration: "line-through" }}>{formatVnd(preview.quote.promo.amountBefore)}</span>
+                      </div>
+                      <div className="row between" style={{ color: "var(--ok)" }}>
+                        <span>
+                          Mã {preview.quote.promo.code} (−{preview.quote.promo.percentOff}%)
+                        </span>
+                        <span>−{formatVnd(preview.quote.promo.discount)}</span>
+                      </div>
+                    </>
+                  )}
                   <div className="row between">
-                    <span>Giá</span>
+                    <span>{preview.quote.promo ? "Cần thanh toán" : "Giá"}</span>
                     <strong>{formatVnd(preview.quote.amount)}</strong>
                   </div>
                   <small>{preview.quote.note}</small>
+                  <div className="row">
+                    <input type="text" value={promoInput} onChange={(e) => setPromoInput(e.target.value.toUpperCase())} placeholder="Mã giảm giá" maxLength={32} style={{ flex: 1, minWidth: 120 }} aria-label="Mã giảm giá" />
+                    <button type="button" className="btn small" onClick={() => setPromo(promoInput.trim())}>
+                      Áp dụng
+                    </button>
+                    {promo && (
+                      <button type="button" className="btn small" onClick={() => (setPromo(""), setPromoInput(""))}>
+                        Bỏ mã
+                      </button>
+                    )}
+                  </div>
+                  {preview.promoError && <small style={{ color: "var(--danger)" }}>{preview.promoError}</small>}
                 </div>
               ) : (
                 <p className="notice warn">Chưa có giá cho cấu hình này (vượt bảng giá).</p>
@@ -269,7 +298,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
         )}
         {err && <p className="notice error">{err}</p>}
         <button className="btn primary" disabled={busy || over || !groups.length || (!useTrial && !preview?.quote)}>
-          {busy ? "Đang xử lý…" : useTrial ? "Tạo phòng dùng thử" : "Tạo đơn & thanh toán"}
+          {busy ? "Đang xử lý…" : useTrial ? "Tạo phòng dùng thử" : preview?.quote?.amount === 0 ? "Tạo phòng (miễn phí với mã)" : "Tạo đơn & thanh toán"}
         </button>
       </div>
     </form>

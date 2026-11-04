@@ -177,3 +177,38 @@ describe("polls", () => {
     expect(v!.options[1].votes).toBe(1);
   });
 });
+
+describe("promo codes", () => {
+  it("ASDFG gives 100% off: the order is 0 ₫ and is fulfilled without payment", async () => {
+    const r = await requestRoom(db, owner, cfg(10), false, null, "asdfg");
+    if (r.kind !== "order") throw new Error();
+    expect(r.order.amount_vnd).toBe(0);
+    expect(r.order.quote.promo).toMatchObject({ code: "ASDFG", percentOff: 100 });
+    const res = await confirmPayment(db, { orderCode: r.order.code, provider: "promo", txnId: "promo-" + r.order.id, amount: 0, actorId: owner });
+    expect(res.outcome).toBe("fulfilled");
+    expect((await slotBudget(db)).allocated).toBe(12);
+    const used = await db.query<{ used_count: number }>("select used_count from app.promo_codes where code = 'ASDFG'");
+    expect(used.rows[0].used_count).toBe(1);
+  });
+
+  it("partial discount, invalid code and usage limits are enforced on the server", async () => {
+    await db.query("insert into app.promo_codes (code, percent_off, max_uses, per_user_limit) values ('HALF', 50, 2, 1)");
+    const full = await requestRoom(db, owner, cfg(10), false);
+    const half = await requestRoom(db, owner, cfg(10), false, null, "HALF");
+    if (full.kind !== "order" || half.kind !== "order") throw new Error();
+    expect(half.order.amount_vnd).toBe(Math.round(full.order.amount_vnd / 2));
+    await expect(requestRoom(db, owner, cfg(10), false, null, "HALF")).rejects.toMatchObject({ code: "PROMO_USER_LIMIT" });
+    await expect(requestRoom(db, owner, cfg(10), false, null, "NOPE")).rejects.toMatchObject({ code: "PROMO_INVALID" });
+    await requestRoom(db, admin, cfg(10), false, null, "HALF");
+    const third = randomUUID();
+    await upsertUser(db, third, "third@test.local", "Third", false);
+    await expect(requestRoom(db, third, cfg(5), false, null, "HALF")).rejects.toMatchObject({ code: "PROMO_USED_UP" });
+  });
+
+  it("a failed order does not consume the code (same transaction)", async () => {
+    await db.query("insert into app.promo_codes (code, percent_off, max_uses) values ('ONCE', 100, 1)");
+    await expect(requestRoom(db, owner, cfg(200), false, null, "ONCE")).rejects.toBeTruthy();
+    const r = await requestRoom(db, owner, cfg(5), false, null, "ONCE");
+    expect(r.kind === "order" && r.order.amount_vnd).toBe(0);
+  });
+});

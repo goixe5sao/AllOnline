@@ -60,6 +60,11 @@ export default function OrderPage() {
                 <span>Số tiền</span>
                 <strong style={{ fontSize: "1.4rem" }}>{formatVnd(o.amount_vnd)}</strong>
               </div>
+              {o.quote.promo && (
+                <p className="notice ok" style={{ margin: 0 }}>
+                  Mã {o.quote.promo.code}: giảm {o.quote.promo.percentOff}% (−{formatVnd(o.quote.promo.discount)}, giá gốc {formatVnd(o.quote.promo.amountBefore)})
+                </p>
+              )}
               <small>{o.quote.note}. Giá đã chốt tại thời điểm tạo đơn.</small>
               {o.review_note && <p className="notice warn">{o.review_note}</p>}
             </div>

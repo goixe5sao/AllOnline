@@ -14,6 +14,8 @@ export interface Quote {
   waitingSurcharge: number;
   amount: number;
   note: string;
+  /** Present when a discount code was applied (server-validated). */
+  promo?: { code: string; percentOff: number; amountBefore: number; discount: number };
 }
 
 export type QuoteResult = { ok: true; quote: Quote } | { ok: false; error: "NO_PRICE_TIER" };
@@ -57,4 +59,11 @@ export function quoteRoom(
 
 export function formatVnd(amount: number): string {
   return new Intl.NumberFormat("vi-VN").format(amount) + " ₫";
+}
+
+/** Applies a percentage discount; 100% → amount 0 (room is then created without payment). */
+export function applyDiscount(q: Quote, code: string, percentOff: number): Quote {
+  const pct = Math.min(100, Math.max(0, percentOff));
+  const discount = Math.round((q.amount * pct) / 100);
+  return { ...q, amount: q.amount - discount, promo: { code, percentOff: pct, amountBefore: q.amount, discount } };
 }

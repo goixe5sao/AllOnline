@@ -248,6 +248,7 @@ function RoomTab({ room, serverNow }: { room: RoomInfoDto; serverNow: () => numb
   const { data: catalog } = useApi<{ durationOptions: number[]; extensionEnabled: boolean }>("/api/catalog");
   const { data } = useApi<{ room: { invite_code: string } }>(`/api/rooms/${room.id}`);
   const [hours, setHours] = useState<number | null>(null);
+  const [promo, setPromo] = useState("");
   const [msg, setMsg] = useState("");
   const link = data ? `${typeof location !== "undefined" ? location.origin : ""}/join/${data.room.invite_code}` : "";
   return (
@@ -277,12 +278,17 @@ function RoomTab({ room, serverNow }: { room: RoomInfoDto; serverNow: () => numb
               </option>
             ))}
           </select>
+          <input type="text" value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} placeholder="Mã giảm giá (nếu có)" maxLength={32} aria-label="Mã giảm giá" />
           <button
             className="hud-btn primary"
             disabled={!hours}
             onClick={async () => {
               try {
-                const r = await api<{ orderId: string }>(`/api/rooms/${room.id}/extend`, { body: { hours } });
+                const r = await api<{ orderId: string; free: boolean }>(`/api/rooms/${room.id}/extend`, { body: { hours, promoCode: promo.trim() || undefined } });
+                if (r.free) {
+                  setMsg("Đã gia hạn miễn phí bằng mã giảm giá.");
+                  return;
+                }
                 window.open(`/orders/${r.orderId}`, "_blank");
                 setMsg("Đã tạo đơn gia hạn. Gia hạn chỉ có hiệu lực khi thanh toán được xác nhận.");
               } catch (e) {

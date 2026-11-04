@@ -2,7 +2,8 @@ import { randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto
 import { z } from "zod";
 import type { Db, Queryable } from "../db";
 import { canReserve, waitingCapacity } from "@/core/slots";
-import { quoteRoom, type Quote } from "@/core/pricing";
+import { applyDiscount, quoteRoom, type Quote } from "@/core/pricing";
+import { checkPromo, redeemPromo } from "./promos";
 import { MAP_INFO, type MapCode } from "@/core/maps";
 import { BLANK_SCREEN, screenContentSchema, type ScreenState } from "@/core/screen";
 import { getPriceTiers, getSettings, lockSlots, slotBudget, type Settings } from "./settings";
@@ -113,13 +114,23 @@ export async function trialEligibility(q: Queryable, userId: string, s: Settings
 
 // ---------- quote (read-only preview; the order stores its own snapshot) ----------
 
-export async function previewQuote(db: Db, userId: string, cfg: RoomConfig) {
+export async function previewQuote(db: Db, userId: string, cfg: RoomConfig, promoCode?: string) {
   const s = await getSettings(db);
   const waiting = waitingCapacity(cfg.officialCapacity, cfg.waitingEnabled, s.waiting_ratio);
   const q = quoteRoom(await getPriceTiers(db), cfg.officialCapacity, waiting, cfg.durationHours, s.waiting_surcharge_pct);
   const budget = await slotBudget(db);
   const trial = await trialEligibility(db, userId, s);
-  return { waitingCapacity: waiting, totalSlots: cfg.officialCapacity + waiting, waitingRatio: s.waiting_ratio, quote: q.ok ? q.quote : null, budget, trial };
+  let quote = q.ok ? q.quote : null;
+  let promoError: string | null = null;
+  if (quote && promoCode?.trim()) {
+    try {
+      const pr = await checkPromo(db, promoCode, userId);
+      quote = applyDiscount(quote, pr.code, pr.percent_off);
+    } catch (e) {
+      promoError = (e as Error).message;
+    }
+  }
+  return { waitingCapacity: waiting, totalSlots: cfg.officialCapacity + waiting, waitingRatio: s.waiting_ratio, quote, promoError, budget, trial };
 }
 
 // ---------- room creation ----------
@@ -181,7 +192,7 @@ export type CreateRoomResult = { kind: "room"; room: RoomRow } | { kind: "order"
 /**
  * @param deviceHash HMAC hash of the requester device id (null = unknown / not enforced).
  */
-export async function requestRoom(db: Db, userId: string, cfg: RoomConfig, useTrial: boolean, deviceHash: string | null = null): Promise<CreateRoomResult> {
+export async function requestRoom(db: Db, userId: string, cfg: RoomConfig, useTrial: boolean, deviceHash: string | null = null, promoCode?: string): Promise<CreateRoomResult> {
   return db.tx(async (q) => {
     await lockSlots(q);
     const s = await getSettings(q);
@@ -215,6 +226,9 @@ export async function requestRoom(db: Db, userId: string, cfg: RoomConfig, useTr
     }
 
     const quote = quoteRoom(await getPriceTiers(q), cfg.officialCapacity, waiting, cfg.durationHours, s.waiting_surcharge_pct);
+    // Discount code: validated with a row lock so concurrent orders cannot exceed its limits.
+    const promo = quote.ok && promoCode?.trim() ? await checkPromo(q, promoCode, userId, true) : null;
+    if (quote.ok && promo) quote.quote = applyDiscount(quote.quote, promo.code, promo.percent_off);
     if (!quote.ok) throw new AppError("NO_PRICE_TIER", "Chưa có giá cho cấu hình này.");
     const order = await insertOrder(q, {
       userId,
@@ -226,6 +240,7 @@ export async function requestRoom(db: Db, userId: string, cfg: RoomConfig, useTr
       holdMinutes: s.payment_hold_minutes,
     });
     if (deviceHash) await q.query("update app.orders set creator_device_hash = $2 where id = $1", [order.id, deviceHash]);
+    if (promo) await redeemPromo(q, promo, userId, order.id);
     return { kind: "order", order };
   });
 }
@@ -289,7 +304,7 @@ export async function listOrders(q: Queryable, filter: { userId?: string; status
   return rows.map((r) => ({ ...r, amount_vnd: Number(r.amount_vnd) }));
 }
 
-export async function requestExtension(db: Db, userId: string, roomId: string, hours: number): Promise<OrderRow> {
+export async function requestExtension(db: Db, userId: string, roomId: string, hours: number, promoCode?: string): Promise<OrderRow> {
   return db.tx(async (q) => {
     const s = await getSettings(q);
     if (!s.extension_enabled) throw new AppError("EXTENSION_DISABLED", "Gia hạn đang tắt.");
@@ -300,7 +315,11 @@ export async function requestExtension(db: Db, userId: string, roomId: string, h
     const quote = quoteRoom(await getPriceTiers(q), room.official_capacity, room.waiting_capacity, hours, s.waiting_surcharge_pct);
     if (!quote.ok) throw new AppError("NO_PRICE_TIER", "Chưa có giá cho thời hạn này.");
     // Same capacity: an extension does not take new slots.
-    return insertOrder(q, { userId, kind: "extend_room", roomId, config: { hours }, quote: quote.quote, slots: 0, holdMinutes: s.payment_hold_minutes });
+    const promo = promoCode?.trim() ? await checkPromo(q, promoCode, userId, true) : null;
+    const finalQuote = promo ? applyDiscount(quote.quote, promo.code, promo.percent_off) : quote.quote;
+    const order = await insertOrder(q, { userId, kind: "extend_room", roomId, config: { hours }, quote: finalQuote, slots: 0, holdMinutes: s.payment_hold_minutes });
+    if (promo) await redeemPromo(q, promo, userId, order.id);
+    return order;
   });
 }
 
@@ -312,7 +331,7 @@ export type PaymentOutcome = "fulfilled" | "fulfilled_late" | "duplicate" | "alr
  */
 export async function confirmPayment(
   db: Db,
-  p: { orderCode: string; provider: "manual" | "webhook" | "demo"; txnId: string | null; amount: number; actorId: string | null; raw?: unknown },
+  p: { orderCode: string; provider: "manual" | "webhook" | "demo" | "promo"; txnId: string | null; amount: number; actorId: string | null; raw?: unknown },
 ): Promise<{ outcome: PaymentOutcome; order: OrderRow | null; roomId?: string }> {
   return db.tx(async (q) => {
     await lockSlots(q);
