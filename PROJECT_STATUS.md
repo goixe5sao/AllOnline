@@ -94,3 +94,20 @@ Kiểm tra trình duyệt headless (Chrome, 6 phiên): drive-in + hội trườn
 4. Bảng giá thật (giá hiện tại là giá mẫu).
 5. Nguồn dữ liệu chứng khoán có giấy phép nếu cần biểu đồ thật.
 6. Duyệt và hợp nhất nhánh `claude/realtime-rearchitecture` vào `master`.
+
+## Bàn giao (cuối phiên 2026-11-04)
+
+- Nhánh `claude/realtime-rearchitecture` đã push lên GitHub; **chưa gộp vào `master`** (chờ chủ dự án duyệt PR).
+- Supabase thật đang dùng (migration 001–007 đã áp). Bảng cũ của Codex đã xoá.
+- **Chạy thử bằng IP công cộng** (máy Windows của chủ dự án):
+  ```bash
+  npm run build
+  NODE_ENV=production PORT=3000 PUBLIC_ORIGIN=http://113.173.117.84:3000 npx tsx server/index.ts
+  ```
+  Để người ngoài Internet vào được cần làm thêm (quyền admin / router):
+  1. Mở cổng Windows Firewall (PowerShell **Run as Administrator**):
+     `New-NetFirewallRule -DisplayName "AllOnline 3000" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow`
+  2. Router: chuyển tiếp (port forward) TCP 3000 → `192.168.5.142:3000`.
+  3. Supabase → Authentication → URL Configuration: thêm `http://113.173.117.84:3000` và `http://113.173.117.84:3000/api/auth/callback`.
+  IP công cộng nhà mạng có thể thay đổi; đây chỉ là bản dùng thử qua HTTP (không mã hoá). Bản thật nên chạy trên host Node có HTTPS.
+- Việc tiếp theo: gộp nhánh; chọn host (Railway/Render/Fly); nguồn dữ liệu chứng khoán có giấy phép; adapter webhook thanh toán thật; thử tải với điện thoại thật; UI chuyển chủ phòng; bucket Supabase Storage cho tải tệp.
