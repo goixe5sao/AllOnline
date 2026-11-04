@@ -58,6 +58,82 @@ function mergeByTime(old: Candle[], tail: Candle[]): Candle[] {
   return old.filter((c) => c.time < from).concat(tail);
 }
 
+interface Notes {
+  levels: { label: string; price: number; color: string; touches: number }[];
+  lines: { label: string; value: number; color: string; dashed: boolean }[];
+  signals: { when: string; text: string; color: string; up: boolean | null }[];
+}
+
+/** Side notes (outside the candle area): S/R, trendlines, channel, latest signals. */
+function buildNotes(o: AnalysisOverlay, layers: AnalysisLayer[], close: number | undefined, intraday: boolean): Notes | null {
+  const on = new Set(layers);
+  const levels = on.has("levels")
+    ? o.levels
+        .map((l) => ({ label: close !== undefined ? (l.price >= close ? "Kháng cự" : "Hỗ trợ") : l.kind === "resistance" ? "Kháng cự" : "Hỗ trợ", price: l.price, color: LEVEL_COLORS[l.kind], touches: l.touches }))
+        .sort((a, b) => b.price - a.price)
+    : [];
+  const lines = o.lines
+    .filter((l) => on.has(l.layer) && l.points.length)
+    .map((l) => ({ label: l.label, value: l.points[l.points.length - 1].value, color: LINE_COLORS[l.kind], dashed: l.dashed }))
+    .sort((a, b) => b.value - a.value);
+  const when = (t: number) =>
+    intraday
+      ? new Date(t * 1000).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", hour12: false, timeZone: "Asia/Ho_Chi_Minh" })
+      : new Date(t * 1000).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "UTC" });
+  const signals = o.markers
+    .filter((m) => on.has(m.layer))
+    .slice(-8)
+    .reverse()
+    .map((m) => ({ when: when(m.time), text: m.text, color: m.color, up: m.shape === "arrowUp" ? true : m.shape === "arrowDown" ? false : null }));
+  return levels.length || lines.length || signals.length ? { levels, lines, signals } : null;
+}
+
+function ChartNotes({ notes }: { notes: Notes }) {
+  const h = { color: C.muted, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: 0.4, margin: "6px 0 2px" };
+  return (
+    <aside className="chart-notes" aria-label="Ghi chú phân tích">
+      {notes.levels.length > 0 && (
+        <>
+          <div style={h}>Hỗ trợ / kháng cự</div>
+          {notes.levels.map((l, i) => (
+            <div key={i} className="chart-note">
+              <span style={{ color: l.color, fontWeight: 700 }}>{l.label}</span>
+              <span style={{ color: l.color, fontWeight: 700, marginLeft: "auto" }}>{fmt(l.price)}</span>
+              <small style={{ gridColumn: "1 / -1", color: C.muted }}>{l.touches} lần chạm</small>
+            </div>
+          ))}
+        </>
+      )}
+      {notes.lines.length > 0 && (
+        <>
+          <div style={h}>Trendline / kênh giá</div>
+          {notes.lines.map((l, i) => (
+            <div key={i} className="chart-note">
+              <span style={{ width: 14, borderTop: `2px ${l.dashed ? "dashed" : "solid"} ${l.color}`, alignSelf: "center" }} />
+              <span style={{ color: l.color, fontWeight: 700, marginLeft: "auto" }}>{fmt(l.value)}</span>
+              <small style={{ gridColumn: "1 / -1", color: C.text }}>{l.label}</small>
+            </div>
+          ))}
+        </>
+      )}
+      {notes.signals.length > 0 && (
+        <>
+          <div style={h}>Tín hiệu gần nhất</div>
+          {notes.signals.map((x, i) => (
+            <div key={i} className="chart-note">
+              <span style={{ color: x.color, fontWeight: 700 }}>
+                {x.up === true ? "▲ " : x.up === false ? "▼ " : "● "}
+                {x.text}
+              </span>
+              <small style={{ color: C.muted, marginLeft: "auto" }}>{x.when}</small>
+            </div>
+          ))}
+        </>
+      )}
+    </aside>
+  );
+}
+
 function fmt(n: number | undefined) {
   return n === undefined ? "–" : n.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 }
@@ -72,7 +148,7 @@ export function StageChart(p: StageChartProps) {
   const [liveAt, setLiveAt] = useState<number | null>(null);
   const [layers, setLayers] = useState<AnalysisLayer[]>(p.layers ?? DEFAULT_LAYERS);
   const [analysis, setAnalysis] = useState<AnalysisState | null>(null);
-  const [legend, setLegend] = useState<{ o?: number; h?: number; l?: number; c?: number; v?: number; t?: string } | null>(null);
+  const [legend, setLegend] = useState<{ o?: number; h?: number; l?: number; c?: number; v?: number; t?: string; sig?: { text: string; color: string }[] } | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const chartRef = useRef<{ chart: IChartApi; draw: (cs: Candle[]) => void; drawOverlay: (o: AnalysisOverlay | null, layers: AnalysisLayer[]) => void; fresh: boolean } | null>(null);
   const overlayRef = useRef<AnalysisOverlay | null>(null);
@@ -179,10 +255,10 @@ export function StageChart(p: StageChartProps) {
       levelLines =
         o && show.has("levels")
           ? o.levels.map((l) =>
-              main.createPriceLine({ price: l.price, color: LEVEL_COLORS[l.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: (l.kind === "resistance" ? "KC " : "HT ") + l.touches + " lần chạm" }),
+              main.createPriceLine({ price: l.price, color: LEVEL_COLORS[l.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: "" }),
             )
           : [];
-      markers.setMarkers(o ? o.markers.filter((m) => show.has(m.layer)).map((m) => ({ time: t(m.time), text: m.text, position: m.position, shape: m.shape, color: m.color, size: m.size })) : []);
+      markers.setMarkers(o ? o.markers.filter((m) => show.has(m.layer)).map((m) => ({ time: t(m.time), position: m.position, shape: m.shape, color: m.color, size: Math.min(m.size, 1) })) : []);
     };
     ref.draw = (cs: Candle[]) => {
       if (!cs.length) return;
@@ -224,6 +300,7 @@ export function StageChart(p: StageChartProps) {
         l: c.low,
         c: c.close,
         v: c.volume,
+        sig: (overlayRef.current?.markers ?? []).filter((m) => m.time === c.time && layersRef.current.includes(m.layer)).map((m) => ({ text: m.text, color: m.color })),
         t: intraday ? new Date(c.time * 1000).toLocaleString("vi-VN", { hour12: false, timeZone: "Asia/Ho_Chi_Minh" }) : new Date(c.time * 1000).toLocaleDateString("vi-VN", { timeZone: "UTC" }),
       });
     };
@@ -277,6 +354,7 @@ export function StageChart(p: StageChartProps) {
     cursor: p.interactive ? "pointer" : "default",
   });
   const toggles = useMemo(() => new Set(inds), [inds]);
+  const notes = useMemo(() => (analysis?.available ? buildNotes(analysis.overlay, layers, last?.close, intraday) : null), [analysis, layers, last?.close, intraday]);
 
   return (
     <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateRows: "auto auto auto 1fr", background: C.bg, color: C.text, fontFamily: "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif" }}>
@@ -350,12 +428,20 @@ export function StageChart(p: StageChartProps) {
               </span>
             )}
             {legend?.t && <span style={{ color: C.muted }}>{legend.t}</span>}
+            {legend?.sig?.map((x, i) => (
+              <span key={i} style={{ color: x.color, fontWeight: 600 }}>
+                {x.text}
+              </span>
+            ))}
           </>
         )}
         {p.interactive && <span style={{ marginLeft: "auto", color: C.muted, fontSize: 12 }}>Kéo để di chuyển · cuộn/chụm để zoom</span>}
       </div>
-      <div ref={host} style={{ position: "relative", minHeight: 0 }}>
-        {err && <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: C.muted }}>{err}</div>}
+      <div className={notes ? "chart-body with-notes" : "chart-body"}>
+        {notes && <ChartNotes notes={notes} />}
+        <div ref={host} style={{ position: "relative", minHeight: 0, minWidth: 0 }}>
+          {err && <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: C.muted }}>{err}</div>}
+        </div>
       </div>
     </div>
   );
