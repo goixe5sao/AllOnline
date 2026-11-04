@@ -17,6 +17,8 @@ await p.setViewport(process.env.MOBILE ? { width: 390, height: 844, isMobile: tr
 await p.goto(BASE + "/login", { waitUntil: "networkidle0" });
 await p.evaluate(async () => fetch("/api/auth/demo-login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "Chủ phòng", asAppOwner: true }) }));
 await p.evaluate(async () => fetch("/api/admin/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trial_rooms_per_account: 10 }) }));
+// close earlier test rooms (demo DB) so the slot budget is free
+await p.evaluate(async () => { const o = await (await fetch("/api/admin/overview")).json(); for (const r of o.rooms) if (r.status === "open") await fetch("/api/rooms/" + r.id + "/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); });
 const room = await p.evaluate(async () => (await fetch("/api/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ useTrial: true, config: { name: "Chọn cổ phiếu", description: "", map: "hall", avatarGroups: ["people"], officialCapacity: 12, waitingEnabled: false, entryMode: "auto_assign", durationHours: 6, password: "" } }) })).json());
 if (!room.roomId) throw new Error("room create failed: " + JSON.stringify(room));
 await p.goto(`${BASE}/room/${room.roomId}`, { waitUntil: "networkidle0" });

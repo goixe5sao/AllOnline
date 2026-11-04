@@ -26,6 +26,8 @@ export interface OverlayLine {
   kind: keyof typeof LINE_COLORS;
   layer: "trendlines" | "channel";
   label: string;
+  touches?: number;
+  trend?: string;
   dashed: boolean;
   points: { time: number; value: number }[];
 }

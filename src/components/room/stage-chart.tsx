@@ -58,80 +58,163 @@ function mergeByTime(old: Candle[], tail: Candle[]): Candle[] {
   return old.filter((c) => c.time < from).concat(tail);
 }
 
-interface Notes {
-  levels: { label: string; price: number; color: string; touches: number }[];
-  lines: { label: string; value: number; color: string; dashed: boolean }[];
-  signals: { when: string; text: string; color: string; up: boolean | null }[];
+const LINE_SHORT: Record<OverlayLine["kind"], string> = { resistance: "Trendline KC", support: "Trendline HT", channel_upper: "Kênh trên", channel_lower: "Kênh dưới" };
+const LABEL_H = 16;
+const LABEL_FONT = "600 11px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif";
+let measureCtx: CanvasRenderingContext2D | null = null;
+function textWidth(text: string) {
+  measureCtx ??= document.createElement("canvas").getContext("2d");
+  if (!measureCtx) return text.length * 6.5 + 10;
+  measureCtx.font = LABEL_FONT;
+  return Math.ceil(measureCtx.measureText(text).width) + 10;
 }
 
-/** Side notes (outside the candle area): S/R, trendlines, channel, latest signals. */
-function buildNotes(o: AnalysisOverlay, layers: AnalysisLayer[], close: number | undefined, intraday: boolean): Notes | null {
-  const on = new Set(layers);
-  const levels = on.has("levels")
-    ? o.levels
-        .map((l) => ({ label: close !== undefined ? (l.price >= close ? "Kháng cự" : "Hỗ trợ") : l.kind === "resistance" ? "Kháng cự" : "Hỗ trợ", price: l.price, color: LEVEL_COLORS[l.kind], touches: l.touches }))
-        .sort((a, b) => b.price - a.price)
-    : [];
-  const lines = o.lines
-    .filter((l) => on.has(l.layer) && l.points.length)
-    .map((l) => ({ label: l.label, value: l.points[l.points.length - 1].value, color: LINE_COLORS[l.kind], dashed: l.dashed }))
-    .sort((a, b) => b.value - a.value);
-  const when = (t: number) =>
-    intraday
-      ? new Date(t * 1000).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", hour12: false, timeZone: "Asia/Ho_Chi_Minh" })
-      : new Date(t * 1000).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "UTC" });
-  const signals = o.markers
-    .filter((m) => on.has(m.layer))
-    .slice(-8)
-    .reverse()
-    .map((m) => ({ when: when(m.time), text: m.text, color: m.color, up: m.shape === "arrowUp" ? true : m.shape === "arrowDown" ? false : null }));
-  return levels.length || lines.length || signals.length ? { levels, lines, signals } : null;
-}
+/**
+ * Places analysis labels ON the chart without covering candles:
+ *  - support/resistance levels and trendlines/channel edges are labelled at their LEFT start;
+ *  - signals are labelled next to their marker (above/below the bar), moving away from the
+ *    candles until there is free space. A label with no free spot is left out (the marker stays
+ *    and its text shows in the legend on hover).
+ */
+function layoutLabels(a: {
+  chart: IChartApi;
+  main: ISeriesApi<"Candlestick" | "Bar" | "Line" | "Area">;
+  el: HTMLDivElement;
+  bars: Candle[];
+  overlay: AnalysisOverlay | null;
+  layers: AnalysisLayer[];
+  t: (x: number) => UTCTimestamp;
+  volume: boolean;
+}) {
+  const { chart, main, el, bars, overlay: o, t } = a;
+  el.replaceChildren();
+  if (!o || !bars.length) return;
+  const on = new Set(a.layers);
+  const ts = chart.timeScale();
+  const W = Math.floor(ts.width());
+  const H = Math.floor(chart.panes()[0]?.getHeight() ?? el.clientHeight);
+  if (W < 50 || H < 50) return;
+  const yOf = (p: number): number | null => main.priceToCoordinate(p);
+  const xOf = (time: number): number | null => ts.timeToCoordinate(t(time));
 
-function ChartNotes({ notes }: { notes: Notes }) {
-  const h = { color: C.muted, fontSize: 11, textTransform: "uppercase" as const, letterSpacing: 0.4, margin: "6px 0 2px" };
-  return (
-    <aside className="chart-notes" aria-label="Ghi chú phân tích">
-      {notes.levels.length > 0 && (
-        <>
-          <div style={h}>Hỗ trợ / kháng cự</div>
-          {notes.levels.map((l, i) => (
-            <div key={i} className="chart-note">
-              <span style={{ color: l.color, fontWeight: 700 }}>{l.label}</span>
-              <span style={{ color: l.color, fontWeight: 700, marginLeft: "auto" }}>{fmt(l.price)}</span>
-              <small style={{ gridColumn: "1 / -1", color: C.muted }}>{l.touches} lần chạm</small>
-            </div>
-          ))}
-        </>
-      )}
-      {notes.lines.length > 0 && (
-        <>
-          <div style={h}>Trendline / kênh giá</div>
-          {notes.lines.map((l, i) => (
-            <div key={i} className="chart-note">
-              <span style={{ width: 14, borderTop: `2px ${l.dashed ? "dashed" : "solid"} ${l.color}`, alignSelf: "center" }} />
-              <span style={{ color: l.color, fontWeight: 700, marginLeft: "auto" }}>{fmt(l.value)}</span>
-              <small style={{ gridColumn: "1 / -1", color: C.text }}>{l.label}</small>
-            </div>
-          ))}
-        </>
-      )}
-      {notes.signals.length > 0 && (
-        <>
-          <div style={h}>Tín hiệu gần nhất</div>
-          {notes.signals.map((x, i) => (
-            <div key={i} className="chart-note">
-              <span style={{ color: x.color, fontWeight: 700 }}>
-                {x.up === true ? "▲ " : x.up === false ? "▼ " : "● "}
-                {x.text}
-              </span>
-              <small style={{ color: C.muted, marginLeft: "auto" }}>{x.when}</small>
-            </div>
-          ))}
-        </>
-      )}
-    </aside>
-  );
+  // Candle occupancy per pixel column: [top, bottom] of the wick range plus a small margin.
+  const top = new Float32Array(W).fill(Infinity);
+  const bot = new Float32Array(W).fill(-Infinity);
+  const half = Math.max(1, (ts.options().barSpacing ?? 6) / 2);
+  for (const c of bars) {
+    const x = xOf(c.time);
+    if (x === null || x < -half || x > W + half) continue;
+    const yh = yOf(c.high);
+    const yl = yOf(c.low);
+    if (yh === null || yl === null) continue;
+    for (let i = Math.max(0, Math.floor(x - half - 1)); i <= Math.min(W - 1, Math.ceil(x + half + 1)); i++) {
+      if (yh - 3 < top[i]) top[i] = yh - 3;
+      if (yl + 3 > bot[i]) bot[i] = yl + 3;
+    }
+  }
+  const floor = a.volume ? H * 0.8 : H; // keep the volume histogram clear too
+  const placed: { x1: number; y1: number; x2: number; y2: number }[] = [];
+  const free = (x: number, y: number, w: number) => {
+    if (x < 2 || y < 2 || x + w > W - 2 || y + LABEL_H > floor) return false;
+    for (let i = Math.floor(x); i < x + w; i++) if (top[i] <= y + LABEL_H && bot[i] >= y) return false;
+    return !placed.some((r) => x < r.x2 + 3 && x + w > r.x1 - 3 && y < r.y2 + 2 && y + LABEL_H > r.y1 - 2);
+  };
+  const put = (text: string, color: string, cands: [number, number][], title?: string) => {
+    const w = textWidth(text);
+    for (const [cx, cy] of cands) {
+      const x = Math.round(cx);
+      const y = Math.round(cy);
+      if (!free(x, y, w)) continue;
+      placed.push({ x1: x, y1: y, x2: x + w, y2: y + LABEL_H });
+      const span = document.createElement("span");
+      span.textContent = text;
+      if (title) span.title = title;
+      Object.assign(span.style, {
+        position: "absolute",
+        left: `${x}px`,
+        top: `${y}px`,
+        height: `${LABEL_H}px`,
+        lineHeight: `${LABEL_H - 2}px`,
+        padding: "0 4px",
+        borderRadius: "3px",
+        whiteSpace: "nowrap",
+        font: LABEL_FONT,
+        color,
+        background: "rgba(19,23,34,0.8)",
+        border: `1px solid ${color}66`,
+      });
+      el.appendChild(span);
+      return true;
+    }
+    return false;
+  };
+  /** Candidate spots at the given x positions, stepping away from y (up or down). */
+  const away = (xs: number[], y: number, up: boolean, steps: number) => {
+    const out: [number, number][] = [];
+    for (let k = 0; k < steps; k++) for (const x of xs) out.push([x, up ? y - LABEL_H - 2 - k * 6 : y + 2 + k * 6]);
+    return out;
+  };
+
+  // 1) Horizontal support / resistance: label at the left start of the line.
+  if (on.has("levels")) {
+    const close = bars[bars.length - 1].close;
+    for (const l of [...o.levels].sort((p, q) => q.price - p.price)) {
+      const y = yOf(l.price);
+      if (y === null || y < 0 || y > H) continue;
+      const isRes = l.price >= close;
+      const text = `${isRes ? "Kháng cự" : "Hỗ trợ"} ${fmt(l.price)} · ${l.touches} chạm`;
+      const xs: number[] = [];
+      for (let x = 6; x < W * 0.7; x += 20) xs.push(x);
+      const color = LEVEL_COLORS[l.kind];
+      // right on the line (above for resistance, below for support), sliding right from the left edge
+      put(text, color, [...away(xs, y, isRes, 1), ...away(xs, y, !isRes, 1), ...away(xs.slice(0, 6), y, isRes, 8)]);
+    }
+  }
+
+  // 2) Trendlines / channel edges: label at the left start (first visible point) of the line.
+  for (const line of o.lines) {
+    if (!on.has(line.layer) || line.points.length < 2) continue;
+    const pts = line.points
+      .map((p) => ({ x: xOf(p.time), y: yOf(p.value) }))
+      .filter((p): p is { x: number; y: number } => p.x !== null && p.y !== null && p.x >= 0 && p.x <= W);
+    if (!pts.length) continue;
+    const up = line.kind === "resistance" || line.kind === "channel_upper";
+    const text = `${LINE_SHORT[line.kind]}${line.touches ? ` · ${line.touches} chạm` : ""}`;
+    const stride = Math.max(1, Math.floor(pts.length / 40));
+    const cands: [number, number][] = [];
+    for (let k = 0; k < 10; k++)
+      for (let i = 0; i < pts.length; i += stride) cands.push([pts[i].x, up ? pts[i].y - LABEL_H - 3 - k * 6 : pts[i].y + 3 + k * 6]);
+    put(text, LINE_COLORS[line.kind], cands, line.label);
+  }
+
+  // 3) Signals: text next to the marker, away from the candles; newest first, merged per bar.
+  const byBar = new Map<number, { texts: string[]; color: string; above: boolean }>();
+  for (const m of o.markers) {
+    if (!on.has(m.layer)) continue;
+    const g = byBar.get(m.time) ?? { texts: [], color: m.color, above: m.position === "aboveBar" };
+    if (!g.texts.includes(m.text)) g.texts.push(m.text);
+    byBar.set(m.time, g);
+  }
+  const barByTime = new Map(bars.map((c) => [c.time, c]));
+  let shown = 0;
+  const lastX = new Map<string, number>(); // same text nearby is labelled once (markers stay)
+  for (const [time, g] of [...byBar].sort((p, q) => q[0] - p[0])) {
+    if (shown >= 12) break;
+    const c = barByTime.get(time);
+    const x = xOf(time);
+    if (!c || x === null || x < 0 || x > W) continue;
+    const yRef = g.above ? yOf(c.high) : yOf(c.low);
+    if (yRef === null) continue;
+    const text = g.texts.join(" · ");
+    const near = lastX.get(text);
+    if (near !== undefined && Math.abs(near - x) < 140) continue;
+    const w = textWidth(text);
+    const yStart = g.above ? yRef - 12 : yRef + 12; // clear of the marker symbol
+    if (put(text, g.color, away([x - w / 2, x - w + 6, x - 6], yStart, g.above, 16))) {
+      shown++;
+      lastX.set(text, x);
+    }
+  }
 }
 
 function fmt(n: number | undefined) {
@@ -245,7 +328,23 @@ export function StageChart(p: StageChartProps) {
       draw: () => undefined,
       drawOverlay: () => undefined,
     };
+    // Text labels on the chart, placed where they do not touch any candle (body or wick) or each other.
+    const labelLayer = document.createElement("div");
+    labelLayer.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:3;overflow:hidden";
+    el.appendChild(labelLayer);
+    let raf = 0;
+    const relayout = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = requestAnimationFrame(() => layoutLabels({ chart, main, el: labelLayer, bars: barsRef.current, overlay: overlayRef.current, layers: layersRef.current, t, volume: !!vol }));
+      });
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(relayout);
+    const ro = new ResizeObserver(relayout);
+    ro.observe(el);
+
     ref.drawOverlay = (o, on) => {
+      relayout();
       const show = new Set(on);
       for (const [kind, series] of overlayLines) {
         const line = o?.lines.find((l) => l.kind === kind && show.has(l.layer));
@@ -262,6 +361,7 @@ export function StageChart(p: StageChartProps) {
     };
     ref.draw = (cs: Candle[]) => {
       if (!cs.length) return;
+      relayout();
       // Keep the viewer's pan/zoom across refreshes.
       const range = ref.fresh ? null : chart.timeScale().getVisibleLogicalRange();
       const closes = cs.map((c) => c.close);
@@ -306,8 +406,12 @@ export function StageChart(p: StageChartProps) {
     };
     chart.subscribeCrosshairMove(onMove);
     return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
       chart.unsubscribeCrosshairMove(onMove);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(relayout);
       chart.remove();
+      labelLayer.remove();
       chartRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -354,7 +458,6 @@ export function StageChart(p: StageChartProps) {
     cursor: p.interactive ? "pointer" : "default",
   });
   const toggles = useMemo(() => new Set(inds), [inds]);
-  const notes = useMemo(() => (analysis?.available ? buildNotes(analysis.overlay, layers, last?.close, intraday) : null), [analysis, layers, last?.close, intraday]);
 
   return (
     <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateRows: "auto auto auto 1fr", background: C.bg, color: C.text, fontFamily: "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif" }}>
@@ -437,11 +540,8 @@ export function StageChart(p: StageChartProps) {
         )}
         {p.interactive && <span style={{ marginLeft: "auto", color: C.muted, fontSize: 12 }}>Kéo để di chuyển · cuộn/chụm để zoom</span>}
       </div>
-      <div className={notes ? "chart-body with-notes" : "chart-body"}>
-        {notes && <ChartNotes notes={notes} />}
-        <div ref={host} style={{ position: "relative", minHeight: 0, minWidth: 0 }}>
-          {err && <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: C.muted }}>{err}</div>}
-        </div>
+      <div ref={host} style={{ position: "relative", minHeight: 0, minWidth: 0 }}>
+        {err && <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: C.muted }}>{err}</div>}
       </div>
     </div>
   );

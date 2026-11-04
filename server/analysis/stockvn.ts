@@ -124,6 +124,8 @@ export function toOverlay(r: ReplayResult, interval: ChartInterval): AnalysisOve
       kind: line.kind,
       layer: line.kind.startsWith("channel") ? "channel" : "trendlines",
       label: `${LINE_LABELS[line.kind]} (${line.trend}, ${line.touches} điểm chạm)`,
+      touches: line.touches,
+      trend: line.trend,
       dashed: line.kind.startsWith("channel"),
       points: lineSeries(line, t)
         .filter((p) => times[p.index] !== undefined)

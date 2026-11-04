@@ -236,12 +236,3 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .symbol-star { border: 0; background: transparent; font-size: 18px; color: var(--warn); cursor: pointer; padding: 0 8px; }
 .symbol-picker .error { color: var(--danger); }
 
-/* Stage chart: analysis notes in a column left of the candles (never over them) */
-.chart-body { display: grid; grid-template-columns: 1fr; min-height: 0; }
-.chart-body.with-notes { grid-template-columns: 200px 1fr; }
-.chart-notes { overflow-y: auto; padding: 4px 8px 8px; border-right: 1px solid #1e222d; font-size: 12px; line-height: 1.35; min-height: 0; }
-.chart-note { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 0 6px; padding: 3px 0; border-bottom: 1px solid #1e222d; }
-@media (max-width: 640px) {
-  .chart-body.with-notes { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .chart-notes { max-height: 96px; border-right: 0; border-bottom: 1px solid #1e222d; display: flex; flex-wrap: wrap; gap: 0 12px; }
-}
