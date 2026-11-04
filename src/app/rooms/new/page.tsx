@@ -7,6 +7,7 @@ import { api, ApiError, useApi } from "@/lib/api";
 import { AVATARS, type AvatarGroup, type MapCode } from "@/core/maps";
 import { formatVnd, type Quote } from "@/core/pricing";
 import { parseYouTubeId } from "@/core/screen";
+import { CHART_INTERVALS, INTERVAL_LABEL, type ChartInterval } from "@/core/market";
 import type { SlotBudget } from "@/core/slots";
 
 interface Catalog {
@@ -41,6 +42,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   const [password, setPassword] = useState("");
   const [screenKind, setScreenKind] = useState<"text" | "youtube" | "chart" | "blank">("text");
   const [screenValue, setScreenValue] = useState("Chào mừng đến với phòng!");
+  const [chartInterval, setChartInterval] = useState<ChartInterval>("D");
   const [useTrial, setUseTrial] = useState(false);
   const [promoInput, setPromoInput] = useState("");
   const [promo, setPromo] = useState("");
@@ -68,9 +70,9 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
       const id = parseYouTubeId(screenValue);
       return id ? { kind: "youtube", videoId: id } : undefined;
     }
-    if (screenKind === "chart") return { kind: "chart", symbol: (screenValue.trim() || "VNINDEX").toUpperCase(), source: "demo" };
+    if (screenKind === "chart") return { kind: "chart", symbol: (screenValue.trim() || "VNINDEX").toUpperCase(), source: "demo", interval: chartInterval, indicators: ["volume", "ma20"] };
     return undefined;
-  }, [screenKind, screenValue]);
+  }, [screenKind, screenValue, chartInterval]);
 
   const config = { name: name || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, password, initialScreen };
 
@@ -171,7 +173,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
             <select value={screenKind} onChange={(e) => setScreenKind(e.target.value as typeof screenKind)} style={{ width: "auto" }}>
               <option value="text">Văn bản</option>
               <option value="youtube">Video YouTube</option>
-              <option value="chart">Biểu đồ nến (demo)</option>
+              <option value="chart">Biểu đồ chứng khoán (dữ liệu thật mỗi phút)</option>
               <option value="blank">Để trống</option>
             </select>
             {screenKind !== "blank" && (
@@ -182,6 +184,15 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
                 placeholder={screenKind === "youtube" ? "Link YouTube" : screenKind === "chart" ? "Mã, ví dụ VNINDEX" : "Nội dung"}
                 style={{ flex: 1 }}
               />
+            )}
+            {screenKind === "chart" && (
+              <select value={chartInterval} onChange={(e) => setChartInterval(e.target.value as ChartInterval)} style={{ width: "auto" }} aria-label="Khung thời gian">
+                {CHART_INTERVALS.map((iv) => (
+                  <option key={iv} value={iv}>
+                    Nến {INTERVAL_LABEL[iv]}
+                  </option>
+                ))}
+              </select>
             )}
           </div>
           {screenKind === "youtube" && screenValue && !initialScreen && <small style={{ color: "var(--danger)" }}>Link YouTube không hợp lệ.</small>}
