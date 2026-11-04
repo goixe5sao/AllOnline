@@ -230,8 +230,8 @@ export function StageChart(p: StageChartProps) {
             <span style={{ marginLeft: "auto", color: "#f0b860", fontWeight: 700, fontSize: 12 }}>DỮ LIỆU DEMO — không phải giá thật</span>
           ) : (
             <span style={{ marginLeft: "auto", color: C.muted, fontSize: 12 }}>
-              {liveAt && Date.now() - liveAt < 5000 ? <span style={{ color: C.up, fontWeight: 700 }}>● TRỰC TIẾP · mỗi giây</span> : "cập nhật mỗi phút"} · Nguồn: {data.source}
-              {liveAt && Date.now() - liveAt < 5000 && " + nến đang chạy từ SSI iBoard/VPS (không chính thức)"}
+              {liveAt && Date.now() - liveAt < 150_000 ? <span style={{ color: C.up, fontWeight: 700 }}>● TRỰC TIẾP · cập nhật mỗi phút</span> : "cập nhật mỗi phút"} · Nguồn: {data.source}
+              {liveAt && Date.now() - liveAt < 150_000 && " + nến đang chạy từ SSI iBoard/VPS (không chính thức)"}
             </span>
           ))}
       </div>

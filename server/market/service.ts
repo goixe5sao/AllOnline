@@ -11,8 +11,8 @@ import type { Candle, ChartInterval } from "@/core/market";
 import { SOURCES, VN_OFFSET_SEC, vnDayKey, type Resolution, type UpstreamSource } from "./providers";
 
 const DEFAULT_SYMBOLS = ["VNINDEX", "VN30"];
-/** Forming-bar refresh for symbols on screen (env MARKET_LIVE_MS, default 1 s, min 500 ms). */
-const LIVE_POLL_MS = Math.max(500, Number(process.env.MARKET_LIVE_MS ?? 1000) || 1000);
+/** Forming-bar refresh for symbols on screen (env MARKET_LIVE_MS; owner chose once a minute; min 500 ms). */
+const LIVE_POLL_MS = Math.max(500, Number(process.env.MARKET_LIVE_MS ?? 60_000) || 60_000);
 const WATCH_TTL_MS = 60 * 60_000;
 
 export interface MarketStatus {
@@ -91,7 +91,7 @@ export class MarketService {
   /** Latest 1-minute bars incl. the still-forming one (memory only), or null if stale/none. */
   liveBars(symbol: string): Candle[] | null {
     const l = this.live.get(symbol);
-    return l && Date.now() - l.at < 15_000 ? l.bars : null;
+    return l && Date.now() - l.at < Math.max(15_000, 2 * LIVE_POLL_MS + 5_000) ? l.bars : null;
   }
 
   private async liveTick() {
