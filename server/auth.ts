@@ -51,7 +51,7 @@ export class Auth {
         getAll: () => Object.entries(cookies).map(([name, value]) => ({ name, value })),
         setAll: (list) => {
           for (const { name, value, options } of list)
-            appendCookie(res, serializeCookie(name, value, { ...options, sameSite: (options?.sameSite as "lax") ?? "lax", secure: this.cfg.production }));
+            appendCookie(res, serializeCookie(name, value, { ...options, sameSite: (options?.sameSite as "lax") ?? "lax", secure: this.cfg.secureCookies }));
         },
       },
     });
@@ -71,7 +71,7 @@ export class Auth {
 
   async startGuest(res: ServerResponse, displayName: string): Promise<AppUser> {
     const u = await createGuest(this.db, randomUUID(), displayName);
-    appendCookie(res, serializeCookie(GUEST_COOKIE, this.signer.sign({ k: "guest", uid: u.id, exp: Date.now() + 30 * 86400_000 }), { httpOnly: true, sameSite: "lax", maxAge: 30 * 86400, secure: this.cfg.production }));
+    appendCookie(res, serializeCookie(GUEST_COOKIE, this.signer.sign({ k: "guest", uid: u.id, exp: Date.now() + 30 * 86400_000 }), { httpOnly: true, sameSite: "lax", maxAge: 30 * 86400, secure: this.cfg.secureCookies }));
     return u;
   }
 
@@ -108,7 +108,7 @@ export class Auth {
 
   ensureDevice(req: IncomingMessage, res: ServerResponse) {
     if (this.deviceId(req)) return;
-    appendCookie(res, serializeCookie(DEVICE_COOKIE, this.signer.sign({ k: "dev", id: randomUUID(), exp: Date.now() + 365 * 86400_000 }), { httpOnly: true, sameSite: "lax", maxAge: 365 * 86400, secure: this.cfg.production }));
+    appendCookie(res, serializeCookie(DEVICE_COOKIE, this.signer.sign({ k: "dev", id: randomUUID(), exp: Date.now() + 365 * 86400_000 }), { httpOnly: true, sameSite: "lax", maxAge: 365 * 86400, secure: this.cfg.secureCookies }));
   }
 
   /** Stable pseudonymous id for an IP; the raw address is never stored. */
@@ -127,7 +127,7 @@ export class Auth {
     const id = randomUUID();
     await upsertUser(this.db, id, null, displayName, true);
     if (asAppOwner) await this.db.query("update app.users set role = 'app_owner' where id = $1 and is_demo", [id]);
-    appendCookie(res, serializeCookie(DEMO_COOKIE, this.signer.sign({ uid: id, exp: Date.now() + 7 * 86400_000 }), { httpOnly: true, sameSite: "lax", maxAge: 7 * 86400, secure: this.cfg.production }));
+    appendCookie(res, serializeCookie(DEMO_COOKIE, this.signer.sign({ uid: id, exp: Date.now() + 7 * 86400_000 }), { httpOnly: true, sameSite: "lax", maxAge: 7 * 86400, secure: this.cfg.secureCookies }));
     return (await getUser(this.db, id))!;
   }
 

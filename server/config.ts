@@ -34,6 +34,8 @@ export interface Config {
   appSecret: string;
   paymentWebhookSecret?: string;
   publicOrigin?: string;
+  /** Secure cookies need HTTPS. Plain-HTTP trials (e.g. http://<public-ip>:3000) must turn them off. */
+  secureCookies: boolean;
   dataDir: string;
 }
 
@@ -69,6 +71,7 @@ export function readConfig(): Config {
     appSecret,
     paymentWebhookSecret: env("PAYMENT_WEBHOOK_SECRET"),
     publicOrigin: env("PUBLIC_ORIGIN"),
+    secureCookies: env("COOKIE_SECURE") ? env("COOKIE_SECURE") === "1" : env("PUBLIC_ORIGIN") ? env("PUBLIC_ORIGIN")!.startsWith("https://") : production,
     dataDir: env("DEMO_DATA_DIR") ?? path.join(process.cwd(), ".data"),
   };
 }
