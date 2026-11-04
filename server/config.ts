@@ -36,6 +36,8 @@ export interface Config {
   publicOrigin?: string;
   /** Secure cookies need HTTPS. Plain-HTTP trials (e.g. http://<public-ip>:3000) must turn them off. */
   secureCookies: boolean;
+  /** Private base URL of the StockVN analysis service (e.g. http://127.0.0.1:3200); unset = no overlays. */
+  stockvnUrl?: string;
   dataDir: string;
 }
 
@@ -72,6 +74,7 @@ export function readConfig(): Config {
     paymentWebhookSecret: env("PAYMENT_WEBHOOK_SECRET"),
     publicOrigin: env("PUBLIC_ORIGIN"),
     secureCookies: env("COOKIE_SECURE") ? env("COOKIE_SECURE") === "1" : env("PUBLIC_ORIGIN") ? env("PUBLIC_ORIGIN")!.startsWith("https://") : production,
+    stockvnUrl: env("STOCKVN_URL"),
     dataDir: env("DEMO_DATA_DIR") ?? path.join(process.cwd(), ".data"),
   };
 }

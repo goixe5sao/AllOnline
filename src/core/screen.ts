@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ANALYSIS_LAYERS, type AnalysisLayer } from "./analysis";
 import { CHART_INTERVALS, CHART_TYPES, INDICATORS, type ChartInterval, type ChartType, type Indicator } from "./market";
 
 /** What the stage screen shows. Kept in the room row and in the room log on every change. */
@@ -8,7 +9,7 @@ export type ScreenContent =
   | { kind: "image"; url: string }
   | { kind: "youtube"; videoId: string }
   | { kind: "audio"; url: string; title: string }
-  | { kind: "chart"; symbol: string; source: "demo"; interval?: ChartInterval; chartType?: ChartType; indicators?: Indicator[] }
+  | { kind: "chart"; symbol: string; source: "demo"; interval?: ChartInterval; chartType?: ChartType; indicators?: Indicator[]; layers?: AnalysisLayer[] }
   /** Official TradingView widget (real data, full tools). TradingView does not serve HOSE/HNX symbols in widgets. */
   | { kind: "tradingview"; symbol: string; interval: ChartInterval }
   | { kind: "chat"; text: string; author: string }
@@ -51,6 +52,7 @@ export const screenContentSchema = z.discriminatedUnion("kind", [
     interval: z.enum(CHART_INTERVALS).optional(),
     chartType: z.enum(CHART_TYPES).optional(),
     indicators: z.array(z.enum(INDICATORS)).max(INDICATORS.length).optional(),
+    layers: z.array(z.enum(ANALYSIS_LAYERS)).max(ANALYSIS_LAYERS.length).optional(),
   }),
   z.object({ kind: z.literal("tradingview"), symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9_]{1,20}:[A-Z0-9_.!]{1,20}$|^[A-Z0-9_.!]{1,20}$/), interval: z.enum(CHART_INTERVALS) }),
   z.object({ kind: z.literal("poll"), pollId: z.string().uuid() }),

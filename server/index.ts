@@ -16,6 +16,7 @@ import { Hub } from "./hub";
 import { createApi } from "./routes";
 import { createStorage } from "./storage";
 import { MarketService } from "./market/service";
+import { StockVnAnalysis } from "./analysis/stockvn";
 import { closeRoom, dueRooms, expireOrders } from "./services/rooms";
 import { getUser } from "./services/users";
 import { clientIp } from "./http";
@@ -35,7 +36,9 @@ async function main() {
   const market = new MarketService(db);
   hub.setMarket(market);
   if (process.env.MARKET_DATA !== "off") market.start();
-  const api = createApi({ cfg, db, auth, hub, storage, market });
+  // Technical analysis is provided by the StockVN service (trendlines, channels, S/R, patterns…).
+  const analysis = new StockVnAnalysis(cfg.stockvnUrl);
+  const api = createApi({ cfg, db, auth, hub, storage, market, analysis });
 
   // Sweepers use the database clock (now()), never a browser clock.
   let sweeping = false;

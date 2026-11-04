@@ -18,6 +18,11 @@ import {
   HistogramSeries,
   LineSeries,
   createChart,
+  createSeriesMarkers,
+  LineStyle,
+  type IPriceLine,
+  type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type IChartApi,
   type MouseEventParams,
   type Time,
@@ -25,6 +30,9 @@ import {
 } from "lightweight-charts";
 import { CHART_INTERVALS, CHART_TYPES, INDICATORS, INTERVAL_LABEL, bollinger, ema, mergeLiveBars, rsi, sma, type Candle, type CandleResult, type ChartInterval, type ChartType, type Indicator } from "@/core/market";
 import { subscribeLiveBars } from "./market-live";
+import { ANALYSIS_LAYERS, DEFAULT_LAYERS, LAYER_LABEL, LEVEL_COLORS, LINE_COLORS, type AnalysisLayer, type AnalysisOverlay, type OverlayLine } from "@/core/analysis";
+
+type AnalysisState = { available: true; overlay: AnalysisOverlay } | { available: false; reason: string };
 
 const C = { bg: "#131722", grid: "#1e222d", text: "#d1d4dc", muted: "#787b86", up: "#26a69a", down: "#ef5350", ma: "#f7c948", ema: "#2962ff", bb: "#9c6ade", rsi: "#7e57c2" };
 
@@ -36,6 +44,8 @@ export interface StageChartProps {
   interval?: ChartInterval;
   chartType?: ChartType;
   indicators?: Indicator[];
+  /** StockVN analysis layers to show (owner default; viewers can toggle in full-screen). */
+  layers?: AnalysisLayer[];
   interactive: boolean;
 }
 
@@ -51,9 +61,14 @@ export function StageChart(p: StageChartProps) {
   const [data, setData] = useState<CandleResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [liveAt, setLiveAt] = useState<number | null>(null);
+  const [layers, setLayers] = useState<AnalysisLayer[]>(p.layers ?? DEFAULT_LAYERS);
+  const [analysis, setAnalysis] = useState<AnalysisState | null>(null);
   const [legend, setLegend] = useState<{ o?: number; h?: number; l?: number; c?: number; v?: number; t?: string } | null>(null);
   const host = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<{ chart: IChartApi; draw: (cs: Candle[]) => void; fresh: boolean } | null>(null);
+  const chartRef = useRef<{ chart: IChartApi; draw: (cs: Candle[]) => void; drawOverlay: (o: AnalysisOverlay | null, layers: AnalysisLayer[]) => void; fresh: boolean } | null>(null);
+  const overlayRef = useRef<AnalysisOverlay | null>(null);
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
   const barsRef = useRef<Candle[]>([]);
 
   // Full fetch on open / interval change, then every minute (live bars fill the gaps in between).
@@ -69,8 +84,17 @@ export function StageChart(p: StageChartProps) {
           }
         })
         .catch(() => !cancelled && setErr("Không tải được dữ liệu biểu đồ."));
+    const loadAnalysis = () =>
+      fetch(`/api/market/analysis?symbol=${encodeURIComponent(p.symbol)}&interval=${interval}`, { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((a: AnalysisState | null) => !cancelled && a && setAnalysis(a))
+        .catch(() => undefined);
     load();
-    const id = setInterval(load, 60_000);
+    loadAnalysis();
+    const id = setInterval(() => {
+      load();
+      loadAnalysis();
+    }, 60_000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -116,7 +140,38 @@ export function StageChart(p: StageChartProps) {
       rs.createPriceLine({ price: 30, color: C.muted, lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
     }
 
-    const ref: { chart: IChartApi; draw: (cs: Candle[]) => void; fresh: boolean } = { chart, fresh: true, draw: () => undefined };
+    // StockVN overlay: one line series per line kind (as on StockVN's backtest page), horizontal
+    // support/resistance price lines, and markers for candle patterns / breakouts / multi-timeframe.
+    const overlayLines = new Map<OverlayLine["kind"], ISeriesApi<"Line">>();
+    for (const kind of Object.keys(LINE_COLORS) as OverlayLine["kind"][])
+      overlayLines.set(
+        kind,
+        chart.addSeries(LineSeries, { color: LINE_COLORS[kind], lineWidth: 2, lineStyle: kind.startsWith("channel") ? LineStyle.Dashed : LineStyle.Solid, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }),
+      );
+    let levelLines: IPriceLine[] = [];
+    const markers: ISeriesMarkersPluginApi<Time> = createSeriesMarkers(main as ISeriesApi<"Candlestick">, []);
+
+    const ref: { chart: IChartApi; draw: (cs: Candle[]) => void; drawOverlay: (o: AnalysisOverlay | null, layers: AnalysisLayer[]) => void; fresh: boolean } = {
+      chart,
+      fresh: true,
+      draw: () => undefined,
+      drawOverlay: () => undefined,
+    };
+    ref.drawOverlay = (o, on) => {
+      const show = new Set(on);
+      for (const [kind, series] of overlayLines) {
+        const line = o?.lines.find((l) => l.kind === kind && show.has(l.layer));
+        series.setData(line ? line.points.map((pt) => ({ time: t(pt.time), value: pt.value })) : []);
+      }
+      for (const pl of levelLines) main.removePriceLine(pl);
+      levelLines =
+        o && show.has("levels")
+          ? o.levels.map((l) =>
+              main.createPriceLine({ price: l.price, color: LEVEL_COLORS[l.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: (l.kind === "resistance" ? "KC " : "HT ") + l.touches + " lần chạm" }),
+            )
+          : [];
+      markers.setMarkers(o ? o.markers.filter((m) => show.has(m.layer)).map((m) => ({ time: t(m.time), text: m.text, position: m.position, shape: m.shape, color: m.color, size: m.size })) : []);
+    };
     ref.draw = (cs: Candle[]) => {
       if (!cs.length) return;
       // Keep the viewer's pan/zoom across refreshes.
@@ -145,6 +200,7 @@ export function StageChart(p: StageChartProps) {
     };
     chartRef.current = ref;
     if (barsRef.current.length) ref.draw(barsRef.current);
+    ref.drawOverlay(overlayRef.current, layersRef.current);
 
     const onMove = (param: MouseEventParams<Time>) => {
       if (!param.time || !param.seriesData) return setLegend(null);
@@ -174,6 +230,12 @@ export function StageChart(p: StageChartProps) {
     barsRef.current = data.candles;
     chartRef.current?.draw(barsRef.current);
   }, [data]);
+
+  // StockVN overlay arrived / layer toggles changed.
+  useEffect(() => {
+    overlayRef.current = analysis?.available ? analysis.overlay : null;
+    chartRef.current?.drawOverlay(overlayRef.current, layers);
+  }, [analysis, layers]);
 
   // Live bars pushed over the room WebSocket about every second during the session.
   useEffect(() => {
@@ -205,7 +267,7 @@ export function StageChart(p: StageChartProps) {
   const toggles = useMemo(() => new Set(inds), [inds]);
 
   return (
-    <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateRows: "auto auto 1fr", background: C.bg, color: C.text, fontFamily: "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif" }}>
+    <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateRows: "auto auto auto 1fr", background: C.bg, color: C.text, fontFamily: "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", borderBottom: `1px solid ${C.grid}`, fontSize: 13, flexWrap: "wrap" }}>
         <strong style={{ fontSize: 15, marginRight: 8 }}>{p.symbol}</strong>
         {CHART_INTERVALS.map((iv) => (
@@ -234,6 +296,19 @@ export function StageChart(p: StageChartProps) {
               {liveAt && Date.now() - liveAt < 150_000 && " + nến đang chạy từ SSI iBoard/VPS (không chính thức)"}
             </span>
           ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", borderBottom: `1px solid ${C.grid}`, fontSize: 12, flexWrap: "wrap" }}>
+        <span style={{ color: C.muted, marginRight: 4 }}>Phân tích StockVN:</span>
+        {analysis?.available ? (
+          ANALYSIS_LAYERS.map((l) => (
+            <button key={l} style={btn(layers.includes(l))} onClick={() => p.interactive && setLayers(layers.includes(l) ? layers.filter((x) => x !== l) : [...layers, l])}>
+              {LAYER_LABEL[l]}
+            </button>
+          ))
+        ) : (
+          <span style={{ color: C.muted }}>{analysis ? analysis.reason : "đang tải…"}</span>
+        )}
+        {analysis?.available && <span style={{ marginLeft: "auto", color: C.muted }}>{analysis.overlay.source}</span>}
       </div>
       <div style={{ padding: "4px 10px", fontSize: 13, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
         {shown && (

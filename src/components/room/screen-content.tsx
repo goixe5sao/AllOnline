@@ -231,7 +231,7 @@ export function ScreenContent(p: ScreenProps) {
       // Re-keyed on the owner's shared settings so local (full-screen) tweaks reset when they change.
       body = (
         <div style={{ position: "absolute", inset: p.ad ? "0 0 9% 0" : 0 }}>
-          <StageChart key={JSON.stringify(c)} symbol={c.symbol} interval={c.interval} chartType={c.chartType} indicators={c.indicators} interactive={!!p.fullscreen} />
+          <StageChart key={JSON.stringify(c)} symbol={c.symbol} interval={c.interval} chartType={c.chartType} indicators={c.indicators} layers={c.layers} interactive={!!p.fullscreen} />
         </div>
       );
       break;

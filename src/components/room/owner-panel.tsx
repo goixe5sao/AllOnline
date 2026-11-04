@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { api, ApiError, fmtDuration, fmtTime, useApi } from "@/lib/api";
 import { currentPosition, parseYouTubeId, type ScreenContent, type ScreenState } from "@/core/screen";
+import { ANALYSIS_LAYERS, DEFAULT_LAYERS, LAYER_LABEL, type AnalysisLayer } from "@/core/analysis";
 import { CHART_INTERVALS, INDICATORS, INTERVAL_LABEL, type ChartInterval, type ChartType, type Indicator } from "@/core/market";
 import type { ClientMsg, PollViewDto, RoomInfoDto } from "@/core/protocol";
 import type { PublicMember } from "@/core/room-engine";
@@ -18,6 +19,7 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
   const [interval, setIntervalOpt] = useState<ChartInterval>("D");
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [inds, setInds] = useState<Indicator[]>(["volume", "ma20"]);
+  const [aLayers, setALayers] = useState<AnalysisLayer[]>(DEFAULT_LAYERS);
   const [err, setErr] = useState("");
   const [uploading, setUploading] = useState(false);
 
@@ -31,7 +33,7 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
       if (!id) return setErr("Link YouTube không hợp lệ.");
     } else if (kind === "image") content = value ? { kind: "image", url: value.trim() } : null;
     else if (kind === "audio") content = value ? { kind: "audio", url: value.trim(), title: title.trim() || "Âm thanh" } : null;
-    else if (kind === "chart") content = { kind: "chart", symbol: (value.trim() || "VNINDEX").toUpperCase(), source: "demo", interval, chartType, indicators: inds };
+    else if (kind === "chart") content = { kind: "chart", symbol: (value.trim() || "VNINDEX").toUpperCase(), source: "demo", interval, chartType, indicators: inds, layers: aLayers };
     else if (kind === "tradingview") content = { kind: "tradingview", symbol: (value.trim() || "NASDAQ:AAPL").toUpperCase(), interval };
     else if (kind === "blank") content = { kind: "blank" };
     if (!content) return setErr("Hãy nhập nội dung.");
@@ -133,6 +135,16 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
               </label>
             ))}
           </div>
+          <strong style={{ fontSize: 13 }}>Lớp phân tích StockVN</strong>
+          <div className="row">
+            {ANALYSIS_LAYERS.map((l) => (
+              <label className="check" key={l}>
+                <input type="checkbox" checked={aLayers.includes(l)} onChange={(e) => setALayers(e.target.checked ? [...aLayers, l] : aLayers.filter((x) => x !== l))} />
+                {LAYER_LABEL[l]}
+              </label>
+            ))}
+          </div>
+          <small>Trendline, kênh, hỗ trợ/kháng cự, mô hình nến, phá vỡ, đa khung do dịch vụ StockVN tính (giống trang backtest), có ở khung 1p/5p/15p/Ngày.</small>
           <small>Dữ liệu thật do server lấy mỗi phút từ API không chính thức (DNSE/Entrade, dự phòng SSI, VPS); nguồn ghi trên biểu đồ. Mã mới cần ~vài giây để tải lần đầu. Người xem bấm “Xem màn hình” để tự kéo/zoom/đổi chỉ báo.</small>
         </>
       )}

@@ -11,6 +11,7 @@ import { clientIp, readBody, readJson, sameOrigin, sendJson } from "./http";
 import { AVATARS, MAP_INFO } from "@/core/maps";
 import { CHART_INTERVALS, demoMarketProvider, type CandleResult } from "@/core/market";
 import type { MarketService } from "./market/service";
+import type { StockVnAnalysis } from "./analysis/stockvn";
 import { getPriceTiers, getSettings, priceTiersSchema, replacePriceTiers, settingsPatchSchema, slotBudget, updateSettings } from "./services/settings";
 import {
   AppError,
@@ -41,8 +42,8 @@ interface Ctx {
 
 type Handler = (ctx: Ctx) => Promise<unknown>;
 
-export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService }) {
-  const { cfg, db, auth, hub, storage, market } = deps;
+export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService; analysis: StockVnAnalysis }) {
+  const { cfg, db, auth, hub, storage, market, analysis } = deps;
   const routes: { method: string; re: RegExp; handler: Handler; public?: boolean }[] = [];
   const route = (method: string, pattern: string, handler: Handler, opts: { public?: boolean } = {}) =>
     routes.push({ method, re: new RegExp("^" + pattern.replace(/:\w+/g, "([^/]+)") + "$"), handler, public: opts.public });
@@ -355,6 +356,13 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     candleCache.set(key, { at: Date.now(), body });
     if (candleCache.size > 200) candleCache.delete(candleCache.keys().next().value!);
     return body;
+  });
+
+  // Trendlines / channels / S-R / candle patterns / breakouts from the StockVN service (cached).
+  route("GET", "/api/market/analysis", async (ctx) => {
+    needAttendee(ctx);
+    const q = z.object({ symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{3,10}$/), interval: z.enum(CHART_INTERVALS).default("D") }).parse(Object.fromEntries(ctx.url.searchParams));
+    return analysis.get(q.symbol, q.interval);
   });
 
   // ----- orders -----
