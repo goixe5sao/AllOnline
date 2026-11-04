@@ -57,6 +57,9 @@ Không có API/nút nào trên web cấp quyền này; metadata người dùng (
 
 ## 6. Dịch vụ phân tích StockVN (tuỳ chọn)
 
+> Đang chạy trên máy Windows với 2 tên miền + Cloudflare Tunnel: xem **[DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md)**
+> (StockVN đã có cổng mật khẩu; AllOnline gọi bằng `STOCKVN_API_TOKEN`).
+
 Trendline, kênh, hỗ trợ/kháng cự, mô hình nến, phá vỡ, đa khung trên biểu đồ sân khấu do app
 **StockVN** (repo `goixe5sao/StockVN`) tính; AllOnline chỉ gọi API `/api/ai/replay` của nó.
 

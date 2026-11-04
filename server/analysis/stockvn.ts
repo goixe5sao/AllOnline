@@ -169,6 +169,7 @@ export class StockVnAnalysis {
     private baseUrl: string | undefined,
     private ttlMs = 60_000,
     private fetchImpl: typeof fetch = fetch,
+    private token?: string,
   ) {}
 
   get configured() {
@@ -213,7 +214,10 @@ export class StockVnAnalysis {
   private async fetchOverlay(symbol: string, interval: ChartInterval, sv: "1m" | "5m" | "15m" | "1d", start: string): Promise<AnalysisResult> {
     const qs = new URLSearchParams({ symbol, interval: sv, from: start, to: vnDate(Date.now()) });
     try {
-      const res = await this.fetchImpl(`${this.baseUrl!.replace(/\/$/, "")}/api/ai/replay?${qs}`, { signal: AbortSignal.timeout(150_000) });
+      const res = await this.fetchImpl(`${this.baseUrl!.replace(/\/$/, "")}/api/ai/replay?${qs}`, {
+        signal: AbortSignal.timeout(150_000),
+        headers: this.token ? { authorization: `Bearer ${this.token}` } : undefined,
+      });
       const body = (await res.json().catch(() => null)) as (ReplayResult & { error?: string }) | null;
       if (!res.ok || !body || body.error) return { available: false, reason: `StockVN: ${body?.error ?? "HTTP " + res.status}` };
       if (body.mode !== "replay" || !Array.isArray(body.bars) || !body.bars.length) return { available: false, reason: "StockVN chưa có dữ liệu cho mã này." };

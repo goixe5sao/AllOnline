@@ -38,6 +38,10 @@ export interface Config {
   secureCookies: boolean;
   /** Private base URL of the StockVN analysis service (e.g. http://127.0.0.1:3200); unset = no overlays. */
   stockvnUrl?: string;
+  /** Bearer token StockVN expects when its password gate is on (STOCKVN_API_TOKEN there). */
+  stockvnToken?: string;
+  /** Interface to listen on; 127.0.0.1 when only a local tunnel/proxy should reach the server. */
+  host?: string;
   dataDir: string;
 }
 
@@ -75,6 +79,8 @@ export function readConfig(): Config {
     publicOrigin: env("PUBLIC_ORIGIN"),
     secureCookies: env("COOKIE_SECURE") ? env("COOKIE_SECURE") === "1" : env("PUBLIC_ORIGIN") ? env("PUBLIC_ORIGIN")!.startsWith("https://") : production,
     stockvnUrl: env("STOCKVN_URL"),
+    stockvnToken: env("STOCKVN_API_TOKEN"),
+    host: env("HOST"),
     dataDir: env("DEMO_DATA_DIR") ?? path.join(process.cwd(), ".data"),
   };
 }

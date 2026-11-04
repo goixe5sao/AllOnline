@@ -66,6 +66,17 @@ describe("StockVnAnalysis service", () => {
     expect(urls[0]).toMatch(/^http:\/\/stockvn\.local\/api\/ai\/replay\?symbol=VNINDEX&interval=1d&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}$/);
   });
 
+  it("sends the bearer token when StockVN's password gate is on", async () => {
+    const auth: (string | null)[] = [];
+    const fake = (async (_url: string, init?: RequestInit) => {
+      auth.push(new Headers(init?.headers).get("authorization"));
+      return new Response(JSON.stringify(replay()), { status: 200 });
+    }) as typeof fetch;
+    await new StockVnAnalysis("http://x", 60_000, fake, "tok123").get("VNINDEX", "D");
+    await new StockVnAnalysis("http://x", 60_000, fake).get("VNINDEX", "D");
+    expect(auth).toEqual(["Bearer tok123", null]);
+  });
+
   it("reports StockVN errors and an unreachable service without throwing", async () => {
     const err = new StockVnAnalysis("http://x", 60_000, (async () => new Response(JSON.stringify({ error: "Mã chưa có dữ liệu" }), { status: 400 })) as typeof fetch);
     expect(await err.get("ABC", "D")).toEqual({ available: false, reason: "StockVN: Mã chưa có dữ liệu" });
