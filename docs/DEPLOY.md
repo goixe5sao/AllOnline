@@ -54,3 +54,18 @@ Không có API/nút nào trên web cấp quyền này; metadata người dùng (
 
 - Hết hạn phòng/đơn do sweeper trong server chạy mỗi 5 giây theo đồng hồ DB. Nếu server dừng, phòng quá hạn không nhận người mới (kiểm tra khi nạp phòng) và sẽ được đóng ngay khi server chạy lại; slot được tính lại đúng vì việc trả slot gắn với `slots_released_at`.
 - Dùng tính năng backup của Supabase theo gói.
+
+## 6. Dịch vụ phân tích StockVN (tuỳ chọn)
+
+Trendline, kênh, hỗ trợ/kháng cự, mô hình nến, phá vỡ, đa khung trên biểu đồ sân khấu do app
+**StockVN** (repo `goixe5sao/StockVN`) tính; AllOnline chỉ gọi API `/api/ai/replay` của nó.
+
+1. Trên cùng máy/mạng nội bộ với AllOnline: clone StockVN, cài Python 3.12 + `python -m venv .venv`
+   + `.venv\Scripts\python.exe -m pip install -r ml\requirements.txt`, `npm ci --ignore-scripts`
+   (API phân tích không cần `better-sqlite3`).
+2. Chạy **chỉ nghe nội bộ** (StockVN chưa có đăng nhập):
+   `STOCKPILOT_AUTO_INGEST=0 npx next dev -H 127.0.0.1 -p 3200` (hoặc `next build && next start -H 127.0.0.1 -p 3200`).
+3. AllOnline: đặt `STOCKVN_URL=http://127.0.0.1:3200`. Không đặt thì biểu đồ vẫn chạy, chỉ báo "chưa kết nối StockVN".
+
+Mỗi lần tính mất ~4–6 giây; AllOnline lưu tạm 1 phút mỗi mã/khung và chỉ chạy 1 phép tính một lúc.
+Khi StockVN cải tiến thuật toán, AllOnline tự nhận (không có logic phân tích trùng lặp).

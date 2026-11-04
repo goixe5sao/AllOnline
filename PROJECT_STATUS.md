@@ -27,6 +27,7 @@ Bản prototype (supabase/legacy) có các lỗi không vá được bằng ch�
 | Góc nhìn khách: quay trọn 360° quanh mình, ngước/cúi chỉ ±12° quanh hướng chuẩn (ngồi: giữa màn hình, giảm dần khi quay đi; đang đi: hơi chúc xuống); không vẽ lưng ghế của chính mình; kéo không bôi đen chữ | Thật |
 | Chủ phòng nhấn đúp: camera tự do trượt tới điểm trên sàn (vị trí chat gần đi theo); khi ngồi như khách, nhấn đúp ghế trống là đổi chỗ ngay | Thật, test trình duyệt |
 | Chuông tỉnh thức mỗi giờ (xx:00, theo đồng hồ server, giờ VN): tổng hợp bằng Web Audio (không file, không bản quyền), thông báo trên màn hình, nút bật/tắt riêng từng người | Thật, test trình duyệt (giả lập qua mốc giờ) |
+| Lớp phân tích **StockVN** trên biểu đồ sân khấu (gọi StockVN như dịch vụ, không chép thuật toán): trendline, kênh, HT/KC ngang, mô hình nến, phá vỡ, đa khung — giống trang backtest; khung 1p/5p/15p/Ngày; bật/tắt từng lớp | Thật khi StockVN chạy (STOCKVN_URL); đã thử trên máy này |
 | Đăng nhập demo, chọn vai trò chủ ứng dụng | **Demo**, chỉ khi không có `DATABASE_URL` |
 | Vai trò: chủ ứng dụng (CLI `grant-owner`), chủ phòng (theo `rooms.owner_id`), người tham dự | Thật, kiểm ở server |
 | Ngân sách slot cấu hình được, chờ = floor(chính thức × tỷ lệ), cấp nguyên tử, trả đúng một lần, giữ slot cho đơn | Thật, có test |
@@ -63,7 +64,7 @@ Bản prototype (supabase/legacy) có các lỗi không vá được bằng ch�
 ```text
 npm run typecheck   PASS
 npm run lint        0 lỗi (1 cảnh báo có chủ đích: tải lại trang sau đăng xuất)
-npm test            62/62 PASS
+npm test            71/71 PASS
   - tests/room-engine.test.ts (21): tranh ghế, hàng chờ, 5 phút tìm chỗ, cooldown, mất mạng/kết nối lại, kick, chat gần, layout
   - tests/pure.test.ts (12): slot 20%, giá, đồng bộ màn hình, YouTube URL, lọc chat
   - tests/services.test.ts (14, SQL thật trên PGlite): 12 yêu cầu tạo phòng đồng thời → đúng 8 phòng, giữ/hết hạn đơn,
