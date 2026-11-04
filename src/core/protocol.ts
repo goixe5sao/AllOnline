@@ -1,6 +1,7 @@
 import type { AvatarGroup, EntryMode, MapCode } from "./maps";
 import type { PersonalState, PublicMember } from "./room-engine";
 import type { ScreenAction, ScreenState } from "./screen";
+import type { Candle } from "./market";
 
 /** Persistent promo strip shown at the bottom of every stage screen. */
 export interface StageAd {
@@ -80,7 +81,9 @@ export type ServerMsg =
   | { t: "session_replaced" }
   | { t: "corrected"; x: number; z: number }
   | { t: "error"; code: string; message: string }
-  | { t: "pong"; c: number; s: number };
+  | { t: "pong"; c: number; s: number }
+  /** Latest 1-minute bars incl. the forming one, pushed ~every second during the session. */
+  | { t: "market"; symbol: string; bars: Candle[] };
 
 export const ERROR_TEXT: Record<string, string> = {
   ROOM_FULL: "Phòng đã đủ người (kể cả khu chờ).",

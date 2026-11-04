@@ -11,6 +11,8 @@ import type { Candle, ChartInterval } from "@/core/market";
 import { SOURCES, VN_OFFSET_SEC, vnDayKey, type Resolution, type UpstreamSource } from "./providers";
 
 const DEFAULT_SYMBOLS = ["VNINDEX", "VN30"];
+/** Forming-bar refresh for symbols on screen (env MARKET_LIVE_MS, default 1 s, min 500 ms). */
+const LIVE_POLL_MS = Math.max(500, Number(process.env.MARKET_LIVE_MS ?? 1000) || 1000);
 const WATCH_TTL_MS = 60 * 60_000;
 
 export interface MarketStatus {
@@ -65,10 +67,71 @@ export class MarketService {
   start() {
     void this.tick(true);
     this.timer = setInterval(() => void this.tick(false), 60_000);
+    this.liveTimer = setInterval(() => void this.liveTick(), LIVE_POLL_MS);
   }
 
   stop() {
     if (this.timer) clearInterval(this.timer);
+    if (this.liveTimer) clearInterval(this.liveTimer);
+  }
+
+  // ---------- live (forming) bars, every second during the session ----------
+
+  private liveTimer: NodeJS.Timeout | null = null;
+  private liveDemand = new Map<string, number>();
+  private live = new Map<string, { bars: Candle[]; at: number }>();
+  private liveBusy = false;
+  private liveTurn = 0;
+
+  /** A room is currently showing this symbol: keep its forming bar live for the next 10 s. */
+  wantLive(symbol: string) {
+    this.liveDemand.set(symbol, Date.now());
+  }
+
+  /** Latest 1-minute bars incl. the still-forming one (memory only), or null if stale/none. */
+  liveBars(symbol: string): Candle[] | null {
+    const l = this.live.get(symbol);
+    return l && Date.now() - l.at < 15_000 ? l.bars : null;
+  }
+
+  private async liveTick() {
+    const now = Date.now();
+    if (this.liveBusy || !inVnSession(now)) return;
+    const symbols = [...this.liveDemand].filter(([, at]) => now - at < 10_000).map(([s]) => s);
+    if (!symbols.length) return;
+    this.liveBusy = true;
+    try {
+      // Only SSI / VPS return the forming minute; alternate between them to spread the load.
+      const live = this.sources.filter((x) => x.id === "ssi" || x.id === "vps");
+      const order = this.liveTurn++ % 2 ? [...live].reverse() : live;
+      const to = Math.floor(now / 1000) + 60;
+      await Promise.all(
+        symbols.map(async (sym) => {
+          for (const src of order) {
+            try {
+              const bars = await src.fetch(sym, "1", to - 360, to);
+              if (bars.length) {
+                this.live.set(sym, { bars: bars.slice(-5), at: Date.now() });
+                return;
+              }
+            } catch {
+              /* try the other source */
+            }
+          }
+        }),
+      );
+    } finally {
+      this.liveBusy = false;
+    }
+  }
+
+  /** Overlay live bars (same timestamps replace stored ones). */
+  private withLive(symbol: string, bars: Candle[]): Candle[] {
+    const l = this.liveBars(symbol);
+    if (!l?.length) return bars;
+    const byTime = new Map(bars.map((b) => [b.time, b]));
+    for (const b of l) byTime.set(b.time, b);
+    return [...byTime.values()].sort((a, b) => a.time - b.time);
   }
 
   /** A chart asked for this symbol: keep it fresh for the next hour (backfill now if new). */
@@ -171,15 +234,15 @@ export class MarketService {
   /** Candles for the chart, or [] when nothing has been collected yet. */
   async candles(symbol: string, interval: ChartInterval, count: number): Promise<Candle[]> {
     this.touch(symbol);
-    if (interval === "1") return this.read(symbol, "1", count);
+    if (interval === "1") return this.withLive(symbol, await this.read(symbol, "1", count)).slice(-count);
     if (interval === "5" || interval === "15" || interval === "60") {
       const size = Number(interval) * 60;
-      const bars = await this.read(symbol, "1", count * Number(interval) + Number(interval));
+      const bars = this.withLive(symbol, await this.read(symbol, "1", count * Number(interval) + Number(interval)));
       return aggregate(bars, (t) => Math.floor(t / size) * size).slice(-count);
     }
     let daily = await this.read(symbol, "D", interval === "W" ? count * 5 + 5 : count);
     // Today's daily bar from 1-minute bars when the daily endpoint lags behind.
-    const today = await this.read(symbol, "1", 400);
+    const today = this.withLive(symbol, await this.read(symbol, "1", 400));
     const todayKey = vnDayKey(Math.floor(Date.now() / 1000));
     const todays = today.filter((b) => vnDayKey(b.time) === todayKey);
     if (todays.length) {

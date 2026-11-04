@@ -127,3 +127,26 @@ describe("hourly bell timing", async () => {
     expect(vnHourLabel(Date.UTC(2026, 10, 4, 8, 0, 0))).toBe("15:00");
   });
 });
+
+describe("live bar merging", async () => {
+  const { mergeLiveBars, bucketTime } = await import("@/core/market");
+  const t0 = Date.UTC(2026, 10, 4, 3, 0) / 1000; // 10:00 ICT
+  const b = (t: number, c: number, v = 10) => ({ time: t, open: c, high: c + 1, low: c - 1, close: c, volume: v });
+  it("1m: replaces the forming bar and appends a new minute", () => {
+    const cs = [b(t0, 100), b(t0 + 60, 101)];
+    const out = mergeLiveBars(cs, [b(t0 + 60, 102, 50), b(t0 + 120, 103, 5)], "1");
+    expect(out.map((c) => c.close)).toEqual([100, 102, 103]);
+    expect(out[1].volume).toBe(50);
+  });
+  it("5m: updates the bucket's close/high/low with the newest live bar", () => {
+    const cs = [{ time: t0, open: 100, high: 101, low: 99, close: 100, volume: 1000 }];
+    const out = mergeLiveBars(cs, [b(t0 + 180, 105)], "5");
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ close: 105, high: 106, low: 99, volume: 1000 });
+  });
+  it("D: live bar lands on today's Vietnam-date candle", () => {
+    expect(bucketTime(t0, "D")).toBe(Date.UTC(2026, 10, 4) / 1000);
+    const cs = [{ time: Date.UTC(2026, 10, 4) / 1000, open: 1700, high: 1710, low: 1690, close: 1700, volume: 1 }];
+    expect(mergeLiveBars(cs, [b(t0, 1712)], "D")[0]).toMatchObject({ close: 1712, high: 1713 });
+  });
+});

@@ -23,7 +23,8 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { CHART_INTERVALS, CHART_TYPES, INDICATORS, INTERVAL_LABEL, bollinger, ema, rsi, sma, type CandleResult, type ChartInterval, type ChartType, type Indicator } from "@/core/market";
+import { CHART_INTERVALS, CHART_TYPES, INDICATORS, INTERVAL_LABEL, bollinger, ema, mergeLiveBars, rsi, sma, type Candle, type CandleResult, type ChartInterval, type ChartType, type Indicator } from "@/core/market";
+import { subscribeLiveBars } from "./market-live";
 
 const C = { bg: "#131722", grid: "#1e222d", text: "#d1d4dc", muted: "#787b86", up: "#26a69a", down: "#ef5350", ma: "#f7c948", ema: "#2962ff", bb: "#9c6ade", rsi: "#7e57c2" };
 
@@ -49,11 +50,13 @@ export function StageChart(p: StageChartProps) {
   const [inds, setInds] = useState<Indicator[]>(p.indicators ?? ["volume", "ma20"]);
   const [data, setData] = useState<CandleResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [liveAt, setLiveAt] = useState<number | null>(null);
   const [legend, setLegend] = useState<{ o?: number; h?: number; l?: number; c?: number; v?: number; t?: string } | null>(null);
   const host = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  const chartRef = useRef<{ chart: IChartApi; draw: (cs: Candle[]) => void; fresh: boolean } | null>(null);
+  const barsRef = useRef<Candle[]>([]);
 
-  // Fetch + periodic refresh
+  // Full fetch on open / interval change, then every minute (live bars fill the gaps in between).
   useEffect(() => {
     let cancelled = false;
     const load = () =>
@@ -67,88 +70,94 @@ export function StageChart(p: StageChartProps) {
         })
         .catch(() => !cancelled && setErr("Không tải được dữ liệu biểu đồ."));
     load();
-    const id = setInterval(load, interval === "D" || interval === "W" ? 60_000 : 15_000);
+    const id = setInterval(load, 60_000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
   }, [p.symbol, interval]);
 
-  const last = data?.candles[data.candles.length - 1];
-  const prev = data?.candles[data.candles.length - 2];
+  const intraday = interval !== "D" && interval !== "W";
+  // Lightweight Charts renders in UTC: shift intraday bars to Vietnam time (UTC+7). Daily bars are
+  // already keyed to 00:00 UTC of the Vietnam trading date.
+  const off = intraday ? 7 * 3600 : 0;
 
-  // Build / rebuild the chart when data or view options change.
+  // Build the chart once per view option (not on every data change).
   useEffect(() => {
     const el = host.current;
-    if (!el || !data?.candles.length) return;
+    if (!el) return;
     const chart = createChart(el, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: C.bg }, textColor: C.text, fontSize: 12, attributionLogo: true, panes: { separatorColor: C.grid } },
       grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: C.grid },
-      timeScale: { borderColor: C.grid, timeVisible: interval !== "D" && interval !== "W", secondsVisible: false },
+      timeScale: { borderColor: C.grid, timeVisible: intraday, secondsVisible: false },
       localization: { locale: "vi-VN" },
       handleScroll: p.interactive,
       handleScale: p.interactive,
     });
-    chartRef.current = chart;
-    const cs = data.candles;
-    // Lightweight Charts renders in UTC: shift intraday bars to Vietnam time (UTC+7). Daily bars are
-    // already keyed to 00:00 UTC of the Vietnam trading date.
-    const intraday = interval !== "D" && interval !== "W";
-    const off = intraday ? 7 * 3600 : 0;
     const t = (x: number) => (x + off) as UTCTimestamp;
-    const closes = cs.map((c) => c.close);
-
-    let main;
-    if (type === "candles" || type === "bars") {
-      main = chart.addSeries(type === "candles" ? CandlestickSeries : BarSeries, { upColor: C.up, downColor: C.down, ...(type === "candles" ? { wickUpColor: C.up, wickDownColor: C.down, borderVisible: false } : {}) });
-      main.setData(cs.map((c) => ({ time: t(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
-    } else if (type === "line") {
-      main = chart.addSeries(LineSeries, { color: C.ema, lineWidth: 2 });
-      main.setData(cs.map((c) => ({ time: t(c.time), value: c.close })));
-    } else {
-      main = chart.addSeries(AreaSeries, { lineColor: C.ema, topColor: "rgba(41,98,255,0.35)", bottomColor: "rgba(41,98,255,0.02)", lineWidth: 2 });
-      main.setData(cs.map((c) => ({ time: t(c.time), value: c.close })));
+    const main =
+      type === "candles" || type === "bars"
+        ? chart.addSeries(type === "candles" ? CandlestickSeries : BarSeries, { upColor: C.up, downColor: C.down, ...(type === "candles" ? { wickUpColor: C.up, wickDownColor: C.down, borderVisible: false } : {}) })
+        : type === "line"
+          ? chart.addSeries(LineSeries, { color: C.ema, lineWidth: 2 })
+          : chart.addSeries(AreaSeries, { lineColor: C.ema, topColor: "rgba(41,98,255,0.35)", bottomColor: "rgba(41,98,255,0.02)", lineWidth: 2 });
+    const lineSeries = (color: string, pane = 0, width: 1 | 2 = 1) => chart.addSeries(LineSeries, { color, lineWidth: width, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane);
+    const vol = inds.includes("volume") ? chart.addSeries(HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false }) : null;
+    vol?.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    const ma = inds.includes("ma20") ? lineSeries(C.ma, 0, 2) : null;
+    const em = inds.includes("ema50") ? lineSeries(C.ema, 0, 2) : null;
+    const bb = inds.includes("bb") ? [lineSeries(C.bb), lineSeries(C.bb), lineSeries(C.bb)] : null;
+    const rs = inds.includes("rsi") ? lineSeries(C.rsi, 1, 2) : null;
+    if (rs) {
+      rs.createPriceLine({ price: 70, color: C.muted, lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
+      rs.createPriceLine({ price: 30, color: C.muted, lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
     }
 
-    const line = (values: (number | null)[], color: string, pane = 0, width: 1 | 2 = 1) => {
-      const s = chart.addSeries(LineSeries, { color, lineWidth: width, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane);
-      s.setData(values.map((v, i) => (v === null ? { time: t(cs[i].time) } : { time: t(cs[i].time), value: v })));
-      return s;
+    const ref: { chart: IChartApi; draw: (cs: Candle[]) => void; fresh: boolean } = { chart, fresh: true, draw: () => undefined };
+    ref.draw = (cs: Candle[]) => {
+      if (!cs.length) return;
+      // Keep the viewer's pan/zoom across refreshes.
+      const range = ref.fresh ? null : chart.timeScale().getVisibleLogicalRange();
+      const closes = cs.map((c) => c.close);
+      const lineData = (values: (number | null)[]) => values.map((v, i) => (v === null ? { time: t(cs[i].time) } : { time: t(cs[i].time), value: v }));
+      if (type === "candles" || type === "bars") main.setData(cs.map((c) => ({ time: t(c.time), open: c.open, high: c.high, low: c.low, close: c.close })) as never);
+      else main.setData(cs.map((c) => ({ time: t(c.time), value: c.close })) as never);
+      vol?.setData(cs.map((c) => ({ time: t(c.time), value: c.volume, color: c.close >= c.open ? "rgba(38,166,154,0.45)" : "rgba(239,83,80,0.45)" })));
+      ma?.setData(lineData(sma(closes, 20)));
+      em?.setData(lineData(ema(closes, 50)));
+      if (bb) {
+        const b = bollinger(closes, 20, 2);
+        bb[0].setData(lineData(b.map((x) => x?.upper ?? null)));
+        bb[1].setData(lineData(b.map((x) => x?.mid ?? null)));
+        bb[2].setData(lineData(b.map((x) => x?.lower ?? null)));
+      }
+      rs?.setData(lineData(rsi(closes, 14)));
+      if (ref.fresh) {
+        ref.fresh = false;
+        const panes = chart.panes();
+        if (rs && panes[1]) panes[1].setHeight(Math.round(el.clientHeight * 0.22));
+        if (cs.length > 120) chart.timeScale().setVisibleLogicalRange({ from: cs.length - 120, to: cs.length + 3 });
+        else chart.timeScale().fitContent();
+      } else if (range) chart.timeScale().setVisibleLogicalRange(range);
     };
-
-    if (inds.includes("volume")) {
-      const v = chart.addSeries(HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
-      v.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-      v.setData(cs.map((c) => ({ time: t(c.time), value: c.volume, color: c.close >= c.open ? "rgba(38,166,154,0.45)" : "rgba(239,83,80,0.45)" })));
-    }
-    if (inds.includes("ma20")) line(sma(closes, 20), C.ma, 0, 2);
-    if (inds.includes("ema50")) line(ema(closes, 50), C.ema, 0, 2);
-    if (inds.includes("bb")) {
-      const b = bollinger(closes, 20, 2);
-      line(b.map((x) => x?.upper ?? null), C.bb);
-      line(b.map((x) => x?.mid ?? null), C.bb);
-      line(b.map((x) => x?.lower ?? null), C.bb);
-    }
-    if (inds.includes("rsi")) {
-      const r = line(rsi(closes, 14), C.rsi, 1, 2);
-      r.createPriceLine({ price: 70, color: C.muted, lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
-      r.createPriceLine({ price: 30, color: C.muted, lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
-      const panes = chart.panes();
-      if (panes[1]) panes[1].setHeight(Math.round(el.clientHeight * 0.22));
-    }
-
-    if (cs.length > 120) chart.timeScale().setVisibleLogicalRange({ from: cs.length - 120, to: cs.length + 3 });
-    else chart.timeScale().fitContent();
+    chartRef.current = ref;
+    if (barsRef.current.length) ref.draw(barsRef.current);
 
     const onMove = (param: MouseEventParams<Time>) => {
       if (!param.time || !param.seriesData) return setLegend(null);
-      const idx = cs.findIndex((c) => c.time + off === (param.time as number));
-      const c = cs[idx];
+      const c = barsRef.current.find((x) => x.time + off === (param.time as number));
       if (!c) return setLegend(null);
-      setLegend({ o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume, t: intraday ? new Date(c.time * 1000).toLocaleString("vi-VN", { hour12: false, timeZone: "Asia/Ho_Chi_Minh" }) : new Date(c.time * 1000).toLocaleDateString("vi-VN", { timeZone: "UTC" }) });
+      setLegend({
+        o: c.open,
+        h: c.high,
+        l: c.low,
+        c: c.close,
+        v: c.volume,
+        t: intraday ? new Date(c.time * 1000).toLocaleString("vi-VN", { hour12: false, timeZone: "Asia/Ho_Chi_Minh" }) : new Date(c.time * 1000).toLocaleDateString("vi-VN", { timeZone: "UTC" }),
+      });
     };
     chart.subscribeCrosshairMove(onMove);
     return () => {
@@ -156,7 +165,30 @@ export function StageChart(p: StageChartProps) {
       chart.remove();
       chartRef.current = null;
     };
-  }, [data, type, inds, interval, p.interactive]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, inds.join(","), interval, p.interactive]);
+
+  // Full data arrived (open / every minute): redraw, keeping the viewport.
+  useEffect(() => {
+    if (!data) return;
+    barsRef.current = data.candles;
+    chartRef.current?.draw(barsRef.current);
+  }, [data]);
+
+  // Live bars pushed over the room WebSocket about every second during the session.
+  useEffect(() => {
+    if (!data || data.isDemo) return;
+    return subscribeLiveBars((symbol, live) => {
+      if (symbol !== p.symbol || !barsRef.current.length) return;
+      barsRef.current = mergeLiveBars(barsRef.current, live, interval);
+      chartRef.current?.draw(barsRef.current);
+      setLiveAt(Date.now());
+    });
+  }, [data, p.symbol, interval]);
+
+  const bars = barsRef.current;
+  const last = bars[bars.length - 1];
+  const prev = bars[bars.length - 2];
 
   const shown = legend ?? (last ? { o: last.open, h: last.high, l: last.low, c: last.close, v: last.volume } : null);
   const change = last && prev ? last.close - prev.close : 0;
@@ -197,7 +229,10 @@ export function StageChart(p: StageChartProps) {
           (data.isDemo ? (
             <span style={{ marginLeft: "auto", color: "#f0b860", fontWeight: 700, fontSize: 12 }}>DỮ LIỆU DEMO — không phải giá thật</span>
           ) : (
-            <span style={{ marginLeft: "auto", color: C.muted, fontSize: 12 }}>Nguồn: {data.source} · cập nhật mỗi phút</span>
+            <span style={{ marginLeft: "auto", color: C.muted, fontSize: 12 }}>
+              {liveAt && Date.now() - liveAt < 5000 ? <span style={{ color: C.up, fontWeight: 700 }}>● TRỰC TIẾP · mỗi giây</span> : "cập nhật mỗi phút"} · Nguồn: {data.source}
+              {liveAt && Date.now() - liveAt < 5000 && " + nến đang chạy từ SSI iBoard/VPS (không chính thức)"}
+            </span>
           ))}
       </div>
       <div style={{ padding: "4px 10px", fontSize: 13, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>

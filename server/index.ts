@@ -33,6 +33,7 @@ async function main() {
   const storage = createStorage(cfg);
   // Market data scheduler: 1-minute bars + daily bars every minute during the VN session.
   const market = new MarketService(db);
+  hub.setMarket(market);
   if (process.env.MARKET_DATA !== "off") market.start();
   const api = createApi({ cfg, db, auth, hub, storage, market });
 

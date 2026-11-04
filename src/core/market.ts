@@ -140,3 +140,45 @@ export function rsi(values: number[], period = 14): (number | null)[] {
     return loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
   });
 }
+
+// ---------- live bars → current chart interval ----------
+
+const VN_OFFSET = 7 * 3600;
+
+/** Bucket start for a 1-minute bar time in the given interval (D/W keyed by Vietnam date). */
+export function bucketTime(t: number, interval: ChartInterval): number {
+  if (interval === "1") return t;
+  if (interval === "5" || interval === "15" || interval === "60") {
+    const size = Number(interval) * 60;
+    return Math.floor(t / size) * size;
+  }
+  const day = Math.floor((t + VN_OFFSET) / 86400) * 86400;
+  if (interval === "D") return day;
+  const dow = (new Date(day * 1000).getUTCDay() + 6) % 7; // Monday = 0
+  return day - dow * 86400;
+}
+
+/**
+ * Merges live 1-minute bars (incl. the forming one) into the chart's candles.
+ * 1m: bars are replaced/appended exactly. Larger intervals: only the newest live bar is applied to
+ * its bucket (high/low/close; volume is corrected by the next full refresh).
+ */
+export function mergeLiveBars(cs: Candle[], live: Candle[], interval: ChartInterval): Candle[] {
+  if (!live.length || !cs.length) return cs;
+  const out = cs.slice();
+  const apply = (bar: Candle, exact: boolean) => {
+    const k = bucketTime(bar.time, interval);
+    const lastIdx = out.length - 1;
+    const last = out[lastIdx];
+    if (k > last.time) out.push({ ...bar, time: k });
+    else {
+      const i = k === last.time ? lastIdx : out.findIndex((c) => c.time === k);
+      if (i < 0) return;
+      const c = out[i];
+      out[i] = exact ? { ...bar, time: k } : { ...c, high: Math.max(c.high, bar.high), low: Math.min(c.low, bar.low), close: bar.close };
+    }
+  };
+  if (interval === "1") for (const b of live) apply(b, true);
+  else apply(live[live.length - 1], false);
+  return out;
+}

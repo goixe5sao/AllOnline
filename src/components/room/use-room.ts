@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { publishLiveBars } from "./market-live";
 import { ERROR_TEXT, type StageAd, type ClientMsg, type PollViewDto, type RoomInfoDto, type RoomRole, type ServerMsg } from "@/core/protocol";
 import type { PersonalState, PublicMember } from "@/core/room-engine";
 import { BLANK_SCREEN, type ScreenState } from "@/core/screen";
@@ -133,6 +134,10 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
           return;
         case "ad":
           setS((p) => ({ ...p, ad: m.ad }));
+          return;
+        case "market":
+          // Live bars go straight to the chart (no React state update every second here).
+          publishLiveBars(m.symbol, m.bars);
           return;
         case "room_closed":
           return end(m.reason === "expired" ? "Phòng đã hết hạn và được đóng." : "Phòng đã được đóng.");

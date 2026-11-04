@@ -12,6 +12,7 @@ import { getSettings, type Settings } from "./services/settings";
 import { getRoom, logRoomEvent, saveScreenState, AppError, type RoomRow } from "./services/rooms";
 import { castVote, createPoll, listPolls, myVotes, pollCreateSchema, pollView, setPollStatus } from "./services/polls";
 import type { AppUser } from "./services/users";
+import type { MarketService } from "./market/service";
 
 interface Client {
   id: string;
@@ -35,6 +36,8 @@ interface LiveRoom {
   /** Messages the owner actually received, kept in memory ≤ 2 min so one can be promoted. Never persisted. */
   ownerInbox: Map<string, { text: string; name: string; at: number }>;
   movesPending: boolean;
+  /** Signature of the last live market bar sent to this room (avoid resending unchanged data). */
+  liveSig?: string;
 }
 
 const num = z.number().finite();
@@ -75,6 +78,13 @@ export class Hub {
     private db: Db,
     private auth: Auth,
   ) {}
+
+  private market: MarketService | null = null;
+
+  /** Live market bars are pushed to rooms whose stage shows a chart. */
+  setMarket(m: MarketService) {
+    this.market = m;
+  }
 
   async start() {
     this.settings = await getSettings(this.db);
@@ -284,10 +294,25 @@ export class Hub {
     for (const room of this.rooms.values()) if (room.movesPending) this.flush(room);
   }
 
+  /** Every second: keep the on-screen symbol live and push its forming bar if it changed. */
+  private pushLiveMarket(room: LiveRoom) {
+    const c = room.screen.content;
+    if (!this.market || c.kind !== "chart" || !room.clients.size) return;
+    this.market.wantLive(c.symbol);
+    const bars = this.market.liveBars(c.symbol);
+    if (!bars?.length) return;
+    const last = bars[bars.length - 1];
+    const sig = c.symbol + "|" + last.time + "|" + last.close + "|" + last.volume;
+    if (sig === room.liveSig) return;
+    room.liveSig = sig;
+    this.broadcast(room, { t: "market", symbol: c.symbol, bars });
+  }
+
   private tick() {
     const now = Date.now();
     for (const room of this.rooms.values()) {
       room.engine.tick(now);
+      this.pushLiveMarket(room);
       for (const [id, m] of room.ownerInbox) if (now - m.at > 120_000) room.ownerInbox.delete(id);
       this.flush(room);
     }
