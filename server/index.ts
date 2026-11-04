@@ -37,7 +37,7 @@ async function main() {
   hub.setMarket(market);
   if (process.env.MARKET_DATA !== "off") market.start();
   // Technical analysis is provided by the StockVN service (trendlines, channels, S/R, patterns…).
-  const analysis = new StockVnAnalysis(cfg.stockvnUrl);
+  const analysis = new StockVnAnalysis(cfg.stockvnUrl, undefined, undefined, cfg.stockvnToken);
   const api = createApi({ cfg, db, auth, hub, storage, market, analysis });
 
   // Sweepers use the database clock (now()), never a browser clock.
@@ -100,9 +100,11 @@ async function main() {
     wss.handleUpgrade(req, socket, head, (ws) => hub.attach(ws, user, ipHash, deviceId));
   });
 
-  server.listen(cfg.port, () => {
-    console.log(`> AllOnline ${cfg.mode === "demo" ? "[CHẾ ĐỘ DEMO — PGlite cục bộ, đăng nhập demo, thanh toán giả]" : "[Supabase]"} http://localhost:${cfg.port}`);
-  });
+  const onListen = () => {
+    console.log(`> AllOnline ${cfg.mode === "demo" ? "[CHẾ ĐỘ DEMO — PGlite cục bộ, đăng nhập demo, thanh toán giả]" : "[Supabase]"} http://${cfg.host ?? "localhost"}:${cfg.port}`);
+  };
+  if (cfg.host) server.listen(cfg.port, cfg.host, onListen);
+  else server.listen(cfg.port, onListen);
 
   const shutdown = async () => {
     hub.stop();
