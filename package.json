@@ -37,6 +37,7 @@
     "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
+    "puppeteer-core": "^23.11.1",
     "typescript": "^5",
     "vitest": "^3.2.4"
   }

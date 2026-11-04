@@ -23,6 +23,7 @@ Bản prototype (supabase/legacy) có các lỗi không vá được bằng ch�
 | Dải quảng cáo cố định cuối màn hình sân khấu (mặc định goixe5sao.vn), bấm được trong 3D và khi xem toàn màn hình; sửa trong /admin | Thật |
 | Mã giảm giá (/admin → Mã giảm giá): % giảm, tổng lượt, lượt/tài khoản, hạn dùng, bật/tắt; kiểm tra + đếm lượt trong cùng transaction với đơn. Đơn 0 ₫ (giảm 100%) được server tự xác nhận và tạo phòng/gia hạn ngay. Mã **ASDFG = 100%** tạo sẵn (không giới hạn lượt) | Thật, có test |
 | Chủ phòng mở link mời có thể **vào như người tham dự** (chọn nhân vật, ngồi ghế, góc nhìn khách, bình chọn, không cần mật mã phòng) mà vẫn giữ nút Điều khiển; nút chuyển qua lại với camera chủ phòng | Thật, có smoke test |
+| Bấm vào ghế trống trong 3D → “Đến”: đang ngồi thì đổi chỗ ngay; chế độ vào từ cổng thì tự đi/lái tới rồi vào chỗ (server kiểm tra) | Thật, có test trình duyệt (scripts/e2e-browser-seat.mjs) |
 | Đăng nhập demo, chọn vai trò chủ ứng dụng | **Demo**, chỉ khi không có `DATABASE_URL` |
 | Vai trò: chủ ứng dụng (CLI `grant-owner`), chủ phòng (theo `rooms.owner_id`), người tham dự | Thật, kiểm ở server |
 | Ngân sách slot cấu hình được, chờ = floor(chính thức × tỷ lệ), cấp nguyên tử, trả đúng một lần, giữ slot cho đơn | Thật, có test |
@@ -68,6 +69,7 @@ scripts/smoke.ts    59/59 PASS (ổn định qua 3 lần chạy liên tiếp) (s
 Supabase thật: schema app tạo bằng migration, 14/14 bảng RLS, Data API không truy cập được schema app (PGRST106),
   12 yêu cầu tạo phòng đồng thời → đúng 8 phòng (khoá FOR UPDATE trên Postgres 17 thật), đóng song song → trả slot đúng 1 lần
 npm run build       PASS
+scripts/e2e-browser-seat.mjs  2/2 PASS (Chrome headless: đổi chỗ khi đang ngồi; tự đi tới ghế ở chế độ cổng)
 Kiểm tra trình duyệt headless (Chrome, 6 phiên): drive-in + hội trường render, màn hình hiển thị biểu đồ, chat, giao diện điện thoại 390px.
 ```
 

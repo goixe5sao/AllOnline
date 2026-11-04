@@ -19,6 +19,8 @@ export interface Controls {
   fov: number;
   keys: Set<string>;
   joy: { x: number; y: number };
+  /** Auto-walk target set by "Đến" on a free seat (gate-entry mode). */
+  goto?: { x: number; z: number; seatId: string; arrivedAt?: number } | null;
 }
 
 export function floorY(layout: Layout, z: number, inMain: boolean): number {
@@ -206,7 +208,7 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
 
 // ---------------- environment ----------------
 
-function SeatsVisual({ layout, freeHighlight, occupied }: { layout: Layout; freeHighlight: boolean; occupied: Set<string> }) {
+function SeatsVisual({ layout, freeHighlight, occupied, selected }: { layout: Layout; freeHighlight: boolean; occupied: Set<string>; selected: string | null }) {
   const seats = layout.seats;
   const tables = useMemo(() => {
     const groups = new Map<string, Seat[]>();
@@ -271,6 +273,15 @@ function SeatsVisual({ layout, freeHighlight, occupied }: { layout: Layout; free
           })}
         </Instances>
       )}
+      {selected &&
+        layout.seats
+          .filter((s) => s.id === selected)
+          .map((s) => (
+            <mesh key={"sel" + s.id} position={[s.x, s.y + 0.07, s.z]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={layout.map === "drive_in" ? [1.3, 1.75, 32] : [0.4, 0.62, 28]} />
+              <meshBasicMaterial color="#ffd166" />
+            </mesh>
+          ))}
       {freeHighlight &&
         seats
           .filter((s) => !occupied.has(s.id))
@@ -440,11 +451,49 @@ function AdClickTarget({ layout, ad, domElement }: { layout: Layout; ad: StageAd
   return null;
 }
 
+/**
+ * Tap/click (not a drag) on a free seat: the seat whose projected position is closest to the
+ * pointer (within ~45 px) is reported. The canvas itself has no pointer events (DOM occlusion mode).
+ */
+function SeatClickTarget({ layout, domElement, occupied, onSeatClick }: { layout: Layout; domElement: HTMLElement | null; occupied: Set<string>; onSeatClick?: (seatId: string, x: number, y: number) => void }) {
+  const { camera } = useThree();
+  useEffect(() => {
+    if (!domElement || !onSeatClick) return;
+    const v = new THREE.Vector3();
+    let down: { x: number; y: number; t: number } | null = null;
+    const pd = (e: PointerEvent) => (down = { x: e.clientX, y: e.clientY, t: performance.now() });
+    const pu = (e: PointerEvent) => {
+      const d = down;
+      down = null;
+      if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8 || performance.now() - d.t > 500) return;
+      const r = domElement.getBoundingClientRect();
+      let best: { id: string; dist: number } | null = null;
+      for (const s of layout.seats) {
+        if (occupied.has(s.id)) continue;
+        v.set(s.x, s.y + 0.4, s.z).project(camera);
+        if (v.z > 1 || v.z < -1) continue; // behind the camera / clipped
+        const sx = r.left + ((v.x + 1) / 2) * r.width;
+        const sy = r.top + ((1 - v.y) / 2) * r.height;
+        const dist = Math.hypot(sx - e.clientX, sy - e.clientY);
+        if (dist < 45 && (!best || dist < best.dist)) best = { id: s.id, dist };
+      }
+      if (best) onSeatClick(best.id, e.clientX - r.left, e.clientY - r.top);
+    };
+    domElement.addEventListener("pointerdown", pd);
+    domElement.addEventListener("pointerup", pu);
+    return () => {
+      domElement.removeEventListener("pointerdown", pd);
+      domElement.removeEventListener("pointerup", pu);
+    };
+  }, [domElement, layout, occupied, camera, onSeatClick]);
+  return null;
+}
+
 // ---------------- cameras ----------------
 
 function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { layout: Layout; store: MemberStore; selfId: string; controls: React.RefObject<Controls>; send: (m: ClientMsg) => void; entryMode: string }) {
   const { camera } = useThree();
-  const self = useRef<{ x: number; z: number; status: string | null; seatId: string | null; lastSent: number; sentX: number; sentZ: number; sentR: number }>({ x: 0, z: 0, status: null, seatId: null, lastSent: 0, sentX: NaN, sentZ: NaN, sentR: NaN });
+  const self = useRef<{ x: number; z: number; status: string | null; seatId: string | null; lastSent: number; sentX: number; sentZ: number; sentR: number }>({ x: 0, z: 0, status: null, seatId: null, lastSent: 0, sentX: Infinity, sentZ: Infinity, sentR: Infinity });
   const isCar = store.map.get(selfId)?.avatar.group === "vehicles";
 
   useFrame((_, dt) => {
@@ -463,7 +512,12 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
       const seatNow = me.seatId ? layout.seats.find((s) => s.id === me.seatId) : undefined;
       const sc = layout.screen;
       const eyeY = (seatNow?.y ?? floorY(layout, me.z, me.status !== "waiting")) + layout.eyeHeight;
-      c.pitch = Math.max(-0.7, Math.min(0.7, Math.atan2(sc.y - eyeY, Math.max(1, Math.hypot(sc.x - me.x, sc.z - me.z)))));
+      // Seated: look at the screen centre. Walking (finding / waiting): look slightly down so free
+      // seats and the floor ahead are visible.
+      c.pitch =
+        me.status === "seated" || me.status === "invited"
+          ? Math.max(-0.7, Math.min(0.7, Math.atan2(sc.y - eyeY, Math.max(1, Math.hypot(sc.x - me.x, sc.z - me.z)))))
+          : -0.28;
     }
     if (store.correction) {
       sf.x = store.correction.x;
@@ -489,7 +543,32 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
         if (c.keys.has("a") || c.keys.has("arrowleft")) r -= 1;
         f += -c.joy.y;
         r += c.joy.x;
-        if (isCar) {
+        // "Đến" on a free seat: walk/drive there automatically, then take it. Manual input cancels.
+        if (c.goto && (Math.abs(f) > 0.05 || Math.abs(r) > 0.05)) c.goto = null;
+        if (c.goto && me.status === "finding") {
+          const dx = c.goto.x - sf.x;
+          const dz = c.goto.z - sf.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist <= layout.claimDistance * 0.6) {
+            // Arrived: stop, let the final position reach the server (moves are sent ≤10 Hz),
+            // then take the seat — the server checks the distance with its own position.
+            f = 0;
+            r = 0;
+            const t = performance.now();
+            c.goto.arrivedAt ??= t;
+            if (t - c.goto.arrivedAt > 350) {
+              send({ t: "claim", seatId: c.goto.seatId });
+              c.goto = null;
+            }
+          } else {
+            c.yaw = Math.atan2(-dx, -dz);
+            heading = c.yaw;
+            // Never step past the target, even with a long frame (slow devices).
+            f = Math.min(1, dist / Math.max(1e-3, layout.maxSpeed * 0.75 * dt));
+            r = 0;
+          }
+        }
+        if (isCar && !c.goto) {
           // Simple car handling: forward/back + steering.
           c.yaw -= r * dt * 1.6 * Math.sign(f || 1);
           r = 0;
@@ -576,6 +655,8 @@ export interface SceneProps {
   portal: React.RefObject<HTMLElement | null>;
   highlightFree: boolean;
   ad: StageAd | null;
+  selectedSeat: string | null;
+  onSeatClick?: (seatId: string, x: number, y: number) => void;
 }
 
 export function RoomScene(p: SceneProps) {
@@ -597,7 +678,7 @@ export function RoomScene(p: SceneProps) {
       camera={{ fov: 60, near: 0.1, far: 400, position: [0, 2, 10] }}
     >
       <World layout={p.layout}>
-        <SeatsVisual layout={p.layout} freeHighlight={p.highlightFree} occupied={occupied} />
+        <SeatsVisual layout={p.layout} freeHighlight={p.highlightFree} occupied={occupied} selected={p.selectedSeat} />
         <StageScreen layout={p.layout} portal={p.portal}>
           {p.screen}
         </StageScreen>
@@ -606,6 +687,7 @@ export function RoomScene(p: SceneProps) {
         ))}
       </World>
       <AdClickTarget layout={p.layout} ad={p.ad} domElement={p.domElement} />
+      {p.role === "participant" && <SeatClickTarget layout={p.layout} domElement={p.domElement} occupied={occupied} onSeatClick={p.onSeatClick} />}
       {p.role === "participant" ? (
         <ParticipantRig layout={p.layout} store={p.store} selfId={p.selfId} controls={p.controls} send={p.send} entryMode={p.entryMode} />
       ) : (

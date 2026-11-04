@@ -149,6 +149,27 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [reduceMotion, setReduceMotion] = useState(false);
   const now = useNow(1000);
   const fullRef = useRef<HTMLDivElement>(null);
+  // Tapped free seat (popup with "Đến") and the seat we are walking to.
+  const [seatPick, setSeatPick] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [goingTo, setGoingTo] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const onSeatClick = useCallback((id: string, x: number, y: number) => setSeatPick({ id, x, y }), []);
+  const personalStatus = s.personal?.status;
+  useEffect(() => {
+    if (personalStatus !== "finding") setGoingTo(null);
+    if (personalStatus !== "finding" && controls.current) controls.current.goto = null;
+  }, [personalStatus, s.personal?.seatId]);
+  useEffect(() => {
+    if (!goingTo) return;
+    // Manual movement cancels auto-walk inside the render loop; drop the highlight too.
+    const id = setInterval(() => !controls.current.goto && setGoingTo(null), 400);
+    return () => clearInterval(id);
+  }, [goingTo]);
+  useEffect(() => {
+    if (!note) return;
+    const id = setTimeout(() => setNote(null), 4000);
+    return () => clearTimeout(id);
+  }, [note]);
 
   useEffect(() => {
     try {
@@ -337,6 +358,8 @@ export function RoomView({ roomId }: { roomId: string }) {
           portal={wrapRef}
           highlightFree={me?.status === "finding"}
           ad={s.ad}
+          selectedSeat={seatPick?.id ?? goingTo}
+          onSeatClick={onSeatClick}
           screen={<ScreenContent {...screenProps} active={!fullView} />}
         />
       </div>
@@ -472,6 +495,36 @@ export function RoomView({ roomId }: { roomId: string }) {
         {s.role === "observer" && <span className="hud-chip">Chủ ứng dụng — chế độ quan sát</span>}
       </div>
 
+      {seatPick && (
+        <div className="status-card" style={{ top: Math.max(56, seatPick.y - 110), left: seatPick.x, transform: "translateX(-50%)", width: 220 }} role="dialog" aria-label="Chọn chỗ">
+          <strong>Chỗ {seatPick.id}</strong> <span style={{ color: "#3ddc97" }}>· trống</span>
+          <div className="row" style={{ justifyContent: "center", marginTop: 8 }}>
+            <button
+              className="hud-btn primary"
+              onClick={() => {
+                const st = s.personal?.status;
+                const target = layout.seats.find((x) => x.id === seatPick.id);
+                if (st === "seated") send({ t: "change_seat", seatId: seatPick.id });
+                else if (st === "finding" && target) {
+                  controls.current.goto = { x: target.x, z: target.z, seatId: target.id };
+                  setGoingTo(target.id);
+                } else setNote(st === "invited" ? "Hãy bấm “Nhận chỗ” trước." : "Bạn đang chờ ngoài cổng, chưa được vào khu chính.");
+                setSeatPick(null);
+              }}
+            >
+              Đến
+            </button>
+            <button className="hud-btn" onClick={() => setSeatPick(null)}>
+              Huỷ
+            </button>
+          </div>
+        </div>
+      )}
+      {note && (
+        <div className="status-card" style={{ top: "auto", bottom: 170 }} role="alert" onClick={() => setNote(null)}>
+          {note}
+        </div>
+      )}
       {s.toast && (
         <div className="status-card" style={{ top: "auto", bottom: 120 }} role="alert">
           {s.toast}
