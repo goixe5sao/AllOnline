@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildLayout, MAP_INFO, type AvatarGroup, type Layout } from "@/core/maps";
 import { api, fmtDuration } from "@/lib/api";
 import type { PollViewDto } from "@/core/protocol";
-import { RoomScene, type Controls } from "./scene";
+import { hourIndex, ringBell, unlockAudio, vnHourLabel } from "./bell";
+import { PITCH_RANGE, RoomScene, type Controls } from "./scene";
 import { ScreenContent } from "./screen-content";
 import { OwnerPanel } from "./owner-panel";
 import { useRoom } from "./use-room";
@@ -155,6 +156,15 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [note, setNote] = useState<string | null>(null);
   const onSeatClick = useCallback((id: string, x: number, y: number) => setSeatPick({ id, x, y }), []);
   const personalStatus = s.personal?.status;
+  const goToSeat = (id: string) => {
+    const target = layout?.seats.find((x) => x.id === id);
+    if (personalStatus === "seated") send({ t: "change_seat", seatId: id });
+    else if (personalStatus === "finding" && target) {
+      controls.current.goto = { x: target.x, z: target.z, seatId: target.id };
+      setGoingTo(target.id);
+    } else setNote(personalStatus === "invited" ? "Hãy bấm “Nhận chỗ” trước." : "Bạn đang chờ ngoài cổng, chưa được vào khu chính.");
+    setSeatPick(null);
+  };
   useEffect(() => {
     if (personalStatus !== "finding") setGoingTo(null);
     if (personalStatus !== "finding" && controls.current) controls.current.goto = null;
@@ -170,6 +180,40 @@ export function RoomView({ roomId }: { roomId: string }) {
     const id = setTimeout(() => setNote(null), 4000);
     return () => clearTimeout(id);
   }, [note]);
+
+  // ---- hourly mindfulness bell (every hh:00, by server clock) ----
+  const [bellOn, setBellOn] = useState(true);
+  const [bellToast, setBellToast] = useState<string | null>(null);
+  const bellRef = useRef({ on: true, volume: 80 });
+  bellRef.current = { on: bellOn, volume };
+  useEffect(() => {
+    try {
+      setBellOn(localStorage.getItem("ao-bell") !== "0");
+    } catch {}
+    // Audio may only start after a user gesture.
+    const unlock = () => unlockAudio();
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+  useEffect(() => {
+    let last = hourIndex(serverNow());
+    const id = setInterval(() => {
+      const t = serverNow();
+      const idx = hourIndex(t);
+      if (idx > last) {
+        last = idx;
+        if (!bellRef.current.on) return;
+        ringBell(bellRef.current.volume / 100);
+        setBellToast("🔔 Chuông tỉnh thức · " + vnHourLabel(idx * 3_600_000));
+        setTimeout(() => setBellToast(null), 8000);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [serverNow]);
 
   useEffect(() => {
     try {
@@ -226,7 +270,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         return;
       }
       c.yaw -= (e.clientX - prev.x) * 0.004;
-      c.pitch = Math.max(-0.7, Math.min(0.7, c.pitch - (e.clientY - prev.y) * 0.004));
+      c.pitch = Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, c.pitch - (e.clientY - prev.y) * 0.003));
     };
     const up = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
@@ -360,6 +404,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           ad={s.ad}
           selectedSeat={seatPick?.id ?? goingTo}
           onSeatClick={onSeatClick}
+          onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
           screen={<ScreenContent {...screenProps} active={!fullView} />}
         />
       </div>
@@ -393,6 +438,24 @@ export function RoomView({ roomId }: { roomId: string }) {
           aria-pressed={lite}
         >
           {lite ? "Đồ hoạ: nhẹ" : "Đồ hoạ: đầy đủ"}
+        </button>
+        <button
+          className="hud-btn hide-mobile"
+          aria-pressed={bellOn}
+          title="Chuông tỉnh thức mỗi giờ (xx:00)"
+          onClick={() => {
+            const v = !bellOn;
+            setBellOn(v);
+            try {
+              localStorage.setItem("ao-bell", v ? "1" : "0");
+            } catch {}
+            if (v) {
+              unlockAudio();
+              setTimeout(() => ringBell(volume / 100), 50); // preview
+            }
+          }}
+        >
+          {bellOn ? "🔔 Chuông: bật" : "🔕 Chuông: tắt"}
         </button>
         {s.you.isRoomOwner && (
           <button className="hud-btn primary" onClick={() => setPanel(panel === "owner" ? null : "owner")}>
@@ -491,7 +554,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         <span style={{ flex: 1 }} />
         {isParticipant && openPoll && <ParticipantPoll poll={openPoll} myVote={s.myVotes[openPoll.id]} onVote={(o) => send({ t: "vote", pollId: openPoll.id, optionId: o })} isGuest={s.you.isGuest} />}
         {isParticipant && me?.status === "seated" && <span className="hud-chip">Chỗ {me.seatId}</span>}
-        {s.role === "owner" && <span className="hud-chip">Camera tự do: kéo để xoay, chuột phải/hai ngón để di chuyển, cuộn để zoom</span>}
+        {s.role === "owner" && <span className="hud-chip">Camera tự do: kéo để xoay, chuột phải/hai ngón để di chuyển, cuộn để zoom, nhấn đúp để đến vị trí</span>}
         {s.role === "observer" && <span className="hud-chip">Chủ ứng dụng — chế độ quan sát</span>}
       </div>
 
@@ -501,16 +564,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           <div className="row" style={{ justifyContent: "center", marginTop: 8 }}>
             <button
               className="hud-btn primary"
-              onClick={() => {
-                const st = s.personal?.status;
-                const target = layout.seats.find((x) => x.id === seatPick.id);
-                if (st === "seated") send({ t: "change_seat", seatId: seatPick.id });
-                else if (st === "finding" && target) {
-                  controls.current.goto = { x: target.x, z: target.z, seatId: target.id };
-                  setGoingTo(target.id);
-                } else setNote(st === "invited" ? "Hãy bấm “Nhận chỗ” trước." : "Bạn đang chờ ngoài cổng, chưa được vào khu chính.");
-                setSeatPick(null);
-              }}
+              onClick={() => goToSeat(seatPick.id)}
             >
               Đến
             </button>
@@ -518,6 +572,12 @@ export function RoomView({ roomId }: { roomId: string }) {
               Huỷ
             </button>
           </div>
+        </div>
+      )}
+      {bellToast && (
+        <div className="status-card" role="status" style={{ top: 110 }}>
+          {bellToast}
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Hít thở sâu và trở về với hiện tại.</div>
         </div>
       )}
       {note && (

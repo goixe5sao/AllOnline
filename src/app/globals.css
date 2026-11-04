@@ -148,7 +148,7 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .slotbar .req { background: repeating-linear-gradient(45deg, var(--ok), var(--ok) 4px, transparent 4px, transparent 8px); }
 
 /* ---------- room ---------- */
-.room-root { position: fixed; inset: 0; background: #0b1013; color: #eef3f1; overflow: hidden; touch-action: none; }
+.room-root { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; position: fixed; inset: 0; background: #0b1013; color: #eef3f1; overflow: hidden; touch-action: none; }
 .room-root .canvas-wrap { position: absolute; inset: 0; }
 .hud-top { position: absolute; top: 0; left: 0; right: 0; display: flex; gap: 8px; align-items: center; padding: 8px 10px; background: linear-gradient(rgb(0 0 0 / 0.6), transparent); z-index: 20000000; flex-wrap: wrap; pointer-events: none; }
 .hud-top > * { pointer-events: auto; }
@@ -220,3 +220,5 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .screen-ad:hover { filter: brightness(1.06); }
 .screen-ad-tag { font-size: 0.6em; font-weight: 600; background: rgb(0 0 0 / 0.15); padding: 0.1em 0.5em; border-radius: 0.4em; }
 .screen-surface .screen-overlay-warning { bottom: calc(9% + 14px); }
+/* inputs inside the room stay selectable/editable */
+.room-root input, .room-root textarea, .room-root select { user-select: text; -webkit-user-select: text; }

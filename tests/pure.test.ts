@@ -117,3 +117,13 @@ describe("market indicators & demo data", () => {
     expect(a[1].time - a[0].time).toBe(86400);
   });
 });
+
+describe("hourly bell timing", async () => {
+  const { hourIndex, vnHourLabel } = await import("@/components/room/bell");
+  it("rings on each hh:00 crossing and labels it in Vietnam time", () => {
+    const t = Date.UTC(2026, 10, 4, 7, 59, 59); // 14:59:59 in Vietnam
+    expect(hourIndex(t + 1000)).toBe(hourIndex(t) + 1);
+    expect(hourIndex(t + 1000) * 3_600_000).toBe(Date.UTC(2026, 10, 4, 8, 0, 0));
+    expect(vnHourLabel(Date.UTC(2026, 10, 4, 8, 0, 0))).toBe("15:00");
+  });
+});

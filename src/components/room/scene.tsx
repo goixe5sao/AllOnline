@@ -13,9 +13,15 @@ import type { PublicMember } from "@/core/room-engine";
 import type { ClientMsg, RoomRole, StageAd } from "@/core/protocol";
 import type { MemberStore } from "./use-room";
 
+/** Participants may only tilt the view a little (±12°) — they turn around themselves instead. */
+export const PITCH_RANGE = 0.21;
+
 export interface Controls {
   yaw: number;
+  /** Look up/down offset chosen by the user, limited to ±PITCH_RANGE around pitchBase. */
   pitch: number;
+  /** Default vertical view: screen centre when seated, slightly down when walking. */
+  pitchBase?: number;
   fov: number;
   keys: Set<string>;
   joy: { x: number; y: number };
@@ -208,7 +214,7 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
 
 // ---------------- environment ----------------
 
-function SeatsVisual({ layout, freeHighlight, occupied, selected }: { layout: Layout; freeHighlight: boolean; occupied: Set<string>; selected: string | null }) {
+function SeatsVisual({ layout, freeHighlight, occupied, selected, ownSeat }: { layout: Layout; freeHighlight: boolean; occupied: Set<string>; selected: string | null; ownSeat: string | null }) {
   const seats = layout.seats;
   const tables = useMemo(() => {
     const groups = new Map<string, Seat[]>();
@@ -230,10 +236,13 @@ function SeatsVisual({ layout, freeHighlight, occupied, selected }: { layout: La
           <Instances limit={seats.length}>
             <boxGeometry args={[0.6, 0.65, 0.1]} />
             <meshStandardMaterial color="#8a3a28" />
-            {seats.map((s) => {
-              const h = headingVec(s.rotY);
-              return <Instance key={s.id} position={[s.x - h.fx * 0.3, s.y + 0.8, s.z - h.fz * 0.3]} rotation={[0, s.rotY, 0]} />;
-            })}
+            {/* The viewer's own backrest is not drawn: it would fill the view when turning around. */}
+            {seats
+              .filter((s) => s.id !== ownSeat)
+              .map((s) => {
+                const h = headingVec(s.rotY);
+                return <Instance key={s.id} position={[s.x - h.fx * 0.3, s.y + 0.8, s.z - h.fz * 0.3]} rotation={[0, s.rotY, 0]} />;
+              })}
           </Instances>
         </>
       )}
@@ -455,17 +464,26 @@ function AdClickTarget({ layout, ad, domElement }: { layout: Layout; ad: StageAd
  * Tap/click (not a drag) on a free seat: the seat whose projected position is closest to the
  * pointer (within ~45 px) is reported. The canvas itself has no pointer events (DOM occlusion mode).
  */
-function SeatClickTarget({ layout, domElement, occupied, onSeatClick }: { layout: Layout; domElement: HTMLElement | null; occupied: Set<string>; onSeatClick?: (seatId: string, x: number, y: number) => void }) {
+function SeatClickTarget({
+  layout,
+  domElement,
+  occupied,
+  onSeatClick,
+  onSeatDoubleClick,
+}: {
+  layout: Layout;
+  domElement: HTMLElement | null;
+  occupied: Set<string>;
+  onSeatClick?: (seatId: string, x: number, y: number) => void;
+  onSeatDoubleClick?: (seatId: string) => void;
+}) {
   const { camera } = useThree();
   useEffect(() => {
     if (!domElement || !onSeatClick) return;
     const v = new THREE.Vector3();
     let down: { x: number; y: number; t: number } | null = null;
     const pd = (e: PointerEvent) => (down = { x: e.clientX, y: e.clientY, t: performance.now() });
-    const pu = (e: PointerEvent) => {
-      const d = down;
-      down = null;
-      if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8 || performance.now() - d.t > 500) return;
+    const nearestFreeSeat = (clientX: number, clientY: number) => {
       const r = domElement.getBoundingClientRect();
       let best: { id: string; dist: number } | null = null;
       for (const s of layout.seats) {
@@ -474,18 +492,31 @@ function SeatClickTarget({ layout, domElement, occupied, onSeatClick }: { layout
         if (v.z > 1 || v.z < -1) continue; // behind the camera / clipped
         const sx = r.left + ((v.x + 1) / 2) * r.width;
         const sy = r.top + ((1 - v.y) / 2) * r.height;
-        const dist = Math.hypot(sx - e.clientX, sy - e.clientY);
+        const dist = Math.hypot(sx - clientX, sy - clientY);
         if (dist < 45 && (!best || dist < best.dist)) best = { id: s.id, dist };
       }
-      if (best) onSeatClick(best.id, e.clientX - r.left, e.clientY - r.top);
+      return best ? { id: best.id, x: clientX - r.left, y: clientY - r.top } : null;
+    };
+    const pu = (e: PointerEvent) => {
+      const d = down;
+      down = null;
+      if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8 || performance.now() - d.t > 500) return;
+      const hit = nearestFreeSeat(e.clientX, e.clientY);
+      if (hit) onSeatClick(hit.id, hit.x, hit.y);
+    };
+    const dbl = (e: MouseEvent) => {
+      const hit = onSeatDoubleClick && nearestFreeSeat(e.clientX, e.clientY);
+      if (hit) onSeatDoubleClick!(hit.id);
     };
     domElement.addEventListener("pointerdown", pd);
     domElement.addEventListener("pointerup", pu);
+    domElement.addEventListener("dblclick", dbl);
     return () => {
       domElement.removeEventListener("pointerdown", pd);
       domElement.removeEventListener("pointerup", pu);
+      domElement.removeEventListener("dblclick", dbl);
     };
-  }, [domElement, layout, occupied, camera, onSeatClick]);
+  }, [domElement, layout, occupied, camera, onSeatClick, onSeatDoubleClick]);
   return null;
 }
 
@@ -514,7 +545,8 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
       const eyeY = (seatNow?.y ?? floorY(layout, me.z, me.status !== "waiting")) + layout.eyeHeight;
       // Seated: look at the screen centre. Walking (finding / waiting): look slightly down so free
       // seats and the floor ahead are visible.
-      c.pitch =
+      c.pitch = 0;
+      c.pitchBase =
         me.status === "seated" || me.status === "invited"
           ? Math.max(-0.7, Math.min(0.7, Math.atan2(sc.y - eyeY, Math.max(1, Math.hypot(sc.x - me.x, sc.z - me.z)))))
           : -0.28;
@@ -528,7 +560,7 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
     const movable = (me.status === "finding" || me.status === "waiting") && !(entryMode === "auto_assign" && me.status !== "waiting");
     let heading: number;
     if (seat && me.status === "seated") {
-      c.yaw = Math.max(-1.9, Math.min(1.9, c.yaw));
+      // Participants may turn all the way around themselves (no yaw limit).
       heading = seat.rotY + c.yaw;
       sf.x = seat.x;
       sf.z = seat.z;
@@ -604,7 +636,10 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
     camera.position.set(sf.x + h.rx * driver + h.fx * (isCar ? 0.2 : 0), baseY + layout.eyeHeight + (isCar ? 0.2 : 0), sf.z + h.rz * driver + h.fz * (isCar ? 0.2 : 0));
     camera.rotation.set(0, 0, 0, "YXZ");
     camera.rotation.y = heading;
-    camera.rotation.x = c.pitch;
+    // Seated: the "look at the screen" tilt fades out as the user turns away from the stage,
+    // so turning around shows the audience at eye level instead of the ceiling.
+    const base = me.status === "seated" ? (c.pitchBase ?? 0) * Math.max(0, Math.cos(c.yaw)) : (c.pitchBase ?? 0);
+    camera.rotation.x = base + Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, c.pitch));
     const pc = camera as THREE.PerspectiveCamera;
     if (Math.abs(pc.fov - c.fov) > 0.05) {
       pc.fov += (c.fov - pc.fov) * Math.min(1, dt * 8);
@@ -624,8 +659,43 @@ function OwnerRig({ layout, domElement, send }: { layout: Layout; domElement: HT
     ref.current?.target.set(0, 0, (m.minZ + m.maxZ) / 2);
     ref.current?.update();
   }, [camera, layout]);
+  // Double-click on the floor: glide the owner's camera (and chat position) to that spot.
+  const fly = useRef<{ from: THREE.Vector3; to: THREE.Vector3; start: number } | null>(null);
+  useEffect(() => {
+    if (!domElement) return;
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const ray = new THREE.Raycaster();
+    const hit = new THREE.Vector3();
+    const onDbl = (e: MouseEvent) => {
+      const ctl = ref.current;
+      if (!ctl) return;
+      const r = domElement.getBoundingClientRect();
+      ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+      if (!ray.ray.intersectPlane(plane, hit)) return;
+      const bounds = { minX: layout.main.minX, maxX: layout.main.maxX, minZ: layout.main.minZ, maxZ: layout.waiting.maxZ };
+      const p = clampToRect(bounds, hit.x, hit.z);
+      fly.current = { from: ctl.target.clone(), to: new THREE.Vector3(p.x, 0, p.z), start: performance.now() };
+    };
+    domElement.addEventListener("dblclick", onDbl);
+    return () => domElement.removeEventListener("dblclick", onDbl);
+  }, [domElement, camera, layout]);
   useFrame(() => {
     const now = performance.now();
+    const ctl = ref.current;
+    if (ctl && fly.current) {
+      const f = fly.current;
+      const k = Math.min(1, (now - f.start) / 600);
+      const ease = k * k * (3 - 2 * k);
+      const next = f.from.clone().lerp(f.to, ease);
+      const delta = next.clone().sub(ctl.target);
+      ctl.target.copy(next);
+      camera.position.add(delta); // keep the same viewing angle and distance
+      ctl.update();
+      if (k >= 1) {
+        fly.current = null;
+        last.current = 0; // report the new position right away
+      }
+    }
     if (ref.current && now - last.current > 250) {
       last.current = now;
       const t = ref.current.target;
@@ -657,6 +727,8 @@ export interface SceneProps {
   ad: StageAd | null;
   selectedSeat: string | null;
   onSeatClick?: (seatId: string, x: number, y: number) => void;
+  /** Room owner attending as a participant: double-click a free seat to go there at once. */
+  onSeatDoubleClick?: (seatId: string) => void;
 }
 
 export function RoomScene(p: SceneProps) {
@@ -678,7 +750,7 @@ export function RoomScene(p: SceneProps) {
       camera={{ fov: 60, near: 0.1, far: 400, position: [0, 2, 10] }}
     >
       <World layout={p.layout}>
-        <SeatsVisual layout={p.layout} freeHighlight={p.highlightFree} occupied={occupied} selected={p.selectedSeat} />
+        <SeatsVisual layout={p.layout} freeHighlight={p.highlightFree} occupied={occupied} selected={p.selectedSeat} ownSeat={p.role === "participant" ? (p.store.map.get(p.selfId)?.seatId ?? null) : null} />
         <StageScreen layout={p.layout} portal={p.portal}>
           {p.screen}
         </StageScreen>
@@ -687,7 +759,7 @@ export function RoomScene(p: SceneProps) {
         ))}
       </World>
       <AdClickTarget layout={p.layout} ad={p.ad} domElement={p.domElement} />
-      {p.role === "participant" && <SeatClickTarget layout={p.layout} domElement={p.domElement} occupied={occupied} onSeatClick={p.onSeatClick} />}
+      {p.role === "participant" && <SeatClickTarget layout={p.layout} domElement={p.domElement} occupied={occupied} onSeatClick={p.onSeatClick} onSeatDoubleClick={p.onSeatDoubleClick} />}
       {p.role === "participant" ? (
         <ParticipantRig layout={p.layout} store={p.store} selfId={p.selfId} controls={p.controls} send={p.send} entryMode={p.entryMode} />
       ) : (
