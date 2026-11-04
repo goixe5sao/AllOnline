@@ -10,6 +10,7 @@
  * levelsAt, markerStyle) — keep them in sync if StockVN changes how it draws.
  */
 import type { ChartInterval } from "@/core/market";
+import { INDEX_SYMBOLS } from "../market/providers";
 import type { AnalysisLayer, AnalysisOverlay, OverlayMarker } from "@/core/analysis";
 
 // ---------- StockVN replay payload (subset of StockVN src/lib/backtest/types.ts) ----------
@@ -100,9 +101,19 @@ export function barTime(time: string): number {
   return Date.UTC(y, m - 1, d) / 1000;
 }
 
+/**
+ * StockVN (VCI) prices stocks in VND; AllOnline candles (Entrade/SSI/VPS) use thousand VND.
+ * Indices are points on both sides.
+ */
+export function priceScale(symbol: string): number {
+  return INDEX_SYMBOLS.has(symbol.toUpperCase()) ? 1 : 1 / 1000;
+}
+
 /** Converts the latest replay state into a time-based overlay. Pure; unit-tested. */
 export function toOverlay(r: ReplayResult, interval: ChartInterval): AnalysisOverlay {
   const t = r.bars.length - 1;
+  const k = priceScale(r.symbol);
+  const px = (v: number) => Math.round(v * k * 1000) / 1000;
   const times = r.bars.map((b) => barTime(b.time));
   return {
     symbol: r.symbol,
@@ -116,9 +127,9 @@ export function toOverlay(r: ReplayResult, interval: ChartInterval): AnalysisOve
       dashed: line.kind.startsWith("channel"),
       points: lineSeries(line, t)
         .filter((p) => times[p.index] !== undefined)
-        .map((p) => ({ time: times[p.index], value: p.value })),
+        .map((p) => ({ time: times[p.index], value: px(p.value) })),
     })),
-    levels: levelsAt(r, t).map((l) => ({ kind: l.kind, price: l.price, touches: l.touches })),
+    levels: levelsAt(r, t).map((l) => ({ kind: l.kind, price: px(l.price), touches: l.touches })),
     markers: r.markers
       .filter((m) => m.i <= t && times[m.i] !== undefined)
       .map((m) => ({ time: times[m.i], text: m.text, layer: markerLayer(m), ...markerStyle(m) }))

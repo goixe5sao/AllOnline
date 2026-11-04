@@ -49,6 +49,15 @@ export interface StageChartProps {
   interactive: boolean;
 }
 
+/** Bars requested on first load per interval (server caps at 8000). */
+const HISTORY_COUNT: Record<ChartInterval, number> = { "1": 2000, "5": 2000, "15": 2000, "60": 2000, D: 8000, W: 2000 };
+
+function mergeByTime(old: Candle[], tail: Candle[]): Candle[] {
+  if (!tail.length) return old;
+  const from = tail[0].time;
+  return old.filter((c) => c.time < from).concat(tail);
+}
+
 function fmt(n: number | undefined) {
   return n === undefined ? "–" : n.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 }
@@ -74,14 +83,17 @@ export function StageChart(p: StageChartProps) {
   // Full fetch on open / interval change, then every minute (live bars fill the gaps in between).
   useEffect(() => {
     let cancelled = false;
+    let have: CandleResult | null = null;
+    // First load: the whole stored history (indices/watchlist: all of it, other stocks: since 2024);
+    // every minute after that only the tail, merged in by time.
     const load = () =>
-      fetch(`/api/market/candles?symbol=${encodeURIComponent(p.symbol)}&interval=${interval}&count=300`, { credentials: "same-origin" })
+      fetch(`/api/market/candles?symbol=${encodeURIComponent(p.symbol)}&interval=${interval}&count=${have && !have.isDemo ? 300 : HISTORY_COUNT[interval]}`, { credentials: "same-origin" })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
         .then((d: CandleResult) => {
-          if (!cancelled) {
-            setData(d);
-            setErr(null);
-          }
+          if (cancelled) return;
+          have = have && !have.isDemo && !d.isDemo ? { ...d, candles: mergeByTime(have.candles, d.candles) } : d;
+          setData(have);
+          setErr(null);
         })
         .catch(() => !cancelled && setErr("Không tải được dữ liệu biểu đồ."));
     const loadAnalysis = () =>

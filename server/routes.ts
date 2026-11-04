@@ -11,6 +11,7 @@ import { clientIp, readBody, readJson, sameOrigin, sendJson } from "./http";
 import { AVATARS, MAP_INFO } from "@/core/maps";
 import { CHART_INTERVALS, demoMarketProvider, type CandleResult } from "@/core/market";
 import type { MarketService } from "./market/service";
+import { searchSymbols } from "./market/symbols";
 import type { StockVnAnalysis } from "./analysis/stockvn";
 import { getPriceTiers, getSettings, priceTiersSchema, replacePriceTiers, settingsPatchSchema, slotBudget, updateSettings } from "./services/settings";
 import {
@@ -343,7 +344,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   route("GET", "/api/market/candles", async (ctx) => {
     needAttendee(ctx);
     const q = z
-      .object({ symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9.]{1,12}$/), interval: z.enum(CHART_INTERVALS).default("D"), count: z.coerce.number().int().min(20).max(1000).default(300) })
+      .object({ symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9.]{1,12}$/), interval: z.enum(CHART_INTERVALS).default("D"), count: z.coerce.number().int().min(20).max(8000).default(300) })
       .parse(Object.fromEntries(ctx.url.searchParams));
     const key = `${q.symbol}|${q.interval}|${q.count}`;
     const hit = candleCache.get(key);
@@ -356,6 +357,26 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     candleCache.set(key, { at: Date.now(), body });
     if (candleCache.size > 200) candleCache.delete(candleCache.keys().next().value!);
     return body;
+  });
+
+  // Stock picker (room owners): search listed symbols; indices and watchlist come first.
+  route("GET", "/api/market/symbols", async (ctx) => {
+    const u = needUser(ctx);
+    const q = z.object({ q: z.string().max(40).default(""), limit: z.coerce.number().int().min(1).max(50).default(20) }).parse(Object.fromEntries(ctx.url.searchParams));
+    return { symbols: await searchSymbols(db, q.q, q.limit), canWatch: u.role === "app_owner" };
+  });
+
+  // Watchlist (app owner): full daily history + 1-minute bars kept, always collected.
+  route("POST", "/api/admin/watchlist", async (ctx) => {
+    const u = needAdmin(ctx);
+    const b = z.object({ symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{3,10}$/), on: z.boolean() }).parse(await readJson(ctx.req));
+    const known = (await db.query<{ kind: string }>("select kind from app.market_symbols where symbol = $1", [b.symbol])).rows[0];
+    if (!known) throw new AppError("NOT_FOUND", "Mã không có trong danh sách niêm yết.", 404);
+    if (known.kind === "index") throw new AppError("INVALID", "Chỉ số luôn được nạp toàn bộ lịch sử.", 400);
+    if (b.on) await db.query("insert into app.market_watchlist (symbol, added_by) values ($1, $2) on conflict do nothing", [b.symbol, u.id]);
+    else await db.query("delete from app.market_watchlist where symbol = $1", [b.symbol]);
+    await market.watchlistChanged(b.symbol);
+    return { symbol: b.symbol, watch: b.on };
   });
 
   // Trendlines / channels / S-R / candle patterns / breakouts from the StockVN service (cached).

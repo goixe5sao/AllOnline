@@ -2,15 +2,24 @@
  * Market data scheduler + store.
  *  - Every minute during the Vietnamese session (Mon–Fri 08:45–15:15 ICT; every 15 min otherwise)
  *    it fetches 1-minute bars and daily bars for watched symbols and upserts them in
- *    app.market_candles. Watched = VNINDEX, VN30 + any symbol a room chart requested in the last hour.
+ *    app.market_candles. Watched = indices + watchlist (always) + any symbol a room chart requested
+ *    in the last hour.
+ *  - History depth (owner rule): indices and watchlist symbols get their FULL daily history and keep
+ *    their 1-minute bars; other stocks get daily bars from STOCK_HISTORY_FROM (2024-01-01) and
+ *    1-minute bars for 45 days.
  *  - Charts read from the DB: 1m as stored, 5m/15m/1h aggregated from 1m, D as stored (today's bar
  *    rebuilt from 1m when the daily endpoint lags), W aggregated from D.
  */
 import type { Db } from "../db";
 import type { Candle, ChartInterval } from "@/core/market";
+import { refreshSymbols } from "./symbols";
 import { SOURCES, VN_OFFSET_SEC, vnDayKey, type Resolution, type UpstreamSource } from "./providers";
 
 const DEFAULT_SYMBOLS = ["VNINDEX", "VN30"];
+/** Daily history start for ordinary stocks (UTC seconds). */
+export const STOCK_HISTORY_FROM = Date.UTC(2024, 0, 1) / 1000;
+/** "Everything": earlier than the first VN trading day (2000-07-28). */
+export const FULL_HISTORY_FROM = Date.UTC(2000, 0, 1) / 1000;
 /** Forming-bar refresh for symbols on screen (env MARKET_LIVE_MS; owner chose once a minute; min 500 ms). */
 const LIVE_POLL_MS = Math.max(500, Number(process.env.MARKET_LIVE_MS ?? 60_000) || 60_000);
 const WATCH_TTL_MS = 60 * 60_000;
@@ -54,6 +63,9 @@ const weekKey = (dayKey: number) => {
 export class MarketService {
   private watch = new Map<string, number>();
   private backfilled = new Set<string>();
+  private full = new Set<string>(DEFAULT_SYMBOLS);
+  private fullLoadedAt = 0;
+  private inflight = new Map<string, Promise<void>>();
   private running = false;
   private timer: NodeJS.Timeout | null = null;
   private minuteCount = 0;
@@ -65,9 +77,20 @@ export class MarketService {
   ) {}
 
   start() {
+    void this.refreshSymbolList();
     void this.tick(true);
     this.timer = setInterval(() => void this.tick(false), 60_000);
     this.liveTimer = setInterval(() => void this.liveTick(), LIVE_POLL_MS);
+  }
+
+  /** Listed-symbol table for the picker (VCI, at most once a day). */
+  private async refreshSymbolList() {
+    try {
+      const n = await refreshSymbols(this.db);
+      if (n) console.log(`[market] symbol list refreshed: ${n}`);
+    } catch (e) {
+      console.error("[market] symbol list:", (e as Error).message);
+    }
   }
 
   stop() {
@@ -138,29 +161,57 @@ export class MarketService {
   touch(symbol: string) {
     const isNew = !this.watch.has(symbol) && !DEFAULT_SYMBOLS.includes(symbol);
     this.watch.set(symbol, Date.now());
-    if (isNew && !this.backfilled.has(symbol)) void this.syncSymbol(symbol).catch(() => undefined);
+    if (isNew && !this.backfilled.has(symbol)) void this.sync(symbol).catch(() => undefined);
   }
 
-  private watched(now: number) {
+  /** Indices + watchlist: always collected, full history, 1-minute bars never purged. */
+  async fullSymbols(force = false): Promise<Set<string>> {
+    if (force || Date.now() - this.fullLoadedAt > 60_000) {
+      const rows = (await this.db.query<{ symbol: string }>("select symbol from app.market_symbols where kind = 'index' union select symbol from app.market_watchlist")).rows;
+      this.full = new Set([...DEFAULT_SYMBOLS, ...rows.map((r) => r.symbol)]);
+      this.fullLoadedAt = Date.now();
+    }
+    return this.full;
+  }
+
+  /** Watchlist changed: reload the set and backfill the symbol's full history now. */
+  async watchlistChanged(symbol: string) {
+    await this.fullSymbols(true);
+    void this.sync(symbol).catch(() => undefined);
+  }
+
+  /** syncSymbol with one in-flight run per symbol. */
+  sync(symbol: string): Promise<void> {
+    let p = this.inflight.get(symbol);
+    if (!p) {
+      p = this.syncSymbol(symbol).finally(() => this.inflight.delete(symbol));
+      this.inflight.set(symbol, p);
+    }
+    return p;
+  }
+
+  private async watched(now: number) {
     for (const [s, at] of this.watch) if (now - at > WATCH_TTL_MS) this.watch.delete(s);
-    return [...new Set([...DEFAULT_SYMBOLS, ...this.watch.keys()])];
+    return [...new Set([...(await this.fullSymbols()), ...this.watch.keys()])];
   }
 
   async tick(force: boolean) {
     const now = Date.now();
     this.minuteCount++;
+    if (this.minuteCount % 360 === 0) void this.refreshSymbolList();
     if (!force && !inVnSession(now) && this.minuteCount % 15 !== 0) return;
     if (this.running) return;
     this.running = true;
     this.status.lastRunAt = new Date(now).toISOString();
     try {
-      const symbols = this.watched(now);
+      const symbols = await this.watched(now);
       this.status.watched = symbols;
-      for (const s of symbols) await this.syncSymbol(s);
+      for (const s of symbols) await this.sync(s);
       this.status.lastOkAt = new Date().toISOString();
       this.status.lastError = null;
-      // Keep 1-minute history bounded (daily bars are kept).
-      if (this.minuteCount % 60 === 1) await this.db.query("delete from app.market_candles where resolution = '1' and time < $1", [Math.floor(now / 1000) - 45 * 86400]);
+      // Keep 1-minute history bounded for ordinary stocks (daily bars, indices and watchlist are kept).
+      if (this.minuteCount % 60 === 1)
+        await this.db.query("delete from app.market_candles where resolution = '1' and time < $1 and not (symbol = any($2::text[]))", [Math.floor(now / 1000) - 45 * 86400, [...(await this.fullSymbols())]]);
     } catch (e) {
       this.status.lastError = (e as Error).message;
       console.error("[market]", (e as Error).message);
@@ -184,17 +235,43 @@ export class MarketService {
     return { bars: [], source: null };
   }
 
+  /** Full-history backfill: sources differ in depth (e.g. VN100), so ask all and keep the longest. */
+  private async fetchLongest(symbol: string, from: number, to: number): Promise<{ bars: Candle[]; source: UpstreamSource | null }> {
+    let best: { bars: Candle[]; source: UpstreamSource | null } = { bars: [], source: null };
+    for (const src of this.sources) {
+      try {
+        const bars = await src.fetch(symbol, "D", from, to);
+        if (bars.length > best.bars.length) best = { bars, source: src };
+      } catch {
+        /* next source */
+      }
+    }
+    return best.source ? best : this.fetchWithFallback(symbol, "D", from, to);
+  }
+
   async syncSymbol(symbol: string) {
     const now = Math.floor(Date.now() / 1000);
     const first = !this.backfilled.has(symbol);
     const last1 = Number((await this.db.query<{ m: string | null }>("select max(time)::text as m from app.market_candles where symbol = $1 and resolution = '1'", [symbol])).rows[0].m ?? 0);
     const from1 = first || !last1 ? now - 7 * 86400 : last1 - 10 * 60;
-    const fromD = first ? now - 3 * 365 * 86400 : now - 10 * 86400;
+    // Daily depth: backfill once per symbol (again if it became an index/watchlist symbol).
+    const wantFull = (await this.fullSymbols()).has(symbol);
+    const hist = (await this.db.query<{ full_history: boolean }>("select full_history from app.market_history where symbol = $1", [symbol])).rows[0];
+    const needBackfill = !hist || (wantFull && !hist.full_history);
+    const fromD = needBackfill ? (wantFull ? FULL_HISTORY_FROM : STOCK_HISTORY_FROM) : now - 10 * 86400;
 
     const m1 = await this.fetchWithFallback(symbol, "1", from1, now);
     if (m1.source) await this.upsert(symbol, "1", m1.bars, m1.source.id);
-    const dd = await this.fetchWithFallback(symbol, "D", fromD, now);
-    if (dd.source) await this.upsert(symbol, "D", dd.bars.map((b) => ({ ...b, time: vnDayKey(b.time) })), dd.source.id);
+    const dd = needBackfill && wantFull ? await this.fetchLongest(symbol, fromD, now) : await this.fetchWithFallback(symbol, "D", fromD, now);
+    if (dd.source) {
+      await this.upsert(symbol, "D", dd.bars.map((b) => ({ ...b, time: vnDayKey(b.time) })), dd.source.id);
+      if (needBackfill)
+        await this.db.query(
+          `insert into app.market_history (symbol, daily_from, full_history) values ($1, to_timestamp($2)::date, $3)
+           on conflict (symbol) do update set daily_from = least(app.market_history.daily_from, excluded.daily_from), full_history = app.market_history.full_history or excluded.full_history, updated_at = now()`,
+          [symbol, fromD, wantFull],
+        );
+    }
     if (m1.source || dd.source) {
       this.backfilled.add(symbol);
       this.status.lastSource = (m1.source ?? dd.source)!.label;
@@ -202,6 +279,8 @@ export class MarketService {
   }
 
   private async upsert(symbol: string, res: Resolution, bars: Candle[], source: string) {
+    // Some sources repeat a timestamp (e.g. two prints mapped to one VN day): last one wins.
+    bars = [...new Map(bars.map((b) => [b.time, b])).values()];
     for (let i = 0; i < bars.length; i += 500) {
       const chunk = bars.slice(i, i + 500);
       await this.db.query(
@@ -219,7 +298,7 @@ export class MarketService {
   private async read(symbol: string, res: Resolution, limit: number): Promise<Candle[]> {
     const rows = (
       await this.db.query<{ time: string; open: number; high: number; low: number; close: number; volume: number }>(
-        "select time::text as time, open, high, low, close, volume from app.market_candles where symbol = $1 and resolution = $2 order by time desc limit $3",
+        "select time::text as time, open, high, low, close, volume from app.market_candles c where c.symbol = $1 and c.resolution = $2 order by c.time desc limit $3",
         [symbol, res, limit],
       )
     ).rows;
@@ -234,6 +313,8 @@ export class MarketService {
   /** Candles for the chart, or [] when nothing has been collected yet. */
   async candles(symbol: string, interval: ChartInterval, count: number): Promise<Candle[]> {
     this.touch(symbol);
+    // A symbol nobody has opened yet: wait (bounded) for its first backfill instead of showing DEMO.
+    if (!this.backfilled.has(symbol)) await Promise.race([this.sync(symbol).catch(() => undefined), new Promise((r) => setTimeout(r, 15_000))]);
     if (interval === "1") return this.withLive(symbol, await this.read(symbol, "1", count)).slice(-count);
     if (interval === "5" || interval === "15" || interval === "60") {
       const size = Number(interval) * 60;

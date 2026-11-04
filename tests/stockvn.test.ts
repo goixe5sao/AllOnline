@@ -75,3 +75,14 @@ describe("StockVnAnalysis service", () => {
     expect(await down.get("ABC", "D")).toMatchObject({ available: false });
   });
 });
+
+describe("price units", () => {
+  it("stock prices from StockVN (VND) are converted to AllOnline's thousand VND; indices unchanged", () => {
+    const r = { ...replay(), symbol: "HPG" };
+    r.level_frames = [{ i: 3, levels: [{ kind: "resistance", price: 22555.61, touches: 4 }] }];
+    const o = toOverlay(r, "D");
+    expect(o.levels[0].price).toBeCloseTo(22.556, 3);
+    expect(o.lines[0].points[0].value).toBeCloseTo(1.8, 3);
+    expect(toOverlay(replay(), "D").levels[0].price).toBe(1650);
+  });
+});

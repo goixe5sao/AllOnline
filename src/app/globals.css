@@ -222,3 +222,16 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .screen-surface .screen-overlay-warning { bottom: calc(9% + 14px); }
 /* inputs inside the room stay selectable/editable */
 .room-root input, .room-root textarea, .room-root select { user-select: text; -webkit-user-select: text; }
+
+/* Stock picker (owner panel) */
+.symbol-picker { display: grid; gap: 4px; position: relative; }
+.symbol-list { list-style: none; margin: 0; padding: 4px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.symbol-list li { display: flex; align-items: stretch; gap: 4px; }
+.symbol-list li[aria-selected="true"] .symbol-hit { background: var(--brand-soft); }
+.symbol-hit { flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; text-align: left; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer; }
+.symbol-hit:hover { background: var(--surface-2); }
+.symbol-hit b { min-width: 72px; }
+.symbol-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.symbol-hit small { grid-column: 2; }
+.symbol-star { border: 0; background: transparent; font-size: 18px; color: var(--warn); cursor: pointer; padding: 0 8px; }
+.symbol-picker .error { color: var(--danger); }

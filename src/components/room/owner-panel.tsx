@@ -9,6 +9,7 @@ import { CHART_INTERVALS, INDICATORS, INTERVAL_LABEL, type ChartInterval, type C
 import type { ClientMsg, PollViewDto, RoomInfoDto } from "@/core/protocol";
 import type { PublicMember } from "@/core/room-engine";
 import type { ChatLine } from "./use-room";
+import { SymbolPicker } from "./symbol-picker";
 
 const STATUS_VI: Record<string, string> = { seated: "Đang ngồi", finding: "Đang tìm chỗ", invited: "Được mời vào chỗ", waiting: "Chờ ngoài cổng" };
 
@@ -83,7 +84,10 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
       )}
       <label className="field">
         Loại nội dung
-        <select value={kind} onChange={(e) => setKind(e.target.value as ScreenContent["kind"])}>
+        <select value={kind} onChange={(e) => {
+            setKind(e.target.value as ScreenContent["kind"]);
+            setValue("");
+          }}>
           <option value="text">Văn bản</option>
           <option value="image">Hình ảnh (https hoặc tải lên)</option>
           <option value="youtube">Video YouTube</option>
@@ -94,8 +98,9 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
         </select>
       </label>
       {kind === "text" && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
-      {(kind === "image" || kind === "audio" || kind === "youtube" || kind === "chart" || kind === "tradingview") && (
-        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "youtube" ? "https://www.youtube.com/watch?v=…" : kind === "chart" ? "Mã, ví dụ VNINDEX, VN30, FPT" : kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
+      {kind === "chart" && <SymbolPicker value={value} onChange={setValue} />}
+      {(kind === "image" || kind === "audio" || kind === "youtube" || kind === "tradingview") && (
+        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "youtube" ? "https://www.youtube.com/watch?v=…" : kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
       )}
       {kind === "audio" && <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tiêu đề" />}
       {(kind === "image" || kind === "audio") && (
