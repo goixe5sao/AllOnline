@@ -17,6 +17,7 @@ interface Catalog {
   waitingRatio: number;
   maxRoomCapacity: number;
   trial: { enabled: boolean; maxHours: number; maxCapacity: number };
+  openEnded: { enabled: boolean; deposit: number };
 }
 
 interface Preview {
@@ -39,6 +40,9 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   const [waitingEnabled, setWaitingEnabled] = useState(true);
   const [entryMode, setEntryMode] = useState<"auto_assign" | "gate_entry">("auto_assign");
   const [hours, setHours] = useState(catalog.durationOptions[0] ?? 6);
+  // "Mở vô thời hạn – đến khi tắt": deposit now, settled by hours used when the room is closed.
+  const [openEnded, setOpenEnded] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
   const [password, setPassword] = useState("");
   const [screenKind, setScreenKind] = useState<"text" | "youtube" | "chart" | "blank">("text");
   const [screenValue, setScreenValue] = useState("Chào mừng đến với phòng!");
@@ -74,7 +78,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
     return undefined;
   }, [screenKind, screenValue, chartInterval]);
 
-  const config = { name: name || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, password, initialScreen };
+  const config = { name: name || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen };
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -85,7 +89,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
     }, 250);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capacity, waitingEnabled, hours, map, groups.join(","), promo]);
+  }, [capacity, waitingEnabled, hours, openEnded, useTrial, map, groups.join(","), promo]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -163,6 +167,9 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
             </button>
           </div>
         </div>
+        <label className="check">
+          <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Hiện phòng trên trang chủ AllOnline (ai cũng thấy và bấm vào được; đổi lại bất cứ lúc nào)
+        </label>
         <label className="field">
           Mật mã phòng <small>(không bắt buộc)</small>
           <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} maxLength={64} autoComplete="off" />
@@ -247,19 +254,43 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
 
             <label className="field">
               Thời hạn
-              <select value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+              <select
+                value={openEnded && !useTrial ? "open" : hours}
+                onChange={(e) => {
+                  if (e.target.value === "open") setOpenEnded(true);
+                  else {
+                    setOpenEnded(false);
+                    setHours(Number(e.target.value));
+                  }
+                }}
+              >
                 {durationChoices.map((h) => (
                   <option key={h} value={h}>
                     {h} giờ
                   </option>
                 ))}
+                {catalog.openEnded.enabled && !useTrial && <option value="open">Vô thời hạn — mở đến khi tắt phòng</option>}
               </select>
             </label>
 
-            {preview.trial.eligible ? (
+            {openEnded && !useTrial && preview.quote?.openEnded && (
+              <div className="notice stack" style={{ gap: 4 }}>
+                <strong>Phòng mở vô thời hạn</strong>
+                <span>
+                  Đặt cọc trước <strong>{formatVnd(preview.quote.openEnded.deposit)}</strong>. Đơn giá <strong>{formatVnd(preview.quote.openEnded.hourlyRate)}/giờ</strong>
+                  {preview.quote.openEnded.hourlyRate > 0 && ` — tiền cọc đủ cho khoảng ${Math.floor(preview.quote.openEnded.deposit / preview.quote.openEnded.hourlyRate)} giờ`}.
+                </span>
+                <small>
+                  Khi bạn tắt phòng, hệ thống tính số giờ đã mở (giờ bắt đầu dở tính tròn 1 giờ) × đơn giá: còn dư thì hoàn lại cho bạn, thiếu thì thu thêm. Phòng giữ slot đến khi tắt.
+                </small>
+              </div>
+            )}
+            {preview.trial.eligible && !(openEnded && !useTrial) ? (
               <label className="check">
                 <input type="checkbox" checked={useTrial} onChange={(e) => setUseTrial(e.target.checked)} /> Dùng thử miễn phí (tối đa {catalog.trial.maxCapacity} chỗ, {catalog.trial.maxHours} giờ)
               </label>
+            ) : openEnded && !useTrial ? (
+              <small>Dùng thử không áp dụng cho phòng vô thời hạn.</small>
             ) : (
               <small>Dùng thử: {preview.trial.reason}</small>
             )}
@@ -282,7 +313,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
                     </>
                   )}
                   <div className="row between">
-                    <span>{preview.quote.promo ? "Cần thanh toán" : "Giá"}</span>
+                    <span>{preview.quote.openEnded ? "Đặt cọc cần thanh toán" : preview.quote.promo ? "Cần thanh toán" : "Giá"}</span>
                     <strong>{formatVnd(preview.quote.amount)}</strong>
                   </div>
                   <small>{preview.quote.note}</small>
@@ -302,14 +333,16 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
               ) : (
                 <p className="notice warn">Chưa có giá cho cấu hình này (vượt bảng giá).</p>
               ))}
-            <small>Thời hạn tính từ lúc phòng được tạo thành công {useTrial ? "" : "(sau khi thanh toán được xác nhận)"}.</small>
+            <small>
+              {openEnded && !useTrial ? "Thời gian tính tiền" : "Thời hạn"} tính từ lúc phòng được tạo thành công {useTrial ? "" : "(sau khi thanh toán được xác nhận)"}.
+            </small>
           </>
         ) : (
           <p className="muted">Đang tính…</p>
         )}
         {err && <p className="notice error">{err}</p>}
         <button className="btn primary" disabled={busy || over || !groups.length || (!useTrial && !preview?.quote)}>
-          {busy ? "Đang xử lý…" : useTrial ? "Tạo phòng dùng thử" : preview?.quote?.amount === 0 ? "Tạo phòng (miễn phí với mã)" : "Tạo đơn & thanh toán"}
+          {busy ? "Đang xử lý…" : useTrial ? "Tạo phòng dùng thử" : preview?.quote?.amount === 0 ? "Tạo phòng (miễn phí với mã)" : preview?.quote?.openEnded ? "Tạo đơn & đặt cọc" : "Tạo đơn & thanh toán"}
         </button>
       </div>
     </form>

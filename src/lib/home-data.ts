@@ -1,0 +1,67 @@
+import type { MapCode } from "@/core/maps";
+
+/** A room its owner chose to show on the home page. */
+export interface HomeRoom {
+  id: string;
+  name: string;
+  description: string;
+  map: MapCode;
+  officialCapacity: number;
+  entryMode: string;
+  inviteCode: string;
+  openEnded: boolean;
+  expiresAt: number;
+  hasPassword: boolean;
+  ownerName: string;
+  live: { admitted: number; seated: number } | null;
+}
+
+export interface HomeData {
+  rooms: HomeRoom[];
+  enabledMaps: MapCode[];
+  online: number;
+}
+
+/**
+ * The custom Node server (server/index.ts) runs Next.js in the same process and registers this
+ * provider, so the home page is rendered on the server with the live room list (good for SEO)
+ * without an HTTP round-trip to itself. Missing during `next build` → empty data.
+ */
+export type HomeDataProvider = () => Promise<HomeData>;
+
+const KEY = "__allonlineHomeData";
+
+export function registerHomeData(p: HomeDataProvider) {
+  (globalThis as Record<string, unknown>)[KEY] = p;
+}
+
+export async function getHomeData(): Promise<HomeData> {
+  const p = (globalThis as Record<string, unknown>)[KEY] as HomeDataProvider | undefined;
+  if (!p) return { rooms: [], enabledMaps: ["hall", "carpet", "tables", "drive_in"], online: 0 };
+  try {
+    return await p();
+  } catch (e) {
+    console.error("[home]", e);
+    return { rooms: [], enabledMaps: ["hall", "carpet", "tables", "drive_in"], online: 0 };
+  }
+}
+
+export function toHomeRoom(
+  r: { id: string; name: string; description: string; map_code: MapCode; official_capacity: number; entry_mode: string; invite_code: string; open_ended: boolean; expires_at: Date | string; has_password: boolean; owner_name: string },
+  live: { admitted: number; seated: number } | null,
+): HomeRoom {
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    map: r.map_code,
+    officialCapacity: r.official_capacity,
+    entryMode: r.entry_mode,
+    inviteCode: r.invite_code,
+    openEnded: r.open_ended,
+    expiresAt: new Date(r.expires_at).getTime(),
+    hasPassword: r.has_password,
+    ownerName: r.owner_name,
+    live,
+  };
+}

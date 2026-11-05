@@ -17,7 +17,10 @@ import { createApi } from "./routes";
 import { createStorage } from "./storage";
 import { MarketService } from "./market/service";
 import { StockVnAnalysis } from "./analysis/stockvn";
-import { closeRoom, dueRooms, expireOrders } from "./services/rooms";
+import { closeRoom, dueRooms, expireOrders, listPublicRooms } from "./services/rooms";
+import { getSettings } from "./services/settings";
+import { registerHomeData, toHomeRoom } from "@/lib/home-data";
+import type { MapCode } from "@/core/maps";
 import { getUser } from "./services/users";
 import { clientIp } from "./http";
 import path from "node:path";
@@ -39,6 +42,18 @@ async function main() {
   // Technical analysis is provided by the StockVN service (trendlines, channels, S/R, patterns…).
   const analysis = new StockVnAnalysis(cfg.stockvnUrl, undefined, undefined, cfg.stockvnToken);
   const api = createApi({ cfg, db, auth, hub, storage, market, analysis });
+  // Data for the server-rendered home page (same process as Next.js).
+  registerHomeData(async () => {
+    const [rows, s] = await Promise.all([listPublicRooms(db), getSettings(db)]);
+    return {
+      rooms: rows.map((r) => {
+        const live = hub.roomStats(r.id);
+        return toHomeRoom(r, live ? { admitted: live.admitted, seated: live.seated } : null);
+      }),
+      enabledMaps: s.enabled_maps as MapCode[],
+      online: hub.stats().onlineUsers,
+    };
+  });
 
   // Sweepers use the database clock (now()), never a browser clock.
   let sweeping = false;

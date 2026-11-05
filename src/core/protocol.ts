@@ -30,6 +30,8 @@ export interface RoomInfoDto {
   waitingCapacity: number;
   avatarGroups: AvatarGroup[];
   expiresAt: number;
+  /** Open until closed (no countdown / extension); expiresAt is only a technical far-away date. */
+  openEnded: boolean;
   isTrial: boolean;
 }
 

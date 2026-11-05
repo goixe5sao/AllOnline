@@ -1,139 +1,228 @@
-"use client";
-
+import type { Metadata } from "next";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { AppShell } from "@/components/app-shell";
-import { fmtTime, useApi } from "@/lib/api";
+import { connection } from "next/server";
+import { Be_Vietnam_Pro, Exo_2 } from "next/font/google";
 import { MAP_INFO, type MapCode } from "@/core/maps";
+import { getHomeData } from "@/lib/home-data";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
+import { HeroStage } from "@/components/home/hero-stage";
+import { HeroActions, HomeNav } from "@/components/home/home-nav";
+import { JoinCode } from "@/components/home/join-code";
+import { LiveRooms } from "@/components/home/live-rooms";
+import { MyRooms } from "@/components/home/my-rooms";
+import "./home.css";
 
-interface MyRoom {
-  id: string;
-  name: string;
-  map_code: MapCode;
-  status: string;
-  official_capacity: number;
-  waiting_capacity: number;
-  total_slots: number;
-  expires_at: string;
-  invite_code: string;
-  is_trial: boolean;
-  live: { admitted: number; seated: number; waiting: number } | null;
+const display = Exo_2({ subsets: ["latin", "vietnamese"], weight: ["600", "800"], variable: "--f-display", display: "swap" });
+const body = Be_Vietnam_Pro({ subsets: ["latin", "vietnamese"], weight: ["400", "500", "700"], variable: "--f-body", display: "swap" });
+
+export const metadata: Metadata = {
+  title: { absolute: "AllOnline — Sân khấu 3D của tương lai | Phòng đang mở" },
+  description: SITE_DESCRIPTION,
+  alternates: { canonical: "/" },
+};
+
+const STAGES: Record<MapCode, { fit: string; tag: string }> = {
+  hall: { tag: "Hội nghị · lớp học · ra mắt", fit: "Ghế dốc như rạp thật, lối đi giữa, cổng và khu chờ. Hợp cho hội thảo, lớp học, họp cổ đông, ra mắt sản phẩm." },
+  carpet: { tag: "Thiền · trò chuyện · cộng đồng", fit: "Thảm ngồi so le quanh màn hình chung — gần gũi, thư thái. Hợp cho buổi thiền, chia sẻ, câu lạc bộ." },
+  tables: { tag: "Workshop · nhóm · networking", fit: "Mỗi bàn 4 chỗ, chat với người cùng bàn. Hợp cho workshop, thảo luận nhóm, kết nối." },
+  drive_in: { tag: "Chiếu phim · đêm nhạc · sự kiện lớn", fit: "Rạp ngoài trời buổi tối, ô đỗ dốc dần và so le để xe trước không che. Khách lái xe vào chỗ và xem từ ghế lái." },
+};
+
+const FEATURES: { icon: string; title: string; text: string }[] = [
+  { icon: "🛸", title: "Một màn hình cho mọi người", text: "Video YouTube, biểu đồ chứng khoán Việt Nam cập nhật từng phút, hình ảnh, văn bản, bình chọn — mọi người thấy cùng lúc, đồng bộ theo giờ máy chủ." },
+  { icon: "🤖", title: "Nhân vật đại diện", text: "Người, động vật hay xe. Ngồi ghế, quay nhìn quanh, xem từ phía sau 2 hàng để thấy chính mình giữa khán phòng." },
+  { icon: "👽", title: "Chat với người ngồi gần", text: "Tin nhắn chỉ tới những ai ở gần bạn, như thì thầm trong khán phòng thật. Không lưu lại, không voice, không webcam." },
+  { icon: "🗳️", title: "Bình chọn trực tiếp", text: "Chủ phòng mở câu hỏi, kết quả hiện ngay trên sân khấu. Có thể chỉ cho tài khoản đã đăng ký bình chọn để chống gian lận." },
+  { icon: "📱", title: "Máy tính, máy tính bảng, điện thoại", text: "Chạy ngay trên trình duyệt, không cài đặt. Điện thoại có cần điều khiển cảm ứng; máy yếu bật đồ hoạ nhẹ." },
+  { icon: "∞", title: "Theo giờ hoặc vô thời hạn", text: "Dùng thử miễn phí, gói 6–24 giờ, hoặc mở vô thời hạn: đặt cọc trước, tắt phòng mới tính đúng số giờ đã dùng." },
+];
+
+const FAQ: { q: string; a: string }[] = [
+  { q: "Khách có cần tạo tài khoản để vào phòng không?", a: "Không. Khách chỉ cần link mời (hoặc bấm vào phòng công khai trên trang chủ), nhập tên và chọn nhân vật. Tài khoản chỉ cần cho người tạo phòng." },
+  { q: "Phòng của tôi có hiện trên trang chủ không?", a: "Tuỳ bạn. Khi tạo phòng có ô “Hiện phòng trên trang chủ”; bạn bật/tắt lại bất cứ lúc nào trong mục Phòng của tôi hoặc bảng điều khiển phòng. Phòng ẩn chỉ vào được bằng link mời." },
+  { q: "Phòng mở vô thời hạn tính tiền thế nào?", a: "Bạn đặt cọc trước (mặc định 1.000.000 ₫). Phòng mở đến khi bạn tắt. Khi tắt, hệ thống tính số giờ đã mở (giờ dở tính tròn 1 giờ) × đơn giá theo sức chứa: còn dư thì hoàn lại cho bạn, thiếu thì thu thêm." },
+  { q: "Một phòng chứa được bao nhiêu người?", a: "Bạn chọn số chỗ chính thức khi tạo phòng; có thể bật thêm khu chờ ngoài cổng. Người chờ được mời vào theo thứ tự khi có chỗ trống." },
+  { q: "Dùng được trên điện thoại không?", a: "Được. AllOnline chạy trên trình duyệt của máy tính, máy tính bảng và điện thoại; nút “Xem màn hình” mở riêng màn hình sân khấu toàn màn hình." },
+];
+
+function JsonLd({ rooms }: { rooms: { name: string; inviteCode: string }[] }) {
+  const data = [
+    { "@context": "https://schema.org", "@type": "WebSite", name: SITE_NAME, url: SITE_URL, inLanguage: "vi-VN", description: SITE_DESCRIPTION },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      name: "AllOnline",
+      url: SITE_URL,
+      applicationCategory: "MultimediaApplication",
+      operatingSystem: "Web (Windows, macOS, Android, iOS)",
+      inLanguage: "vi-VN",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "VND", description: "Dùng thử miễn phí" },
+    },
+    { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: FAQ.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) },
+    ...(rooms.length
+      ? [{ "@context": "https://schema.org", "@type": "ItemList", name: "Phòng đang mở", itemListElement: rooms.slice(0, 20).map((r, i) => ({ "@type": "ListItem", position: i + 1, name: r.name, url: `${SITE_URL}/join/${r.inviteCode}` })) }]
+      : []),
+  ];
+  // JSON.stringify output is safe in a script tag once "<" is escaped.
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data).replace(/</g, "\\u003c") }} />;
 }
 
-function JoinByCode() {
-  const router = useRouter();
-  const [code, setCode] = useState("");
-  return (
-    <form
-      className="row"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const c = code.trim().split("/").pop();
-        if (c) router.push(`/join/${encodeURIComponent(c.toUpperCase())}`);
-      }}
-    >
-      <input type="text" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Mã mời, ví dụ K7QX2MPA" aria-label="Mã mời" style={{ flex: 1, minWidth: 180 }} />
-      <button className="btn primary">Vào phòng</button>
-    </form>
-  );
-}
+export default async function Home() {
+  await connection(); // live data: render per request
+  const { rooms, enabledMaps, online } = await getHomeData();
+  const watching = rooms.reduce((n, r) => n + (r.live?.admitted ?? 0), 0);
 
-function MyRooms() {
-  const { data } = useApi<{ rooms: MyRoom[] }>("/api/rooms/mine", 10_000);
-  if (!data) return <p className="muted">Đang tải phòng…</p>;
-  if (!data.rooms.length) return <p className="muted">Bạn chưa tạo phòng nào.</p>;
   return (
-    <div className="grid grid-2">
-      {data.rooms.map((r) => (
-        <article className="card" key={r.id}>
-          <div className="row between">
-            <h3 style={{ margin: 0 }}>{r.name}</h3>
-            <span className={`badge ${r.status === "open" ? "ok" : ""}`}>{r.status === "open" ? "Đang mở" : r.status === "expired" ? "Hết hạn" : "Đã đóng"}</span>
+    <div className={`home ${display.variable} ${body.variable}`}>
+      <JsonLd rooms={rooms} />
+      <div className="stars" aria-hidden />
+      <HomeNav />
+
+      <main>
+        <section className="hero" aria-labelledby="hero-h">
+          <div className="hero-copy">
+            <p className="eyebrow">Sân khấu của thời đại mới</p>
+            <h1 id="hero-h">
+              Người, robot, người ngoài hành tinh và AI
+              <span className="grad"> cùng chung một sân khấu.</span>
+            </h1>
+            <p className="lead">
+              AllOnline là khán phòng 3D trực tuyến: mở phòng trong một phút, mời mọi người bằng một đường link, cùng xem màn hình sân khấu, trò chuyện với người ngồi cạnh và bình chọn trực tiếp — ngay trên trình duyệt.
+            </p>
+            <HeroActions />
+            <JoinCode />
+            <dl className="stats">
+              <div>
+                <dt>Phòng công khai đang mở</dt>
+                <dd>{rooms.length}</dd>
+              </div>
+              <div>
+                <dt>Người đang trong khán phòng</dt>
+                <dd>{Math.max(online, watching)}</dd>
+              </div>
+              <div>
+                <dt>Kiểu sân khấu</dt>
+                <dd>{enabledMaps.length}</dd>
+              </div>
+            </dl>
           </div>
-          <p className="muted" style={{ margin: "6px 0" }}>
-            {MAP_INFO[r.map_code].name} · {r.official_capacity} chỗ + {r.waiting_capacity} chờ = {r.total_slots} slot {r.is_trial && <span className="badge warn">dùng thử</span>}
-          </p>
-          <p className="muted" style={{ margin: "6px 0" }}>
-            Hết hạn: {fmtTime(r.expires_at)}
-            {r.live && ` · Đang có ${r.live.admitted} người (${r.live.seated} ngồi, ${r.live.waiting} chờ)`}
-          </p>
-          {r.status === "open" && (
-            <div className="row">
-              <Link className="btn primary small" href={`/room/${r.id}`} onClick={() => sessionStorage.removeItem(`ao-mode-${r.id}`)}>
-                Vào điều khiển
-              </Link>
-              <button className="btn small" onClick={() => navigator.clipboard?.writeText(`${location.origin}/join/${r.invite_code}`)}>
-                Sao chép link mời
-              </button>
-              <code>{r.invite_code}</code>
+          <div className="hero-art">
+            <HeroStage />
+          </div>
+        </section>
+
+        <section id="phong-dang-mo" className="hs-section" aria-labelledby="rooms-h">
+          <div className="sec-head">
+            <div>
+              <p className="eyebrow">Đang diễn ra</p>
+              <h2 id="rooms-h">Phòng đang mở</h2>
             </div>
-          )}
-          <div className="row" style={{ marginTop: 8 }}>
-            <Link className="btn small" href={`/room/${r.id}/logs`}>
-              Log phòng
+            <p className="sec-note">Chủ phòng tự chọn hiện phòng ở đây. Bấm vào một phòng để ghé xem — không cần tài khoản.</p>
+          </div>
+          <LiveRooms initial={rooms} maps={enabledMaps} />
+        </section>
+
+        <MyRooms />
+
+        <section id="kieu-san-khau" className="hs-section" aria-labelledby="stages-h">
+          <div className="sec-head">
+            <div>
+              <p className="eyebrow">Tham khảo</p>
+              <h2 id="stages-h">Các kiểu sân khấu trên AllOnline</h2>
+            </div>
+            <p className="sec-note">Ảnh chụp từ khán phòng thật trong ứng dụng. Chọn kiểu phù hợp khi tạo phòng.</p>
+          </div>
+          <div className="stage-grid">
+            {(Object.keys(MAP_INFO) as MapCode[]).map((m) => (
+              <article className={`stage-card ${enabledMaps.includes(m) ? "" : "off"}`} key={m}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- static webp preview */}
+                <img src={`/maps/${m}.webp`} alt={`Ảnh ${MAP_INFO[m].name} trong AllOnline`} loading="lazy" width={960} height={600} />
+                <div className="stage-body">
+                  <p className="stage-tag">{STAGES[m].tag}</p>
+                  <h3>{MAP_INFO[m].name}</h3>
+                  <p>{STAGES[m].fit}</p>
+                  {!enabledMaps.includes(m) && <p className="stage-off">Tạm chưa mở</p>}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="cach-hoat-dong" className="hs-section" aria-labelledby="how-h">
+          <div className="sec-head">
+            <div>
+              <p className="eyebrow">3 bước</p>
+              <h2 id="how-h">Mở sân khấu của riêng bạn</h2>
+            </div>
+          </div>
+          <ol className="steps">
+            <li>
+              <b>Tạo tài khoản</b>
+              <span>Email và mật khẩu, mất chưa đến một phút.</span>
+            </li>
+            <li>
+              <b>Mở phòng</b>
+              <span>Chọn kiểu sân khấu, số chỗ, thời lượng — hoặc vô thời hạn đến khi bạn tắt. Có dùng thử miễn phí.</span>
+            </li>
+            <li>
+              <b>Gửi link mời</b>
+              <span>Khách vào ngay, không cần tài khoản. Bạn điều khiển màn hình, bình chọn và người tham dự.</span>
+            </li>
+          </ol>
+          <div className="features">
+            {FEATURES.map((f) => (
+              <article className="feature" key={f.title}>
+                <span className="f-icon" aria-hidden>
+                  {f.icon}
+                </span>
+                <h3>{f.title}</h3>
+                <p>{f.text}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="cta-band" aria-labelledby="cta-h">
+          <h2 id="cta-h">Sân khấu tương lai đang chờ bạn bước lên.</h2>
+          <p>Tạo tài khoản miễn phí, mở phòng đầu tiên và mời cả vũ trụ của bạn vào xem.</p>
+          <div className="hero-actions center">
+            <Link className="btn-neon" href="/login?mode=signup&next=%2Frooms%2Fnew">
+              Tạo tài khoản miễn phí
+            </Link>
+            <Link className="btn-ghost" href="/login?next=%2Frooms%2Fnew">
+              Tôi đã có tài khoản
             </Link>
           </div>
-        </article>
-      ))}
-    </div>
-  );
-}
+        </section>
 
-export default function Home() {
-  return (
-    <AppShell>
-      {(me) => (
-        <div className="stack">
-          <section className="card">
-            <h1>Mọi người, cùng một không gian.</h1>
-            <p className="muted">Phòng 3D với màn hình sân khấu chung, chat với người ở gần và bình chọn trực tiếp. Hỗ trợ máy tính và điện thoại.</p>
-            {me && !me.isGuest ? (
-              <div className="grid grid-2">
-                <div className="stack">
-                  <strong>Tham gia phòng bằng mã mời</strong>
-                  <JoinByCode />
-                </div>
-                <div className="stack">
-                  <strong>Tổ chức phòng của bạn</strong>
-                  <Link className="btn primary" href="/rooms/new">
-                    Tạo phòng mới
-                  </Link>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-2">
-                <div className="stack">
-                  <strong>Có mã mời? Vào ngay, không cần tài khoản</strong>
-                  <JoinByCode />
-                </div>
-                <div className="stack">
-                  <strong>Muốn tổ chức phòng?</strong>
-                  <Link className="btn primary" href="/login">
-                    Đăng nhập / đăng ký
-                  </Link>
-                </div>
-              </div>
-            )}
-          </section>
-          {me && !me.isGuest && (
-            <section>
-              <h2>Phòng của tôi</h2>
-              <MyRooms />
-            </section>
-          )}
-          <section className="grid grid-4">
-            {(Object.keys(MAP_INFO) as MapCode[]).map((m) => (
-              <div className="card" key={m}>
-                <h3>{MAP_INFO[m].name}</h3>
-                <p className="muted" style={{ margin: 0 }}>
-                  {MAP_INFO[m].description}
-                </p>
-              </div>
+        <section id="hoi-dap" className="hs-section" aria-labelledby="faq-h">
+          <div className="sec-head">
+            <div>
+              <p className="eyebrow">Hỏi đáp</p>
+              <h2 id="faq-h">Câu hỏi thường gặp</h2>
+            </div>
+          </div>
+          <div className="faq">
+            {FAQ.map((f) => (
+              <details key={f.q}>
+                <summary>{f.q}</summary>
+                <p>{f.a}</p>
+              </details>
             ))}
-          </section>
-        </div>
-      )}
-    </AppShell>
+          </div>
+        </section>
+      </main>
+
+      <footer className="foot">
+        <span>
+          © {new Date().getFullYear()} AllOnline · <a href={SITE_URL}>{SITE_URL.replace(/^https?:\/\//, "")}</a>
+        </span>
+        <nav aria-label="Liên kết cuối trang">
+          <a href="#phong-dang-mo">Phòng đang mở</a>
+          <a href="#kieu-san-khau">Kiểu sân khấu</a>
+          <Link href="/login">Đăng nhập</Link>
+        </nav>
+      </footer>
+    </div>
   );
 }

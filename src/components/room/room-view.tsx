@@ -379,7 +379,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     serverNow,
     polls: s.polls,
     roomName: s.room.name,
-    expiresAt: s.room.expiresAt,
+    expiresAt: s.room.openEnded ? null : s.room.expiresAt,
     warningMinutes: s.settings?.warningMinutes ?? [30, 10, 1],
     volume,
     muted,
@@ -387,7 +387,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     ad: s.ad,
   };
   const p = s.personal;
-  const remaining = s.room.expiresAt - (now + (serverNow() - Date.now()));
+  const remaining = s.room.openEnded ? Infinity : s.room.expiresAt - (now + (serverNow() - Date.now()));
   const warnWindow = Math.max(0, ...(s.settings?.warningMinutes ?? [30])) * 60_000;
   const openPoll = [...s.polls].reverse().find((x) => x.status === "open") ?? null;
 

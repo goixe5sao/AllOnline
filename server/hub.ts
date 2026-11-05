@@ -243,6 +243,7 @@ export class Hub {
       waitingCapacity: row.waiting_capacity,
       avatarGroups: row.avatar_groups as AvatarGroup[],
       expiresAt: new Date(row.expires_at).getTime(),
+      openEnded: row.open_ended,
       isTrial: row.is_trial,
     };
   }
