@@ -45,6 +45,8 @@ interface LiveRoom {
   hands: Map<string, { name: string; at: number }>;
   /** Activity since the last statistics sample (counts only, no content). */
   counters: { reactions: number; chats: number };
+  /** Stage lights (owner / co-host switch, everyone sees it). Live state only: a new session starts lit. */
+  lights: boolean;
 }
 
 const num = z.number().finite();
@@ -75,6 +77,7 @@ const msgSchema = z.union([
   z.object({ t: z.literal("hand_lower"), userId: z.string().uuid() }),
   z.object({ t: z.literal("q_set"), id: z.string().uuid(), status: z.enum(["open", "answered", "hidden"]) }),
   z.object({ t: z.literal("q_show"), id: z.string().uuid() }),
+  z.object({ t: z.literal("stage_lights"), on: z.boolean() }),
 ] as const) as unknown as z.ZodType<ClientMsg>;
 
 export class Hub {
@@ -243,7 +246,7 @@ export class Hub {
       );
       const screen = (row.screen_state as ScreenState)?.content ? (row.screen_state as ScreenState) : BLANK_SCREEN;
       const mods = new Set((await listModerators(this.db, roomId)).map((m) => m.userId));
-      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 } };
+      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 }, lights: true };
       this.rooms.set(roomId, r);
       return r;
     })().finally(() => this.loading.delete(roomId));
@@ -251,7 +254,7 @@ export class Hub {
     return p;
   }
 
-  private roomInfo(row: RoomRow): RoomInfoDto {
+  private roomInfo(row: RoomRow, lights = true): RoomInfoDto {
     return {
       id: row.id,
       name: row.name,
@@ -266,6 +269,7 @@ export class Hub {
       isTrial: row.is_trial,
       startsAt: row.scheduled_at ? new Date(row.scheduled_at).getTime() : null,
       stageStyle: row.stage_style ?? "plain",
+      stageLights: lights,
     };
   }
 
@@ -546,6 +550,14 @@ export class Hub {
         this.broadcast(room, { t: "screen", state: room.screen });
         return;
       }
+      case "stage_lights": {
+        requireOwner();
+        if (room.lights === m.on) return;
+        room.lights = m.on;
+        await logRoomEvent(this.db, room.row.id, uid, "stage_lights", { on: m.on });
+        this.broadcast(room, { t: "stage_lights", on: m.on });
+        return;
+      }
       case "poll_show": {
         requireOwner();
         const v = await pollView(this.db, m.id);
@@ -612,7 +624,7 @@ export class Hub {
       t: "welcome",
       role,
       you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner, isModerator: room.mods.has(uid) },
-      room: this.roomInfo(room.row),
+      room: this.roomInfo(room.row, room.lights),
       members: room.engine.publicMembers(),
       screen: room.screen,
       polls: await listPolls(this.db, room.row.id),

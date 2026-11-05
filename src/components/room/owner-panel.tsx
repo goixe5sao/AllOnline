@@ -16,7 +16,7 @@ import { HostsSection, ScheduleSection, StatsTab } from "./owner-extra";
 
 const STATUS_VI: Record<string, string> = { seated: "Đang ngồi", finding: "Đang tìm chỗ", invited: "Được mời vào chỗ", waiting: "Chờ ngoài cổng" };
 
-function StageStyleSwitch({ roomId, style }: { roomId: string; style: "glam" | "plain" }) {
+function StageStyleSwitch({ roomId, style, lights, send }: { roomId: string; style: "glam" | "plain"; lights: boolean; send: (m: ClientMsg) => void }) {
   const [err, setErr] = useState("");
   const set = async (s: "glam" | "plain") => {
     try {
@@ -30,10 +30,13 @@ function StageStyleSwitch({ roomId, style }: { roomId: string; style: "glam" | "
       <small>Kiểu sân khấu (mọi người thấy ngay)</small>
       <div className="row">
         <button className={`hud-btn ${style === "glam" ? "primary" : ""}`} aria-pressed={style === "glam"} onClick={() => set("glam")}>
-          ✨ Lung linh
+          🛸 Hành tinh tương lai
         </button>
         <button className={`hud-btn ${style === "plain" ? "primary" : ""}`} aria-pressed={style === "plain"} onClick={() => set("plain")}>
           ◻ Đơn sắc
+        </button>
+        <button className={`hud-btn ${lights ? "primary" : ""}`} aria-pressed={lights} onClick={() => send({ t: "stage_lights", on: !lights })}>
+          {lights ? "💡 Đèn sân khấu: bật" : "🌑 Đèn sân khấu: tắt"}
         </button>
       </div>
       {err && <small>{err}</small>}
@@ -456,7 +459,7 @@ export function OwnerPanel(p: {
       </div>
       {tab === "screen" && (
         <>
-          <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} />
+          <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} lights={p.room.stageLights} send={p.send} />
           <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} />
         </>
       )}

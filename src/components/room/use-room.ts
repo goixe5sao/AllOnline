@@ -148,6 +148,9 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
         case "stage_style":
           setS((p) => (p.room ? { ...p, room: { ...p.room, stageStyle: m.style } } : p));
           return;
+        case "stage_lights":
+          setS((p) => (p.room ? { ...p, room: { ...p.room, stageLights: m.on } } : p));
+          return;
         case "mod":
           setS((p) => (p.you ? { ...p, you: { ...p.you, isModerator: m.isModerator } } : p));
           toast(m.isModerator ? "Bạn vừa được chủ phòng chọn làm trợ lý điều hành." : "Bạn không còn là trợ lý điều hành.");

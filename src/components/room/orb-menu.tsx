@@ -47,14 +47,17 @@ export function AlienOrb({ items, onReact, badge }: { items: OrbItem[]; onReact?
     if (!open) setReacts(false);
   }, [open]);
 
-  // Arcs in the up-left quarter around the orb (bottom-right corner): 3, 4 and 4 places; the
+  // Arcs in the up-left quarter around the orb (bottom-right corner): 3, 4 and 4 places (+ a 4th arc when needed); the
   // reaction toggle takes the last place of the last arc, reactions get an arc of their own.
+  // A 4th arc only when there are more functions (owner attending as a participant).
+  const all = onReact ? [...items, null] : items;
   const RINGS = [
     { n: 3, r: 1.25 },
     { n: 4, r: 2.1 },
     { n: 4, r: 2.95 },
+    ...(all.length > 11 ? [{ n: all.length - 11, r: 3.8 }] : []),
   ];
-  const all = onReact ? [...items, null] : items;
+  const reactR = RINGS[RINGS.length - 1].r + 0.9;
   const slots: { item: OrbItem | null; style: React.CSSProperties }[] = [];
   let k = 0;
   for (const ring of RINGS) {
@@ -115,7 +118,7 @@ export function AlienOrb({ items, onReact, badge }: { items: OrbItem[]; onReact?
       {onReact &&
         reacts &&
         REACTIONS.map((r, i) => (
-          <button key={r} type="button" className="orb-item react" style={place(i, REACTIONS.length, 3.85)} aria-label={`Thả ${REACTION_EMOJI[r]}`} onClick={() => onReact(r)}>
+          <button key={r} type="button" className="orb-item react" style={place(i, REACTIONS.length, reactR)} aria-label={`Thả ${REACTION_EMOJI[r]}`} onClick={() => onReact(r)}>
             <span className="orb-ico" aria-hidden>
               {REACTION_EMOJI[r]}
             </span>

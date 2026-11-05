@@ -177,7 +177,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
           <div className="row" role="radiogroup" aria-label="Kiểu sân khấu">
             {(
               [
-                ["glam", "✨ Lung linh", "Viền neon, rèm nhung, đèn quét, dải LED, lấp lánh — như trang chủ"],
+                ["glam", "🛸 Hành tinh tương lai", "Rèm đèn LED, vòm hologram, đèn quét, bầu trời hành tinh & cực quang — bật/tắt đèn trong phòng"],
                 ["plain", "◻ Đơn sắc", "Hội trường sáng, gọn, nhẹ máy"],
               ] as const
             ).map(([v, t, d]) => (

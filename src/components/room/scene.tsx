@@ -328,8 +328,10 @@ function SeatsVisual({ layout, freeHighlight, occupied, selected, ownSeat }: { l
   );
 }
 
-function World({ layout, glam, lite, children }: { layout: Layout; glam: boolean; lite: boolean; children?: ReactNode }) {
+function World({ layout, glam, lite, lights, children }: { layout: Layout; glam: boolean; lite: boolean; lights: boolean; children?: ReactNode }) {
   const night = layout.map === "drive_in";
+  // Stage lights off: the house goes dark, only the screen (and a faint glow) stays.
+  const dim = lights ? 1 : glam ? 0.45 : 0.35;
   // Glam stage: a dark, theatre-like hall lit by neon, beams and the screen.
   const bg = glam ? (night ? "#05040d" : "#0b0918") : night ? "#070b16" : "#cfdde3";
   const m = layout.main;
@@ -343,10 +345,10 @@ function World({ layout, glam, lite, children }: { layout: Layout; glam: boolean
     <group>
       <color attach="background" args={[bg]} />
       <fog attach="fog" args={[bg, glam ? 30 : 40, night ? 160 : glam ? 95 : 120]} />
-      <ambientLight intensity={glam ? 0.35 : night ? 0.5 : 0.7} />
-      <hemisphereLight args={[glam ? "#7a6bd8" : night ? "#4a5a88" : "#ffffff", glam ? "#160d22" : night ? "#0b0d10" : "#9aa38f", glam ? 0.55 : night ? 0.7 : 0.6]} />
-      <directionalLight position={[10, 20, 10]} intensity={glam ? 0.35 : night ? 0.6 : 1.2} color={glam || night ? "#9fb3ff" : "#fff"} />
-      {glam && <GlamStage layout={layout} lite={lite} />}
+      <ambientLight intensity={(glam ? 0.35 : night ? 0.5 : 0.7) * dim} />
+      <hemisphereLight args={[glam ? "#7a6bd8" : night ? "#4a5a88" : "#ffffff", glam ? "#160d22" : night ? "#0b0d10" : "#9aa38f", (glam ? 0.55 : night ? 0.7 : 0.6) * dim]} />
+      <directionalLight position={[10, 20, 10]} intensity={(glam ? 0.35 : night ? 0.6 : 1.2) * dim} color={glam || night ? "#9fb3ff" : "#fff"} />
+      {glam && <GlamStage layout={layout} lite={lite} lights={lights} />}
       {/* soft light thrown by the screen */}
       <pointLight position={[sc.x, sc.y, sc.z + 6]} intensity={night ? 40 : 10} distance={night ? 90 : 30} color="#dfe8ff" />
 
@@ -764,6 +766,8 @@ export interface SceneProps {
   behindView?: boolean;
   /** Stage look chosen by the room owner. */
   stageStyle?: "glam" | "plain";
+  /** Stage lights on (owner / co-host switch). */
+  stageLights?: boolean;
   /** Members with a raised hand (✋ above the avatar). */
   hands?: Set<string>;
   onSeatClick?: (seatId: string, x: number, y: number) => void;
@@ -790,7 +794,7 @@ export function RoomScene(p: SceneProps) {
       gl={{ antialias: !p.lite, alpha: true, powerPreference: p.lite ? "low-power" : "high-performance" }}
       camera={{ fov: 60, near: 0.1, far: 400, position: [0, 2, 10] }}
     >
-      <World layout={p.layout} glam={p.stageStyle === "glam"} lite={p.lite}>
+      <World layout={p.layout} glam={p.stageStyle === "glam"} lite={p.lite} lights={p.stageLights !== false}>
         <SeatsVisual layout={p.layout} freeHighlight={p.highlightFree} occupied={occupied} selected={p.selectedSeat} ownSeat={p.role === "participant" ? (p.store.map.get(p.selfId)?.seatId ?? null) : null} />
         <StageScreen layout={p.layout} portal={p.portal}>
           {p.screen}

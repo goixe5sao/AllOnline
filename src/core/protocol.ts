@@ -50,8 +50,10 @@ export interface RoomInfoDto {
   isTrial: boolean;
   /** Planned start (event schedule), epoch ms; null = no schedule. */
   startsAt: number | null;
-  /** "glam": neon frame, velvet curtains, light beams, sparkles. "plain": single-colour hall. */
+  /** "glam": alien-future stage (LED light curtain, neon, beams, planets). "plain": single-colour hall. */
   stageStyle: "glam" | "plain";
+  /** Stage lights on (owner / co-host switch). */
+  stageLights: boolean;
 }
 
 export type ClientMsg =
@@ -72,6 +74,7 @@ export type ClientMsg =
   | { t: "hand_lower"; userId: string }
   | { t: "q_set"; id: string; status: "open" | "answered" | "hidden" }
   | { t: "q_show"; id: string }
+  | { t: "stage_lights"; on: boolean }
   | { t: "observe"; x: number; z: number }
   | ({ t: "screen" } & ScreenAction)
   | { t: "promote_chat"; id: string }
@@ -120,6 +123,7 @@ export type ServerMsg =
   | { t: "my_qvote"; id: string; on: boolean }
   | { t: "mod"; isModerator: boolean }
   | { t: "stage_style"; style: "glam" | "plain" }
+  | { t: "stage_lights"; on: boolean }
   /** Latest 1-minute bars incl. the forming one, pushed ~every second during the session. */
   | { t: "market"; symbol: string; bars: Candle[] };
 
