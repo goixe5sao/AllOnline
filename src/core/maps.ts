@@ -54,14 +54,26 @@ export const MAP_INFO: Record<MapCode, { name: string; description: string; grou
   drive_in: { name: "Rạp chiếu ngoài trời từ ô tô", description: "Ô đỗ dốc dần về sau, so le để hạn chế xe trước che tầm nhìn. Buổi tối, ánh sáng dịu.", groups: ["vehicles"] },
 };
 
-export const AVATARS: Record<AvatarGroup, { label: string; models: { id: string; label: string; color: string }[] }> = {
+export interface AvatarModel {
+  id: string;
+  label: string;
+  color: string;
+  /** People only: boy / girl figure and hair colour. */
+  gender?: "male" | "female";
+  hair?: string;
+}
+
+export const AVATARS: Record<AvatarGroup, { label: string; models: AvatarModel[] }> = {
   people: {
     label: "Người",
+    // Ids are kept from the first version (links / sessions stay valid).
     models: [
-      { id: "person-teal", label: "Áo xanh ngọc", color: "#2a9d8f" },
-      { id: "person-orange", label: "Áo cam", color: "#e76f51" },
-      { id: "person-violet", label: "Áo tím", color: "#7b5ea7" },
-      { id: "person-yellow", label: "Áo vàng", color: "#e9c46a" },
+      { id: "person-teal", label: "Nam · áo xanh ngọc", color: "#2a9d8f", gender: "male", hair: "#2b1d16" },
+      { id: "person-orange", label: "Nữ · váy cam san hô", color: "#e76f51", gender: "female", hair: "#3a2318" },
+      { id: "person-violet", label: "Nữ · váy tím", color: "#7b5ea7", gender: "female", hair: "#1c1416" },
+      { id: "person-yellow", label: "Nam · áo vàng", color: "#e0b440", gender: "male", hair: "#4a2c1a" },
+      { id: "person-navy", label: "Nam · vest xanh đen", color: "#26365e", gender: "male", hair: "#141010" },
+      { id: "person-rose", label: "Nữ · váy hồng", color: "#e0608f", gender: "female", hair: "#8a5a32" },
     ],
   },
   animals: {

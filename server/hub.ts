@@ -265,6 +265,7 @@ export class Hub {
       openEnded: row.open_ended,
       isTrial: row.is_trial,
       startsAt: row.scheduled_at ? new Date(row.scheduled_at).getTime() : null,
+      stageStyle: row.stage_style ?? "plain",
     };
   }
 
@@ -288,6 +289,14 @@ export class Hub {
     if (!row) return;
     room.row = row;
     this.broadcast(room, { t: "room", expiresAt: new Date(row.expires_at).getTime() });
+  }
+
+  /** The owner / a co-host switched the stage look: everyone sees it at once. */
+  setStageStyle(roomId: string, style: "glam" | "plain") {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    room.row = { ...room.row, stage_style: style };
+    this.broadcast(room, { t: "stage_style", style });
   }
 
   /** Co-hosts changed (REST): update powers of everyone connected right away. */

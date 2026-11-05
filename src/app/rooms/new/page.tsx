@@ -44,6 +44,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   const [openEnded, setOpenEnded] = useState(false);
   const [isPublic, setIsPublic] = useState(true);
   const [startsAt, setStartsAt] = useState("");
+  const [stageStyle, setStageStyle] = useState<"glam" | "plain">("glam");
   const [password, setPassword] = useState("");
   const [screenKind, setScreenKind] = useState<"text" | "youtube" | "chart" | "blank">("text");
   const [screenValue, setScreenValue] = useState("Chào mừng đến với phòng!");
@@ -79,7 +80,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
     return undefined;
   }, [screenKind, screenValue, chartInterval]);
 
-  const config = { name: name || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen, scheduledAt: startsAt ? new Date(startsAt).getTime() : null };
+  const config = { name: name || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen, scheduledAt: startsAt ? new Date(startsAt).getTime() : null, stageStyle };
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -171,6 +172,23 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
         <label className="check">
           <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Hiện phòng trên trang chủ AllOnline (ai cũng thấy và bấm vào được; đổi lại bất cứ lúc nào)
         </label>
+        <div className="field">
+          Kiểu sân khấu <small>(đổi được bất cứ lúc nào trong phòng)</small>
+          <div className="row" role="radiogroup" aria-label="Kiểu sân khấu">
+            {(
+              [
+                ["glam", "✨ Lung linh", "Viền neon, rèm nhung, đèn quét, dải LED, lấp lánh — như trang chủ"],
+                ["plain", "◻ Đơn sắc", "Hội trường sáng, gọn, nhẹ máy"],
+              ] as const
+            ).map(([v, t, d]) => (
+              <button key={v} type="button" role="radio" aria-checked={stageStyle === v} className={`choice ${stageStyle === v ? "on" : ""}`} onClick={() => setStageStyle(v)}>
+                <strong>{t}</strong>
+                <br />
+                <small>{d}</small>
+              </button>
+            ))}
+          </div>
+        </div>
         <label className="field">
           Giờ bắt đầu sự kiện <small>(không bắt buộc — trang mời hiện đếm ngược, khách bấm “Nhắc tôi” để bot Zalo nhắc)</small>
           <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />

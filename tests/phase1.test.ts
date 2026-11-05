@@ -25,6 +25,7 @@ const cfg: RoomConfig = {
   openEnded: false,
   isPublic: true,
   password: "",
+  stageStyle: "plain",
 };
 
 beforeEach(async () => {

@@ -105,6 +105,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .choice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
 .choice { border: 1.5px solid var(--line); border-radius: 10px; padding: 10px; background: var(--surface); text-align: left; cursor: pointer; }
 .choice[aria-pressed="true"] { border-color: var(--brand); background: var(--brand-soft); }
+.choice[aria-checked="true"] { border-color: var(--brand); background: var(--brand-soft); }
+.row > .choice { flex: 1 1 200px; }
 .choice:disabled { opacity: 0.45; cursor: not-allowed; }
 .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 6px; border: 1px solid rgb(0 0 0 / 0.15); }
 
@@ -286,3 +288,6 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .sim-msg { max-width: 85%; padding: 7px 11px; border-radius: 14px; white-space: pre-wrap; word-break: break-word; font-size: 14px; }
 .sim-msg.me { align-self: flex-end; background: #0068ff; color: #fff; border-bottom-right-radius: 4px; }
 .sim-msg.bot { align-self: flex-start; background: rgb(127 127 127 / 0.16); color: inherit; border: 1px solid rgb(127 127 127 / 0.25); border-bottom-left-radius: 4px; }
+.avatar-preview { width: 100%; max-width: 260px; height: 300px; margin: 6px auto 0; border-radius: 16px; background: radial-gradient(70% 60% at 50% 30%, rgb(139 92 255 / 0.35), transparent 70%), linear-gradient(#141030, #07060f); }
+/* the stage screen is a DOM layer: hide its mirrored back when the camera goes behind the stage */
+.screen-surface { backface-visibility: hidden; }

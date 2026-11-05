@@ -343,6 +343,15 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { ownerId: next.id, name: next.display_name };
   });
 
+  route("POST", "/api/rooms/:id/stage-style", async (ctx) => {
+    const { u, room } = await moderatedRoom(ctx, ctx.params[0]);
+    const b = z.object({ style: z.enum(["glam", "plain"]) }).parse(await readJson(ctx.req));
+    await db.query("update app.rooms set stage_style = $2 where id = $1", [room.id, b.style]);
+    await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'stage_style', $3)", [room.id, u.id, JSON.stringify({ style: b.style })]);
+    hub.setStageStyle(room.id, b.style);
+    return { style: b.style };
+  });
+
   route("POST", "/api/rooms/:id/schedule", async (ctx) => {
     const { u, room } = await ownedRoom(ctx, ctx.params[0]);
     const b = z.object({ startsAt: z.number().int().positive().nullable() }).parse(await readJson(ctx.req));

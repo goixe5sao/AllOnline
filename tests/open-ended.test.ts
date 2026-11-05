@@ -65,6 +65,7 @@ const cfg = (extra: Partial<RoomConfig> = {}): RoomConfig => ({
   openEnded: true,
   isPublic: false,
   password: "",
+  stageStyle: "plain",
   ...extra,
 });
 

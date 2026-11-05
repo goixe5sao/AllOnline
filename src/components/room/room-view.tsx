@@ -422,6 +422,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           selectedSeat={seatPick?.id ?? goingTo}
           behindView={isParticipant && behind}
           hands={handSet}
+          stageStyle={s.room.stageStyle}
           onSeatClick={onSeatClick}
           onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
           screen={<ScreenContent {...screenProps} active={!fullView} />}

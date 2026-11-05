@@ -50,6 +50,8 @@ export interface RoomInfoDto {
   isTrial: boolean;
   /** Planned start (event schedule), epoch ms; null = no schedule. */
   startsAt: number | null;
+  /** "glam": neon frame, velvet curtains, light beams, sparkles. "plain": single-colour hall. */
+  stageStyle: "glam" | "plain";
 }
 
 export type ClientMsg =
@@ -117,6 +119,7 @@ export type ServerMsg =
   | { t: "question_remove"; id: string }
   | { t: "my_qvote"; id: string; on: boolean }
   | { t: "mod"; isModerator: boolean }
+  | { t: "stage_style"; style: "glam" | "plain" }
   /** Latest 1-minute bars incl. the forming one, pushed ~every second during the session. */
   | { t: "market"; symbol: string; bars: Candle[] };
 

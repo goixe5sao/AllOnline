@@ -36,6 +36,8 @@ export const roomConfigSchema = z.object({
   initialScreen: screenContentSchema.optional(),
   /** Planned start of the event (epoch ms), shown on the invite page with reminders. */
   scheduledAt: z.number().int().positive().nullable().optional(),
+  /** Stage look: "glam" (neon, curtains, beams) or "plain". */
+  stageStyle: z.enum(["glam", "plain"]).optional().default("glam"),
 });
 export type RoomConfig = z.infer<typeof roomConfigSchema>;
 
@@ -57,6 +59,7 @@ export interface RoomRow {
   starts_at: Date;
   /** Planned start of the event (optional schedule). */
   scheduled_at: Date | null;
+  stage_style: "plain" | "glam";
   expires_at: Date;
   closed_at: Date | null;
   slots_released_at: Date | null;
@@ -70,7 +73,7 @@ export interface RoomRow {
 
 export function roomColumns(alias = "") {
   const p = alias ? alias + "." : "";
-  return ["id", "owner_id", "name", "description", "map_code", "avatar_groups", "official_capacity", "waiting_enabled", "waiting_capacity", "total_slots", "entry_mode", "invite_code", "status", "is_trial", "starts_at", "expires_at", "closed_at", "slots_released_at", "screen_state", "is_public", "open_ended", "scheduled_at", "created_at"]
+  return ["id", "owner_id", "name", "description", "map_code", "avatar_groups", "official_capacity", "waiting_enabled", "waiting_capacity", "total_slots", "entry_mode", "invite_code", "status", "is_trial", "starts_at", "expires_at", "closed_at", "slots_released_at", "screen_state", "is_public", "open_ended", "scheduled_at", "stage_style", "created_at"]
     .map((c) => p + c)
     .concat(`${p}hourly_rate_vnd::float8 as hourly_rate_vnd`, `(${p}password_hash is not null) as has_password`)
     .join(", ");
@@ -168,9 +171,9 @@ async function insertRoom(q: Queryable, ownerId: string, cfg: RoomConfig, s: Set
       await q.query<RoomRow>(
         `insert into app.rooms (owner_id, created_by, name, description, map_code, avatar_groups, official_capacity, waiting_enabled,
           waiting_ratio, waiting_capacity, total_slots, entry_mode, invite_code, password_hash, is_trial, order_id, expires_at, screen_state,
-          is_public, open_ended, hourly_rate_vnd, scheduled_at)
+          is_public, open_ended, hourly_rate_vnd, scheduled_at, stage_style)
          values ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          now() + case when $19 then make_interval(years => ${OPEN_ENDED_YEARS}) else make_interval(hours => $16) end, $17, $18, $19, $20, $21)
+          now() + case when $19 then make_interval(years => ${OPEN_ENDED_YEARS}) else make_interval(hours => $16) end, $17, $18, $19, $20, $21, $22)
          on conflict (invite_code) do nothing
          returning ${ROOM_COLUMNS}`,
         [
@@ -195,6 +198,7 @@ async function insertRoom(q: Queryable, ownerId: string, cfg: RoomConfig, s: Set
           !!cfg.openEnded,
           cfg.openEnded ? (opts.hourlyRate ?? 0) : null,
           cfg.scheduledAt ? new Date(cfg.scheduledAt) : null,
+          cfg.stageStyle ?? "glam",
         ],
       )
     ).rows;

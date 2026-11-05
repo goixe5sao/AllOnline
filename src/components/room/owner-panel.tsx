@@ -16,6 +16,31 @@ import { HostsSection, ScheduleSection, StatsTab } from "./owner-extra";
 
 const STATUS_VI: Record<string, string> = { seated: "Đang ngồi", finding: "Đang tìm chỗ", invited: "Được mời vào chỗ", waiting: "Chờ ngoài cổng" };
 
+function StageStyleSwitch({ roomId, style }: { roomId: string; style: "glam" | "plain" }) {
+  const [err, setErr] = useState("");
+  const set = async (s: "glam" | "plain") => {
+    try {
+      await api(`/api/rooms/${roomId}/stage-style`, { body: { style: s } });
+    } catch (e) {
+      setErr((e as ApiError).message);
+    }
+  };
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      <small>Kiểu sân khấu (mọi người thấy ngay)</small>
+      <div className="row">
+        <button className={`hud-btn ${style === "glam" ? "primary" : ""}`} aria-pressed={style === "glam"} onClick={() => set("glam")}>
+          ✨ Lung linh
+        </button>
+        <button className={`hud-btn ${style === "plain" ? "primary" : ""}`} aria-pressed={style === "plain"} onClick={() => set("plain")}>
+          ◻ Đơn sắc
+        </button>
+      </div>
+      {err && <small>{err}</small>}
+    </div>
+  );
+}
+
 function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) => void; screen: ScreenState; serverNow: () => number; roomId: string }) {
   const [kind, setKind] = useState<ScreenContent["kind"]>("text");
   const [value, setValue] = useState("");
@@ -429,7 +454,12 @@ export function OwnerPanel(p: {
           </button>
         ))}
       </div>
-      {tab === "screen" && <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} />}
+      {tab === "screen" && (
+        <>
+          <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} />
+          <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} />
+        </>
+      )}
       {tab === "polls" && <PollsTab send={p.send} polls={p.polls} />}
       {tab === "people" && <PeopleTab members={p.members} send={p.send} hands={p.hands} isOwner={p.isOwner} selfId={p.selfId} roomId={p.room.id} />}
       {tab === "stats" && <StatsTab roomId={p.room.id} />}

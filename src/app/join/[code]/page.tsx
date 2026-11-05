@@ -7,6 +7,10 @@ import { vnEventTime } from "@/lib/vn-time";
 import { AppShell } from "@/components/app-shell";
 import { api, ApiError, fmtTime, useApi, type Me } from "@/lib/api";
 import { AVATARS, MAP_INFO, type AvatarGroup, type MapCode } from "@/core/maps";
+import dynamic from "next/dynamic";
+
+// 3D preview of the chosen boy / girl (client only: WebGL).
+const AvatarPreview = dynamic(() => import("@/components/room/avatar-preview"), { ssr: false });
 
 interface InviteView {
   room: { id: string; name: string; description: string; map: MapCode; avatarGroups: AvatarGroup[]; entryMode: string; hasPassword: boolean; expiresAt: string; openEnded?: boolean; startsAt: number | null; isPublic: boolean };
@@ -211,14 +215,16 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
             <small>{AVATARS[g].label}</small>
             <div className="choice-grid">
               {AVATARS[g].models.map((m) => (
-                <button type="button" key={m.id} className="choice" aria-pressed={avatar.group === g && avatar.model === m.id} onClick={() => setAvatar({ group: g, model: m.id })}>
+                <button type="button" key={m.id} data-model={m.id} className="choice" aria-pressed={avatar.group === g && avatar.model === m.id} onClick={() => setAvatar({ group: g, model: m.id })}>
                   <span className="swatch" style={{ background: m.color }} />
+                  {m.gender && <span aria-hidden>{m.gender === "female" ? "👧 " : "👦 "}</span>}
                   {m.label}
                 </button>
               ))}
             </div>
           </div>
         ))}
+        {avatar.group === "people" && <AvatarPreview model={avatar.model} />}
       </div>
 
       {r.hasPassword && !data.isOwner && (

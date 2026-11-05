@@ -81,7 +81,7 @@ let db: Db;
 let owner: string;
 let bot: ZaloBot;
 let cap: CaptureSender;
-const cfgRoom: RoomConfig = { name: "Đêm nhạc", description: "", map: "hall", avatarGroups: ["people"], officialCapacity: 10, waitingEnabled: false, entryMode: "auto_assign", durationHours: 6, openEnded: false, isPublic: true, password: "" };
+const cfgRoom: RoomConfig = { name: "Đêm nhạc", description: "", map: "hall", avatarGroups: ["people"], officialCapacity: 10, waitingEnabled: false, entryMode: "auto_assign", durationHours: 6, openEnded: false, isPublic: true, password: "", stageStyle: "plain" };
 
 beforeEach(async () => {
   db = await openPglite();
