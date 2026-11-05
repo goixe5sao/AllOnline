@@ -146,7 +146,11 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [gfx, setGfx] = useState<"lite" | "full" | "ultra">("full");
-  const lite = gfx === "lite";
+  // Graphics levels only exist for the "Hành tinh tương lai" stage; a "Đơn sắc" room is one simple
+  // look for everyone (the viewer's saved choice comes back when the owner switches the stage).
+  const glamRoom = s.room?.stageStyle === "glam";
+  const gfxOn = glamRoom ? gfx : "full";
+  const lite = gfxOn === "lite";
   // After an automatic fall-back, choosing "Siêu đẹp" again means "keep it": no more watchdog.
   const [gfxDropped, setGfxDropped] = useState(false);
   const [gfxForced, setGfxForced] = useState(false);
@@ -431,7 +435,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           controls={controls}
           send={send}
           lite={lite}
-          ultra={gfx === "ultra"}
+          ultra={gfxOn === "ultra"}
           onSlow={
             gfxForced
               ? undefined
@@ -449,7 +453,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           selectedSeat={seatPick?.id ?? goingTo}
           behindView={isParticipant && behind}
           hands={handSet}
-          stageStyle={gfx === "ultra" ? "glam" : s.room.stageStyle}
+          stageStyle={s.room.stageStyle}
           stageLights={s.room.stageLights}
           onSeatClick={onSeatClick}
           onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
@@ -574,6 +578,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             <span>🔊 Âm lượng</span>
             <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Âm lượng" />
           </label>
+          {glamRoom && (
           <div className="hud-menu-row" role="radiogroup" aria-label="Đồ hoạ">
             <span>✨ Đồ hoạ</span>
             <span className="gfx-seg">
@@ -581,7 +586,7 @@ export function RoomView({ roomId }: { roomId: string }) {
                 [
                   ["lite", "Nhẹ", "Ít hiệu ứng, cho máy yếu"],
                   ["full", "Đầy đủ", "Mặc định"],
-                  ["ultra", "Siêu đẹp", "Sân khấu Hành tinh tương lai + đèn toả sáng thật (chỉ trên máy bạn) — tự hạ về Đầy đủ nếu máy quá chậm"],
+                  ["ultra", "Siêu đẹp", "Đèn toả sáng thật — cần máy khoẻ, tự hạ về Đầy đủ nếu máy quá chậm"],
                 ] as const
               ).map(([v, t, d]) => (
                 <button key={v} type="button" role="radio" aria-checked={gfx === v} className={gfx === v ? "on" : ""} title={d} onClick={() => chooseGfx(v)}>
@@ -590,6 +595,7 @@ export function RoomView({ roomId }: { roomId: string }) {
               ))}
             </span>
           </div>
+          )}
           <button
             role="menuitemcheckbox"
             aria-checked={bellOn}
