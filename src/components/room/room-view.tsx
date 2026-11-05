@@ -147,7 +147,11 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [gfx, setGfx] = useState<"lite" | "full" | "ultra">("full");
   const lite = gfx === "lite";
+  // After an automatic fall-back, choosing "Siêu đẹp" again means "keep it": no more watchdog.
+  const [gfxDropped, setGfxDropped] = useState(false);
+  const [gfxForced, setGfxForced] = useState(false);
   const chooseGfx = (v: "lite" | "full" | "ultra") => {
+    if (v === "ultra" && gfxDropped) setGfxForced(true);
     setGfx(v);
     try {
       localStorage.setItem("ao-gfx", v);
@@ -428,10 +432,15 @@ export function RoomView({ roomId }: { roomId: string }) {
           send={send}
           lite={lite}
           ultra={gfx === "ultra"}
-          onSlow={() => {
-            chooseGfx("full");
-            setNote("Máy hơi chậm với đồ hoạ Siêu đẹp — đã tự chuyển về Đầy đủ.");
-          }}
+          onSlow={
+            gfxForced
+              ? undefined
+              : () => {
+                  setGfx("full"); // not saved: the viewer's choice stays for next time
+                  setGfxDropped(true);
+                  setNote("Máy hơi chậm với đồ hoạ Siêu đẹp — đã tạm chuyển về Đầy đủ. Bấm Siêu đẹp lần nữa để giữ nguyên.");
+                }
+          }
           paused={fullView}
           domElement={wrap}
           portal={wrapRef}
@@ -440,7 +449,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           selectedSeat={seatPick?.id ?? goingTo}
           behindView={isParticipant && behind}
           hands={handSet}
-          stageStyle={s.room.stageStyle}
+          stageStyle={gfx === "ultra" ? "glam" : s.room.stageStyle}
           stageLights={s.room.stageLights}
           onSeatClick={onSeatClick}
           onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
@@ -572,7 +581,7 @@ export function RoomView({ roomId }: { roomId: string }) {
                 [
                   ["lite", "Nhẹ", "Ít hiệu ứng, cho máy yếu"],
                   ["full", "Đầy đủ", "Mặc định"],
-                  ["ultra", "Siêu đẹp", "Đèn toả sáng thật — cần máy khoẻ, tự hạ về Đầy đủ nếu máy chậm"],
+                  ["ultra", "Siêu đẹp", "Sân khấu Hành tinh tương lai + đèn toả sáng thật (chỉ trên máy bạn) — tự hạ về Đầy đủ nếu máy quá chậm"],
                 ] as const
               ).map(([v, t, d]) => (
                 <button key={v} type="button" role="radio" aria-checked={gfx === v} className={gfx === v ? "on" : ""} title={d} onClick={() => chooseGfx(v)}>

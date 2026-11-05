@@ -16,10 +16,11 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
-/** Below this average frame rate for two windows in a row → too slow for bloom. */
-const MIN_FPS = 32;
-const WINDOW_S = 2.5;
-const WARMUP_S = 5;
+/** Below this average frame rate for three windows in a row → too slow for bloom (many phones and
+ * laptops on battery saver run at 30 fps: that is fine). */
+const MIN_FPS = 22;
+const WINDOW_S = 3;
+const WARMUP_S = 8;
 
 export function UltraFx({ onSlow }: { onSlow?: () => void }) {
   const { gl, scene, camera, size } = useThree();
@@ -27,7 +28,7 @@ export function UltraFx({ onSlow }: { onSlow?: () => void }) {
     const c = new EffectComposer(gl);
     c.addPass(new RenderPass(scene, camera));
     // strength, radius, threshold: only bright things (neon, LED beads, stars, planets) glow
-    c.addPass(new UnrealBloomPass(new THREE.Vector2(512, 512), 0.75, 0.45, 0.82));
+    c.addPass(new UnrealBloomPass(new THREE.Vector2(512, 512), 0.95, 0.5, 0.72));
     c.addPass(new OutputPass());
     return c;
   }, [gl, scene, camera]);
@@ -56,7 +57,7 @@ export function UltraFx({ onSlow }: { onSlow?: () => void }) {
       p.slow = fps < MIN_FPS ? p.slow + 1 : 0;
       p.t = WARMUP_S;
       p.frames = 0;
-      if (p.slow >= 2) {
+      if (p.slow >= 3) {
         p.done = true;
         onSlow();
       }
