@@ -1,4 +1,5 @@
 import puppeteer from "puppeteer-core";
+import { closeOrb, orb, orbLabel, react } from "./orb.mjs";
 /**
  * Open-ended room in real Chrome: choose "Vô thời hạn" → deposit order → (demo) pay →
  * owner panel shows the running bill → close → settlement visible to the owner and in /admin.
@@ -43,7 +44,7 @@ check(pay.outcome === "fulfilled" && pay.roomId, "deposit confirmed → room cre
 // 3) owner panel: running bill, no countdown/extension
 await p.goto(`${BASE}/room/${pay.roomId}`, { waitUntil: "networkidle0" });
 await p.waitForSelector(".hud-top");
-await p.evaluate(() => [...document.querySelectorAll(".hud-btn")].find((b) => b.textContent === "Điều khiển")?.click());
+await orb(p, "control");
 await sleep(500);
 await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent === "Phòng")?.click());
 await sleep(1500);

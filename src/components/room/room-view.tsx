@@ -9,7 +9,8 @@ import { hourIndex, ringBell, unlockAudio, vnHourLabel } from "./bell";
 import { PITCH_RANGE, RoomScene, type Controls } from "./scene";
 import { ScreenContent } from "./screen-content";
 import { OwnerPanel } from "./owner-panel";
-import { QaPanel, ReactionBar, ReactionStream } from "./engage";
+import { QaPanel, ReactionStream } from "./engage";
+import { AlienOrb } from "./orb-menu";
 import { useRoom } from "./use-room";
 
 function readSession<T>(key: string): T | null {
@@ -142,6 +143,8 @@ export function RoomView({ roomId }: { roomId: string }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [fullView, setFullView] = useState(false);
   const [panel, setPanel] = useState<"owner" | "seats" | "qa" | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [lite, setLite] = useState(false);
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(true);
@@ -393,6 +396,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const warnWindow = Math.max(0, ...(s.settings?.warningMinutes ?? [30])) * 60_000;
   const openPoll = [...s.polls].reverse().find((x) => x.status === "open") ?? null;
   const canModerate = s.you.isRoomOwner || s.you.isModerator;
+  const handUp = handSet.has(s.you.userId);
   const openQuestions = s.questions.filter((q) => q.status === "open").length;
 
   return (
@@ -429,87 +433,24 @@ export function RoomView({ roomId }: { roomId: string }) {
         />
       </div>
 
-      <div className="hud-top">
-        <Link className="hud-btn" href="/" onClick={() => leave()} aria-label="Rời phòng">
-          ← Rời phòng
-        </Link>
-        <span className="title">{s.room.name}</span>
-        <span className="hud-chip hide-mobile">{MAP_INFO[s.room.map].name}</span>
-        {s.conn === "reconnecting" && <span className="hud-chip" style={{ color: "#f0b860" }}>Mất kết nối — đang thử lại, chỗ của bạn được giữ tạm</span>}
-        {s.room.isTrial && <span className="hud-chip hide-mobile">Dùng thử</span>}
-        {remaining < warnWindow && <span className="hud-chip" style={{ color: "#ff9a8f" }}>Còn {fmtDuration(remaining)}</span>}
-        <span style={{ flex: 1 }} />
-        <button className="hud-btn" onClick={() => setMuted(!muted)}>
-          {muted ? "🔇 Bật tiếng" : "🔊 Tắt tiếng"}
-        </button>
-        <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Âm lượng" className="hide-mobile" style={{ width: 90 }} />
-        <button className="hud-btn primary" onClick={openFull}>
-          Xem màn hình
-        </button>
-        <button
-          className="hud-btn"
-          onClick={() => {
-            const v = !lite;
-            setLite(v);
-            try {
-              localStorage.setItem("ao-lite", v ? "1" : "0");
-            } catch {}
-          }}
-          aria-pressed={lite}
-        >
-          {lite ? "Đồ hoạ: nhẹ" : "Đồ hoạ: đầy đủ"}
-        </button>
-        <button
-          className="hud-btn hide-mobile"
-          aria-pressed={bellOn}
-          title="Chuông tỉnh thức mỗi giờ (xx:00)"
-          onClick={() => {
-            const v = !bellOn;
-            setBellOn(v);
-            try {
-              localStorage.setItem("ao-bell", v ? "1" : "0");
-            } catch {}
-            if (v) {
-              unlockAudio();
-              setTimeout(() => ringBell(volume / 100), 50); // preview
-            }
-          }}
-        >
-          {bellOn ? "🔔 Chuông: bật" : "🔕 Chuông: tắt"}
-        </button>
-        {canModerate && (
-          <button className="hud-btn primary" onClick={() => setPanel(panel === "owner" ? null : "owner")}>
-            Điều khiển{s.hands.length > 0 && ` · ✋${s.hands.length}`}
-          </button>
+      {/* Over the 3D view only a small status pill; every function lives in the alien orb. */}
+      <div className="hud-top hud-status">
+        <span className="hud-pill" title={MAP_INFO[s.room.map].name}>
+          <b className="title">{s.room.name}</b>
+          {isParticipant && me?.status === "seated" && <span className="hud-pill-sub">· Chỗ {me.seatId}</span>}
+          {s.room.isTrial && <span className="hud-pill-sub hide-mobile">· Dùng thử</span>}
+        </span>
+        {s.conn === "reconnecting" && (
+          <span className="hud-chip" style={{ color: "#f0b860" }} title="Mất kết nối — đang thử lại, chỗ của bạn được giữ tạm">
+            ⚠ Đang kết nối lại
+          </span>
         )}
-        {s.you.isRoomOwner && (
-          <button
-            className="hud-btn"
-            onClick={async () => {
-              if (isParticipant) {
-                // Back to the owner's free camera.
-                sessionStorage.removeItem(`ao-mode-${roomId}`);
-                leave();
-                window.location.reload();
-              } else {
-                const r = await api<{ room: { invite_code: string } }>(`/api/rooms/${roomId}`);
-                window.location.href = `/join/${r.room.invite_code}`;
-              }
-            }}
-          >
-            {isParticipant ? "Chế độ chủ phòng" : "Ngồi như khách"}
-          </button>
+        {remaining < warnWindow && (
+          <span className="hud-chip" style={{ color: "#ff9a8f" }}>
+            ⏳ {fmtDuration(remaining)}
+          </span>
         )}
-        {isParticipant && (
-          <button className="hud-btn" aria-pressed={behind} onClick={() => setBehind(!behind)} title={movable ? "Xem từ phía sau 2 hàng" : "Phím ↓: xem từ phía sau 2 hàng · ↑: về chỗ mình"}>
-            {behind ? "👁 Góc của tôi" : "🎥 Xem từ phía sau"}
-          </button>
-        )}
-        {isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" && (
-          <button className="hud-btn" onClick={() => setPanel(panel === "seats" ? null : "seats")}>
-            Đổi chỗ
-          </button>
-        )}
+        {s.role === "observer" && <span className="hud-chip">Quan sát</span>}
       </div>
 
       {isParticipant && p && p.status !== "seated" && (
@@ -552,46 +493,146 @@ export function RoomView({ roomId }: { roomId: string }) {
       {movable && touch && <Joystick controls={controls} />}
 
       <div className="hud-bottom">
-        <div className="chat-box">
-          <div className="chat-log" aria-live="polite">
-            {s.chat.slice(-8).map((c) => (
-              <div className="msg" key={c.id}>
-                <b>{c.name}</b>
-                {c.text}
-              </div>
-            ))}
+        {chatOpen ? (
+          <div className="chat-box">
+            <div className="row between" style={{ alignItems: "center" }}>
+              <small style={{ opacity: 0.8 }}>Chat với người trong bán kính {s.settings?.chatRadius ?? 8} m · không lưu</small>
+              <button className="hud-btn chat-close" onClick={() => setChatOpen(false)} aria-label="Đóng chat">
+                ✕
+              </button>
+            </div>
+            <div className="chat-log" aria-live="polite">
+              {s.chat.slice(-8).map((c) => (
+                <div className="msg" key={c.id}>
+                  <b>{c.name}</b>
+                  {c.text}
+                </div>
+              ))}
+            </div>
+            <form
+              className="chat-input"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (chatText.trim()) send({ t: "chat", text: chatText });
+                setChatText("");
+              }}
+            >
+              <input autoFocus value={chatText} onChange={(e) => setChatText(e.target.value)} maxLength={s.settings?.chatMaxLength ?? 200} placeholder="Chat với người ở gần…" aria-label="Tin nhắn chat gần" />
+              <button className="hud-btn">Gửi</button>
+            </form>
           </div>
-          <form
-            className="chat-input"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (chatText.trim()) send({ t: "chat", text: chatText });
-              setChatText("");
-            }}
-          >
-            <input value={chatText} onChange={(e) => setChatText(e.target.value)} maxLength={s.settings?.chatMaxLength ?? 200} placeholder="Chat với người ở gần…" aria-label="Tin nhắn chat gần" />
-            <button className="hud-btn">Gửi</button>
-          </form>
-          <span className="chat-note">
-            Chỉ người trong bán kính {s.settings?.chatRadius ?? 8} m nhận được. Tin nhắn không được lưu. Không có voice/webcam.
-          </span>
-        </div>
+        ) : (
+          // closed chat: new messages float up briefly, then fade
+          <div className="chat-toasts" aria-live="polite">
+            {s.chat
+              .filter((c) => now - c.at < 8000)
+              .slice(-3)
+              .map((c) => (
+                <div className="msg" key={c.id}>
+                  <b>{c.name}</b>
+                  {c.text}
+                </div>
+              ))}
+          </div>
+        )}
         <span style={{ flex: 1 }} />
         {isParticipant && openPoll && <ParticipantPoll poll={openPoll} myVote={s.myVotes[openPoll.id]} onVote={(o) => send({ t: "vote", pollId: openPoll.id, optionId: o })} isGuest={s.you.isGuest} />}
-        {isParticipant && me?.status === "seated" && <span className="hud-chip">Chỗ {me.seatId}</span>}
-        {s.role === "owner" && <span className="hud-chip">Camera tự do: kéo để xoay, chuột phải/hai ngón để di chuyển, cuộn để zoom, nhấn đúp để đến vị trí</span>}
-        {s.role === "observer" && <span className="hud-chip">Chủ ứng dụng — chế độ quan sát</span>}
-        {s.role !== "observer" && (
-          <ReactionBar
-            send={send}
-            canHand={isParticipant}
-            handUp={handSet.has(s.you.userId)}
-            qaCount={openQuestions}
-            qaOpen={panel === "qa"}
-            onQa={() => setPanel(panel === "qa" ? null : "qa")}
-          />
-        )}
       </div>
+      {moreOpen && (
+        <div className="hud-menu orb-settings" role="dialog" aria-label="Cài đặt">
+          <div className="row between" style={{ alignItems: "center" }}>
+            <strong>Cài đặt</strong>
+            <button className="hud-btn chat-close" onClick={() => setMoreOpen(false)} aria-label="Đóng cài đặt">
+              ✕
+            </button>
+          </div>
+          <label className="hud-menu-row">
+            <span>🔊 Âm lượng</span>
+            <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Âm lượng" />
+          </label>
+          <button
+            role="menuitemcheckbox"
+            aria-checked={!lite}
+            className="hud-menu-row"
+            onClick={() => {
+              const v = !lite;
+              setLite(v);
+              try {
+                localStorage.setItem("ao-lite", v ? "1" : "0");
+              } catch {}
+            }}
+          >
+            <span>✨ Đồ hoạ</span>
+            <b>{lite ? "Nhẹ" : "Đầy đủ"}</b>
+          </button>
+          <button
+            role="menuitemcheckbox"
+            aria-checked={bellOn}
+            className="hud-menu-row"
+            onClick={() => {
+              const v = !bellOn;
+              setBellOn(v);
+              try {
+                localStorage.setItem("ao-bell", v ? "1" : "0");
+              } catch {}
+              if (v) {
+                unlockAudio();
+                setTimeout(() => ringBell(volume / 100), 50); // preview
+              }
+            }}
+          >
+            <span>{bellOn ? "🔔" : "🔕"} Chuông mỗi giờ</span>
+            <b>{bellOn ? "Bật" : "Tắt"}</b>
+          </button>
+          {s.you.isRoomOwner && (
+            <button
+              className="hud-menu-row"
+              onClick={async () => {
+                if (isParticipant) {
+                  sessionStorage.removeItem(`ao-mode-${roomId}`);
+                  leave();
+                  window.location.reload();
+                } else {
+                  const r = await api<{ room: { invite_code: string } }>(`/api/rooms/${roomId}`);
+                  window.location.href = `/join/${r.room.invite_code}`;
+                }
+              }}
+            >
+              <span>{isParticipant ? "🎥 Về chế độ chủ phòng (camera tự do)" : "🪑 Ngồi như khách"}</span>
+            </button>
+          )}
+          <small className="hud-menu-note">
+            Phím: M mở quả cầu · ↑ góc của tôi · ↓ xem từ sau
+            {s.role === "owner" ? " · Camera tự do: kéo để xoay, chuột phải để dời, cuộn để zoom, nhấn đúp để đến vị trí" : ""}
+          </small>
+        </div>
+      )}
+      {!fullView && (
+        <AlienOrb
+          badge={canModerate ? s.hands.length : 0}
+          onReact={s.role !== "observer" ? (e) => send({ t: "react", e }) : undefined}
+          items={[
+            { id: "chat", icon: "💬", label: "Chat", onClick: () => setChatOpen(!chatOpen), active: chatOpen },
+            ...(isParticipant ? [{ id: "hand", icon: "✋", label: handUp ? "Hạ tay" : "Giơ tay", onClick: () => send({ t: "hand", up: !handUp }), active: handUp }] : []),
+            { id: "qa", icon: "❓", label: "Hỏi đáp", onClick: () => setPanel(panel === "qa" ? null : "qa"), active: panel === "qa", badge: openQuestions },
+            { id: "screen", icon: "📺", label: "Xem màn hình", onClick: openFull },
+            ...(isParticipant ? [{ id: "view", icon: behind ? "👁" : "🎥", label: behind ? "Góc của tôi" : "Xem từ sau", onClick: () => setBehind(!behind), active: !behind, stay: true }] : []),
+            { id: "sound", icon: muted ? "🔇" : "🔊", label: muted ? "Bật tiếng" : "Tắt tiếng", onClick: () => setMuted(!muted), active: !muted, stay: true },
+            ...(canModerate ? [{ id: "control", icon: "🎬", label: "Điều khiển", onClick: () => setPanel(panel === "owner" ? null : "owner"), active: panel === "owner", badge: s.hands.length }] : []),
+            ...(isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" ? [{ id: "seats", icon: "💺", label: "Đổi chỗ", onClick: () => setPanel(panel === "seats" ? null : "seats"), active: panel === "seats" }] : []),
+            { id: "settings", icon: "⚙️", label: "Cài đặt", onClick: () => setMoreOpen(!moreOpen), active: moreOpen },
+            {
+              id: "leave",
+              icon: "🚪",
+              label: "Rời phòng",
+              onClick: () => {
+                leave();
+                window.location.href = "/";
+              },
+            },
+          ]}
+        />
+      )}
       <ReactionStream store={store} muted={muted} volume={volume} reduceMotion={reduceMotion} />
 
       {seatPick && (

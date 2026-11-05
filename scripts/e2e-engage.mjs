@@ -1,4 +1,5 @@
 import puppeteer from "puppeteer-core";
+import { closeOrb, orb, orbLabel, react } from "./orb.mjs";
 /**
  * Phase 1 in real Chrome: event page (countdown, reminder, calendar, share image), reactions,
  * raise hand, Q&A (ask / upvote / put on stage / answered), co-host, report + CSV.
@@ -71,12 +72,12 @@ await enter(mem, null);
 
 // reactions + hand + question from the guest
 for (const e of ["👏", "❤️", "🔥", "👏", "😂"]) {
-  await guest.click(`button[aria-label="Thả ${e}"]`);
+  await react(guest, e);
   await sleep(150);
 }
-await guest.click('button[title="Giơ tay xin phát biểu"]');
+await orb(guest, "hand");
 await sleep(400);
-await guest.click(".engage-qa");
+await orb(guest, "qa");
 await guest.type(".qa-panel textarea", "Robot có cảm xúc như con người không ạ?");
 await clickText(guest, ".qa-panel button", "Gửi câu hỏi");
 await sleep(800);
@@ -84,10 +85,11 @@ await guest.screenshot({ path: `${OUT}/engage-guest.png` });
 check(await guest.evaluate(() => document.querySelectorAll(".qa-item").length === 1), "question appears in Q&A");
 
 // the member sees the hand, the reaction stream, and upvotes
-await mem.click(`button[aria-label="Thả 👏"]`);
+await react(mem, "👏");
+await closeOrb(mem);
 await sleep(300);
 check(await mem.evaluate(() => !!document.querySelector(".hand-pop")), "✋ shown above the guest's avatar");
-await mem.click(".engage-qa");
+await orb(mem, "qa");
 await sleep(400);
 await mem.click(".qa-vote");
 await sleep(800);
@@ -98,8 +100,8 @@ await mem.screenshot({ path: `${OUT}/engage-member.png` });
 await owner.goto(`${BASE}/room/${roomId}`, { waitUntil: "networkidle0" });
 await owner.waitForSelector(".hud-top", { timeout: 60000 });
 await sleep(2500);
-check(await owner.evaluate(() => [...document.querySelectorAll(".hud-btn")].some((b) => b.textContent?.includes("✋1"))), "owner sees 1 raised hand");
-await clickText(owner, ".hud-btn", "Điều khiển");
+check(await owner.evaluate(() => document.querySelector(".orb .orb-badge")?.textContent === "1"), "owner sees 1 raised hand (badge on the orb)");
+await orb(owner, "control");
 await sleep(400);
 await clickText(owner, ".side-panel [role=tab]", "Người tham dự");
 await sleep(400);
@@ -111,16 +113,17 @@ const madeHost = await owner.evaluate(async () => {
   return !!b;
 });
 await sleep(1200);
-check(madeHost && (await mem.evaluate(() => [...document.querySelectorAll(".hud-btn")].some((b) => b.textContent?.includes("Điều khiển")))), "member becomes co-host live (gets “Điều khiển”)");
+check(madeHost && !!(await orbLabel(mem, "control")), "member becomes co-host live (gets “Điều khiển” in the orb)");
 await clickText(owner, ".side-panel button", "Hạ tay");
 await sleep(500);
 check(await guest.evaluate(() => !document.querySelector('button[aria-pressed="true"][title]')?.textContent?.includes("✋")), "owner lowers the hand");
-await owner.click(".engage-qa");
+await orb(owner, "qa");
 await sleep(400);
 await clickText(owner, ".qa-panel button", "Lên màn hình");
 await sleep(1200);
 check(await guest.evaluate(() => document.querySelector(".screen-question")?.textContent?.includes("Robot có cảm xúc")), "question shown on the stage screen");
-await guest.click(".engage-qa"); // close panel for a clean shot
+await orb(guest, "qa"); // close panel for a clean shot
+await closeOrb(guest);
 await sleep(500);
 await guest.screenshot({ path: `${OUT}/engage-question-on-stage.png` });
 await clickText(owner, ".qa-panel button", "Đã trả lời");
@@ -129,7 +132,7 @@ check(await guest.evaluate(() => true), "marked answered");
 
 // report
 await clickText(owner, ".qa-panel button", "✕");
-await clickText(owner, ".hud-btn", "Điều khiển");
+await orb(owner, "control");
 await sleep(300);
 await clickText(owner, ".side-panel [role=tab]", "Thống kê");
 await sleep(1500);
@@ -140,9 +143,7 @@ check(csv.type?.includes("text/csv") && csv.text.includes("Robot có cảm xúc"
 // mobile: reaction toggle + Q&A panel
 const phone = await page({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 await enter(phone, "Điện thoại");
-await phone.click(".engage-toggle");
-await sleep(400);
-await phone.click(`button[aria-label="Thả ❤️"]`);
+await react(phone, "❤️");
 await sleep(300);
 await phone.screenshot({ path: `${OUT}/engage-mobile.png` });
 
