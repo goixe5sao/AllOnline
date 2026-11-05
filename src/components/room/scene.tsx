@@ -141,7 +141,7 @@ function SimpleModel({ group, color }: { group: string; color: string }) {
 
 const tmpV = new THREE.Vector3();
 /** Where the name tag sits on each kind of avatar (local coords; +x = the avatar's right side). */
-const SHOULDER: Record<string, [number, number, number]> = { people: [0.22, 0.95, 0], animals: [0.2, 0.75, 0], vehicles: [0, 1.5, 0] };
+const SHOULDER: Record<string, [number, number, number]> = { people: [0.3, 0.95, 0], animals: [0.2, 0.75, 0], vehicles: [0, 1.5, 0] };
 const tmpA = new THREE.Vector3();
 
 const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, portal }: { id: string; store: MemberStore; layout: Layout; lite: boolean; bubbleTick: number; portal: React.RefObject<HTMLElement | null> }) {
@@ -624,25 +624,19 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
     if (c.behind) {
       // Eyes of someone sitting 2 rows behind: own avatar + the rows in front + the screen.
       const seated = !!seat && me.status === "seated";
-      // The camera is level with the centre of the stage screen (same height on desktop and
-      // mobile). It stays far enough back that the own avatar is at most ~30° below the horizon,
-      // and pitches down just enough to put the own avatar in the lower part of the frame while
-      // the whole screen stays in view.
+      // Over the shoulder, low (not floating above the hall): just behind and a little above the
+      // own head — close enough that the row in between never hides the own avatar — aimed at
+      // the centre of the stage screen; pitch is limited so the own avatar stays in frame.
       const selfFloor = seat ? seat.y : floorY(layout, sf.z, me.status !== "waiting");
-      const selfTop = selfFloor + (isCar ? 2.2 : 1.6);
-      let back = layout.rowGap * 2 + (seated ? 0 : layout.rowGap);
-      let bx = sf.x - h.fx * back;
-      let bz = sf.z - h.fz * back;
-      let y = Math.max(layout.screen.y, floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.6);
-      const minBack = (y - selfTop) / Math.tan(0.53);
-      if (back < minBack) {
-        back = minBack;
-        bx = sf.x - h.fx * back;
-        bz = sf.z - h.fz * back;
-        y = Math.max(y, floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.6);
-      }
+      const selfTop = selfFloor + (isCar ? 1.8 : 1.2); // centre of the own head / car roof
+      const back = isCar ? (seated ? 6 : 8) : seated ? Math.min(1.6, layout.rowGap * 1.1) : 2.4;
+      const bx = sf.x - h.fx * back;
+      const bz = sf.z - h.fz * back;
+      const y = Math.max(selfTop + (isCar ? 1.2 : 0.5), floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.3);
       camera.position.set(bx, y, bz);
-      tilt = -Math.max(0, Math.atan2(Math.max(0, y - selfTop), back) - 0.38);
+      const toScreen = Math.atan2(layout.screen.y - y, Math.max(1, Math.hypot(layout.screen.x - bx, layout.screen.z - bz)));
+      const selfBelow = Math.atan2(Math.max(0, y - selfTop), back); // own head, angle below the horizon
+      tilt = Math.min(toScreen, 0.36 - selfBelow);
     } else {
       // Own view: always level with the centre of the stage screen, looking straight ahead,
       // so the screen sits in the middle of the display (also right after joining).
