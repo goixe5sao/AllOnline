@@ -39,6 +39,8 @@ export interface Layout {
   gate: { x: number; z: number; halfWidth: number };
   /** Eye height above the seat/floor for a seated or walking participant. */
   eyeHeight: number;
+  /** Distance between two seat rows (used for the "view from 2 rows behind" camera). */
+  rowGap: number;
   /** Max distance from a seat to be allowed to take it ("Vào chỗ"). */
   claimDistance: number;
   /** Movement speed limit in m/s, enforced by the server. */
@@ -105,6 +107,7 @@ export function buildLayout(map: MapCode, capacity: number): Layout {
   const raw: Omit<Seat, "rank" | "id">[] = [];
   let screen = { x: 0, y: 3, z: -6, width: 8, height: 4.5 };
   let eyeHeight = 1.2;
+  let rowGap = 1.4;
   let claimDistance = 2.2;
   let maxSpeed = 4;
 
@@ -122,9 +125,8 @@ export function buildLayout(map: MapCode, capacity: number): Layout {
       // 35 cm rise per row (typical raked auditorium) so heads in front do not hide the stage.
       raw.push({ x, z, y: row * HALL_RISE, rotY: 0 });
     }
-    // Raised so the bottom edge (promo strip) clears the heads of the rows in front.
-    screen = { x: 0, y: 4.2, z: -6, width: 9, height: 5 };
     eyeHeight = 1.15;
+    rowGap = 1.4;
   } else if (map === "carpet") {
     const perRow = 7;
     for (let i = 0; i < capacity; i++) {
@@ -133,8 +135,8 @@ export function buildLayout(map: MapCode, capacity: number): Layout {
       const offset = row % 2 ? 0.9 : 0;
       raw.push({ x: (col - (perRow - 1) / 2) * 1.8 + offset, z: -1 + row * 1.9, y: 0, rotY: 0 });
     }
-    screen = { x: 0, y: 3.6, z: -6, width: 8, height: 4.5 };
     eyeHeight = 0.85;
+    rowGap = 1.9;
   } else if (map === "tables") {
     const tablesPerRow = 3;
     const seatsPerTable = 4;
@@ -147,8 +149,8 @@ export function buildLayout(map: MapCode, capacity: number): Layout {
       const tz = -0.5 + tRow * 3;
       raw.push({ x: tx + (s - 1.5) * 1.05, z: tz + 0.75, y: 0, rotY: 0, group: `T${table + 1}` });
     }
-    screen = { x: 0, y: 4.2, z: -6, width: 9, height: 5 };
     eyeHeight = 1.15;
+    rowGap = 3;
   } else {
     // Drive-in: each row is raised and staggered by half a bay so the car in front does not
     // fully block the driver's line of sight to the big screen.
@@ -161,11 +163,23 @@ export function buildLayout(map: MapCode, capacity: number): Layout {
       const stagger = row % 2 ? bay / 2 : 0;
       raw.push({ x: (col - (perRow - 1) / 2) * bay + stagger, z: 4 + row * depth, y: row * 0.5, rotY: 0 });
     }
-    const width = Math.max(18, perRow * bay * 0.95);
-    screen = { x: 0, y: 3 + (width * 9) / 32, z: -14, width, height: (width * 9) / 16 };
+    screen = { ...screen, z: -14 };
     eyeHeight = 1.2;
+    rowGap = depth;
     claimDistance = 3.2;
     maxSpeed = 9;
+  }
+
+  const pad = map === "drive_in" ? 5 : 2;
+  {
+    // Stage screen spans ~3/4 of the auditorium width (16:9), bottom edge above the stage.
+    const maxAbsX = Math.max(0, ...raw.map((s) => Math.abs(s.x)));
+    const width = round(Math.max(map === "drive_in" ? 18 : 8, 0.75 * 2 * (maxAbsX + pad)));
+    const height = round((width * 9) / 16);
+    const bottom = map === "drive_in" ? 3 : 1;
+    // Far enough back that the front row (z ≈ -1) still takes in the whole screen.
+    const z = map === "drive_in" ? -14 : round(-1 - 0.6 * width);
+    screen = { ...screen, width, height, z, y: round(bottom + height / 2) };
   }
 
   const seats: Seat[] = raw
@@ -174,7 +188,6 @@ export function buildLayout(map: MapCode, capacity: number): Layout {
     .sort((a, b) => Math.hypot(a.x - screen.x, a.z - screen.z) - Math.hypot(b.x - screen.x, b.z - screen.z) || a.i - b.i)
     .map(({ i: _i, ...s }, rank) => ({ ...s, id: `S${rank + 1}`, rank }));
 
-  const pad = map === "drive_in" ? 5 : 2;
   const xs = seats.map((s) => s.x);
   const zs = seats.map((s) => s.z);
   const halfW = Math.max(Math.abs(Math.min(...xs, -screen.width / 2)), Math.abs(Math.max(...xs, screen.width / 2))) + pad;
@@ -182,7 +195,7 @@ export function buildLayout(map: MapCode, capacity: number): Layout {
   const gate = { x: 0, z: main.maxZ, halfWidth: map === "drive_in" ? 3 : 1.5 };
   const waiting: Rect = { minX: -halfW, maxX: halfW, minZ: main.maxZ + 1, maxZ: main.maxZ + (map === "drive_in" ? 16 : 8) };
 
-  return { map, seats, screen, main, waiting, gate, eyeHeight, claimDistance, maxSpeed };
+  return { map, seats, screen, main, waiting, gate, eyeHeight, rowGap, claimDistance, maxSpeed };
 }
 
 export function inRect(r: Rect, x: number, z: number): boolean {

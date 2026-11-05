@@ -20,8 +20,8 @@ export interface Controls {
   yaw: number;
   /** Look up/down offset chosen by the user, limited to ±PITCH_RANGE around pitchBase. */
   pitch: number;
-  /** Default vertical view: screen centre when seated, slightly down when walking. */
-  pitchBase?: number;
+  /** View from 2 rows behind the user's own position (sees the user's own avatar). */
+  behind?: boolean;
   fov: number;
   keys: Set<string>;
   joy: { x: number; y: number };
@@ -175,6 +175,9 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
       if (show) {
         const sc = layout.screen;
         tmpV.set(g.current.position.x, g.current.position.y + 1.8, g.current.position.z).project(camera);
+        // Outside the view (e.g. the neighbour right below / beside the camera): a projected
+        // point behind the camera would otherwise flip and float over the screen.
+        if (tmpV.z > 1 || Math.abs(tmpV.x) > 1.05 || Math.abs(tmpV.y) > 1.05) show = false;
         const a = tmpA.set(sc.x - sc.width / 2, sc.y - sc.height / 2, sc.z).project(camera);
         const ax = a.x, ay = a.y;
         const b = tmpA.set(sc.x + sc.width / 2, sc.y + sc.height / 2, sc.z).project(camera);
@@ -539,17 +542,7 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
       sf.x = me.x;
       sf.z = me.z;
       c.yaw = me.status === "seated" || me.status === "invited" ? 0 : me.rotY;
-      // Look at the centre of the stage screen (front rows tilt up, back rows level).
-      const seatNow = me.seatId ? layout.seats.find((s) => s.id === me.seatId) : undefined;
-      const sc = layout.screen;
-      const eyeY = (seatNow?.y ?? floorY(layout, me.z, me.status !== "waiting")) + layout.eyeHeight;
-      // Seated: look at the screen centre. Walking (finding / waiting): look slightly down so free
-      // seats and the floor ahead are visible.
       c.pitch = 0;
-      c.pitchBase =
-        me.status === "seated" || me.status === "invited"
-          ? Math.max(-0.7, Math.min(0.7, Math.atan2(sc.y - eyeY, Math.max(1, Math.hypot(sc.x - me.x, sc.z - me.z)))))
-          : -0.28;
     }
     if (store.correction) {
       sf.x = store.correction.x;
@@ -630,16 +623,28 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
         }
       }
     }
-    const baseY = seat && me.status === "seated" ? seat.y : floorY(layout, sf.z, me.status !== "waiting");
     const h = headingVec(heading);
-    const driver = isCar ? -0.38 : 0;
-    camera.position.set(sf.x + h.rx * driver + h.fx * (isCar ? 0.2 : 0), baseY + layout.eyeHeight + (isCar ? 0.2 : 0), sf.z + h.rz * driver + h.fz * (isCar ? 0.2 : 0));
+    let tilt = 0;
+    if (c.behind) {
+      // Eyes of someone sitting 2 rows behind: own avatar + the rows in front + the screen.
+      const seated = !!seat && me.status === "seated";
+      // Walking: a little further back, higher (clears the gate beam and the fence) and looking
+      // down a bit, so the own avatar stays in frame together with the screen.
+      const back = layout.rowGap * 2 + (seated ? 0 : layout.rowGap * 2);
+      const bx = sf.x - h.fx * back;
+      const bz = sf.z - h.fz * back;
+      const floor = floorY(layout, bz, me.status !== "waiting");
+      camera.position.set(bx, floor + (seated ? layout.eyeHeight + (isCar ? 1 : 0.15) : isCar ? 5 : 3.8), bz);
+      if (!seated) tilt = -0.35;
+    } else {
+      // Own view: always level with the centre of the stage screen, looking straight ahead,
+      // so the screen sits in the middle of the display (also right after joining).
+      const driver = isCar ? -0.38 : 0;
+      camera.position.set(sf.x + h.rx * driver + h.fx * (isCar ? 0.2 : 0), layout.screen.y, sf.z + h.rz * driver + h.fz * (isCar ? 0.2 : 0));
+    }
     camera.rotation.set(0, 0, 0, "YXZ");
     camera.rotation.y = heading;
-    // Seated: the "look at the screen" tilt fades out as the user turns away from the stage,
-    // so turning around shows the audience at eye level instead of the ceiling.
-    const base = me.status === "seated" ? (c.pitchBase ?? 0) * Math.max(0, Math.cos(c.yaw)) : (c.pitchBase ?? 0);
-    camera.rotation.x = base + Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, c.pitch));
+    camera.rotation.x = tilt + Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, c.pitch));
     const pc = camera as THREE.PerspectiveCamera;
     if (Math.abs(pc.fov - c.fov) > 0.05) {
       pc.fov += (c.fov - pc.fov) * Math.min(1, dt * 8);
@@ -726,6 +731,7 @@ export interface SceneProps {
   highlightFree: boolean;
   ad: StageAd | null;
   selectedSeat: string | null;
+  behindView?: boolean;
   onSeatClick?: (seatId: string, x: number, y: number) => void;
   /** Room owner attending as a participant: double-click a free seat to go there at once. */
   onSeatDoubleClick?: (seatId: string) => void;
@@ -733,9 +739,10 @@ export interface SceneProps {
 
 export function RoomScene(p: SceneProps) {
   const ids = useMemo(
-    () => [...p.store.map.keys()].filter((id) => p.role !== "participant" || id !== p.selfId),
+    // Participants do not see their own avatar, except in the "2 rows behind" view.
+    () => [...p.store.map.keys()].filter((id) => p.role !== "participant" || id !== p.selfId || p.behindView),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.version, p.role, p.selfId],
+    [p.version, p.role, p.selfId, p.behindView],
   );
   const occupied = useMemo(
     () => new Set([...p.store.map.values()].filter((m: PublicMember) => m.status === "seated" && m.seatId).map((m) => m.seatId!)),

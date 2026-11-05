@@ -230,11 +230,24 @@ export function RoomView({ roomId }: { roomId: string }) {
   const members = useMemo(() => [...store.map.values()], [s.version]); // eslint-disable-line react-hooks/exhaustive-deps
   const occupied = useMemo(() => new Set(members.filter((m) => m.status === "seated" && m.seatId).map((m) => m.seatId!)), [members]);
 
+  // "View from 2 rows behind": ↓ while seated (↑ to return), or the HUD button.
+  const [behind, setBehind] = useState(false);
+  useEffect(() => {
+    controls.current.behind = behind;
+  }, [behind]);
+  const movableRef = useRef(false);
+  movableRef.current = !!movable;
+
   // keyboard
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT" || (e.target as HTMLElement)?.tagName === "TEXTAREA") return;
       controls.current.keys.add(e.key.toLowerCase());
+      // While walking, ↓/↑ move; otherwise they switch between own view and the view from behind.
+      if (!movableRef.current && !e.repeat) {
+        if (e.key === "ArrowDown" || e.key.toLowerCase() === "s") setBehind(true);
+        if (e.key === "ArrowUp" || e.key.toLowerCase() === "w") setBehind(false);
+      }
       if (e.key === "Escape") setFullView(false);
     };
     const up = (e: KeyboardEvent) => controls.current.keys.delete(e.key.toLowerCase());
@@ -403,6 +416,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           highlightFree={me?.status === "finding"}
           ad={s.ad}
           selectedSeat={seatPick?.id ?? goingTo}
+          behindView={isParticipant && behind}
           onSeatClick={onSeatClick}
           onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
           screen={<ScreenContent {...screenProps} active={!fullView} />}
@@ -478,6 +492,11 @@ export function RoomView({ roomId }: { roomId: string }) {
             }}
           >
             {isParticipant ? "Chế độ chủ phòng" : "Ngồi như khách"}
+          </button>
+        )}
+        {isParticipant && (
+          <button className="hud-btn" aria-pressed={behind} onClick={() => setBehind(!behind)} title={movable ? "Xem từ phía sau 2 hàng" : "Phím ↓: xem từ phía sau 2 hàng · ↑: về chỗ mình"}>
+            {behind ? "👁 Góc của tôi" : "🎥 Xem từ phía sau"}
           </button>
         )}
         {isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" && (
