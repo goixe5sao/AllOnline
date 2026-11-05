@@ -41,6 +41,29 @@ for (const [name, w, h, mobile] of [
   check(overflow <= 0, `${name}: no horizontal scroll (${overflow}px)`);
   await p.screenshot({ path: `${OUT}/home-${name}.png` });
   await p.screenshot({ path: `${OUT}/home-${name}-full.png`, fullPage: true });
+  if (name === "desktop" || name === "mobile") {
+    // slides on the stage screen + house lights
+    const tab = (label) => p.evaluate((l) => [...document.querySelectorAll(".st-tabs button")].find((b) => b.textContent?.startsWith(l))?.click(), label);
+    await tab("Phòng đang mở");
+    await sleep(900);
+    check(await p.evaluate(() => document.querySelector("#phong-dang-mo")?.classList.contains("on")), `${name}: rooms slide opens from its tab`);
+    await p.screenshot({ path: `${OUT}/home-${name}-slide-rooms.png` });
+    await tab("Kiểu sân khấu");
+    await sleep(900);
+    await p.screenshot({ path: `${OUT}/home-${name}-slide-types.png` });
+    await p.click(".lsw");
+    await sleep(1200);
+    check(await p.evaluate(() => document.querySelector(".theater")?.classList.contains("lights-on")), `${name}: light switch turns the house lights on`);
+    await p.screenshot({ path: `${OUT}/home-${name}-lights-on.png` });
+    await p.click(".lsw");
+    await tab("Giới thiệu");
+    await sleep(900);
+    await p.evaluate(() => document.querySelector("#quay-ve")?.scrollIntoView());
+    await sleep(600);
+    await p.screenshot({ path: `${OUT}/home-${name}-lobby.png` });
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await sleep(400);
+  }
   if (name === "mobile") {
     await p.click(".hn-burger");
     await sleep(300);

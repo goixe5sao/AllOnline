@@ -16,10 +16,20 @@ export interface HomeRoom {
   live: { admitted: number; seated: number } | null;
 }
 
+/** What the ticket booth on the home page offers (from the app owner's settings). */
+export interface HomePricing {
+  trial: { enabled: boolean; maxHours: number; maxCapacity: number };
+  /** Cheapest package: price and its duration. */
+  from: { price: number; hours: number } | null;
+  durations: number[];
+  openEnded: { enabled: boolean; deposit: number; hourlyFrom: number | null };
+}
+
 export interface HomeData {
   rooms: HomeRoom[];
   enabledMaps: MapCode[];
   online: number;
+  pricing: HomePricing | null;
 }
 
 /**
@@ -37,12 +47,12 @@ export function registerHomeData(p: HomeDataProvider) {
 
 export async function getHomeData(): Promise<HomeData> {
   const p = (globalThis as Record<string, unknown>)[KEY] as HomeDataProvider | undefined;
-  if (!p) return { rooms: [], enabledMaps: ["hall", "carpet", "tables", "drive_in"], online: 0 };
+  if (!p) return { rooms: [], enabledMaps: ["hall", "carpet", "tables", "drive_in"], online: 0, pricing: null };
   try {
     return await p();
   } catch (e) {
     console.error("[home]", e);
-    return { rooms: [], enabledMaps: ["hall", "carpet", "tables", "drive_in"], online: 0 };
+    return { rooms: [], enabledMaps: ["hall", "carpet", "tables", "drive_in"], online: 0, pricing: null };
   }
 }
 

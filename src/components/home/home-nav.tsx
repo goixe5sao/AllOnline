@@ -26,7 +26,8 @@ export function HomeNav() {
       <nav id="hn-menu" className={`hn-menu ${open ? "open" : ""}`} aria-label="Điều hướng chính" onClick={() => setOpen(false)}>
         <a href="#phong-dang-mo">Phòng đang mở</a>
         <a href="#kieu-san-khau">Kiểu sân khấu</a>
-        <a href="#cach-hoat-dong">Cách hoạt động</a>
+        <a href="#quay-ve">Quầy vé</a>
+        <a href="#tiep-tan">Tiếp tân</a>
         <a href="#hoi-dap">Hỏi đáp</a>
         <span className="hn-spacer" />
         {member ? (
@@ -72,7 +73,7 @@ export function HeroActions() {
         {member ? "Mở sân khấu của bạn" : "Tạo tài khoản & mở phòng"}
       </Link>
       <a className="btn-ghost" href="#phong-dang-mo">
-        Xem phòng đang mở
+        Xem phòng đang mở →
       </a>
     </div>
   );
