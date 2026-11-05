@@ -44,6 +44,8 @@ import { addModerator, listModerators, removeModerator, resolveNewOwner } from "
 import { reportCsv, roomReport } from "./services/report";
 import { eventIcs } from "./services/calendar";
 import { hasZalo } from "./services/identities";
+import type { ZaloBot } from "./zalo/bot";
+import { zaloRoutes } from "./zalo/routes";
 
 interface Ctx {
   req: IncomingMessage;
@@ -55,8 +57,8 @@ interface Ctx {
 
 type Handler = (ctx: Ctx) => Promise<unknown>;
 
-export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService; analysis: StockVnAnalysis }) {
-  const { cfg, db, auth, hub, storage, market, analysis } = deps;
+export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService; analysis: StockVnAnalysis; bot: ZaloBot }) {
+  const { cfg, db, auth, hub, storage, market, analysis, bot } = deps;
   const routes: { method: string; re: RegExp; handler: Handler; public?: boolean }[] = [];
   const route = (method: string, pattern: string, handler: Handler, opts: { public?: boolean } = {}) =>
     routes.push({ method, re: new RegExp("^" + pattern.replace(/:\w+/g, "([^/]+)") + "$"), handler, public: opts.public });
@@ -156,6 +158,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     "/api/auth/logout",
     async ({ req, res, user }) => {
       auth.clearGuest(res);
+      auth.clearAccount(res);
       if (cfg.mode === "demo") auth.demoLogout(res);
       else if (!user?.is_guest) await auth.supabase(req, res).auth.signOut();
       if (user) auth.invalidate(user.id);
@@ -190,6 +193,8 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
         trial: { enabled: s.trial_enabled, maxHours: s.trial_max_hours, maxCapacity: s.trial_max_capacity, perAccount: s.trial_rooms_per_account, startsAt: s.trial_starts_at, endsAt: s.trial_ends_at },
         extensionEnabled: s.extension_enabled,
         openEnded: { enabled: s.open_ended_enabled, deposit: Number(s.open_ended_deposit_vnd) },
+        zaloLogin: !!(cfg.zaloAppId && cfg.zaloAppSecret),
+        zaloBot: cfg.zaloOaId ? { url: `https://zalo.me/${cfg.zaloOaId}` } : null,
         priceTiers: await getPriceTiers(db),
         waitingSurchargePct: s.waiting_surcharge_pct,
         budget: await slotBudget(db),
@@ -617,7 +622,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
       if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) throw new AppError("BAD_SIGNATURE", "Chữ ký không hợp lệ.", 401);
       const b = z.object({ txnId: z.string().min(1).max(100), orderCode: z.string().max(40), amount: z.number().int().min(0) }).parse(JSON.parse(raw.toString("utf8")));
       const r = await confirmPayment(db, { orderCode: b.orderCode, provider: "webhook", txnId: b.txnId, amount: b.amount, actorId: null, raw: b });
-      if (r.roomId && r.order?.kind === "extend_room") await hub.refreshRoom(r.roomId);
+      await afterPaid(r);
       return { outcome: r.outcome };
     },
     { public: true },
@@ -686,7 +691,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     const o = await getOrder(db, ctx.params[0]);
     if (!o) throw new AppError("NOT_FOUND", "Không tìm thấy đơn.", 404);
     const r = await confirmPayment(db, { orderCode: o.code, provider: "manual", txnId: b.reference || null, amount: b.amount, actorId: u.id, raw: { reference: b.reference } });
-    if (r.roomId && o.kind === "extend_room") await hub.refreshRoom(r.roomId);
+    await afterPaid(r);
     return r;
   });
 
@@ -716,6 +721,9 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { events: r.rows };
   });
 
+  // ----- Zalo login / bot, SePay, payment proofs -----
+  const { afterPaid } = zaloRoutes(route, { cfg, db, auth, hub, storage, bot });
+
   // ----- dispatcher -----
   return async function handle(req: IncomingMessage, res: ServerResponse, url: URL) {
     const method = req.method ?? "GET";
@@ -724,7 +732,9 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
       const m = url.pathname.match(r.re);
       if (!m) continue;
       try {
-        if (method !== "GET" && url.pathname !== "/api/payments/webhook" && !sameOrigin(req)) throw new AppError("BAD_ORIGIN", "Yêu cầu bị chặn.", 403);
+        // Server-to-server webhooks (payment providers, Zalo) carry their own signature / key.
+        const webhook = url.pathname.startsWith("/api/payments/") || url.pathname === "/api/zalo/webhook";
+        if (method !== "GET" && !webhook && !sameOrigin(req)) throw new AppError("BAD_ORIGIN", "Yêu cầu bị chặn.", 403);
         auth.ensureDevice(req, res);
         const user = await auth.currentUser(req, res).catch(() => null);
         const out = await r.handler({ req, res, url, params: m.slice(1).map(decodeURIComponent), user });

@@ -12,6 +12,7 @@
     "grant-owner": "tsx scripts/grant-owner.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.5.0",
     "@electric-sql/pglite": "^0.5.15",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",

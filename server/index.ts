@@ -25,6 +25,8 @@ import type { MapCode } from "@/core/maps";
 import { getUser } from "./services/users";
 import { clientIp } from "./http";
 import path from "node:path";
+import { CaptureSender, ZaloOa } from "./zalo/oa";
+import { ZaloBot } from "./zalo/bot";
 
 async function main() {
   loadEnvFiles();
@@ -42,7 +44,22 @@ async function main() {
   if (process.env.MARKET_DATA !== "off") market.start();
   // Technical analysis is provided by the StockVN service (trendlines, channels, S/R, patterns…).
   const analysis = new StockVnAnalysis(cfg.stockvnUrl, undefined, undefined, cfg.stockvnToken);
-  const api = createApi({ cfg, db, auth, hub, storage, market, analysis });
+  // Zalo OA bot: real OA API when configured, otherwise an in-memory sender (demo simulator).
+  const origin = () => cfg.publicOrigin ?? `http://localhost:${cfg.port}`;
+  const zaloSender = cfg.zaloAppId && cfg.zaloAppSecret && (cfg.zaloOaRefreshToken || cfg.zaloOaId) ? new ZaloOa(cfg, db) : new CaptureSender();
+  const bot = new ZaloBot({
+    cfg,
+    db,
+    auth,
+    storage,
+    sender: zaloSender,
+    origin,
+    onPaid: async ({ roomId, kind }) => {
+      if (roomId && kind === "extend_room") await hub.refreshRoom(roomId);
+    },
+  });
+  setInterval(() => void bot.tick().catch((e) => console.error("[zalo] tick", e)), 60_000);
+  const api = createApi({ cfg, db, auth, hub, storage, market, analysis, bot });
   // Data for the server-rendered home page (same process as Next.js).
   registerHomeData(async () => {
     const [rows, s, tiers] = await Promise.all([listPublicRooms(db), getSettings(db), getPriceTiers(db)]);

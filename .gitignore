@@ -43,6 +43,7 @@ next-env.d.ts
 
 # local demo database & uploads
 /.data
+/.data-*
 
 # deploy/windows: cấu hình riêng của máy (mật khẩu, mã, tunnel) và log
 /deploy/windows/site.local.json

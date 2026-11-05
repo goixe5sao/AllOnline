@@ -39,6 +39,8 @@ export interface Settings {
   ip_max_participants: number;
   open_ended_enabled: boolean;
   open_ended_deposit_vnd: number;
+  receipt_auto_approve_max_vnd: number;
+  reminder_minutes_before: number;
   updated_at: Date;
 }
 
@@ -48,7 +50,8 @@ const SELECT_SETTINGS = `select total_slot_budget, max_room_capacity, waiting_ra
   waiting_surcharge_pct::float8 as waiting_surcharge_pct, trial_enabled, trial_starts_at, trial_ends_at,
   trial_rooms_per_account, trial_max_hours, trial_max_capacity, extension_enabled, qr_bank_bin, qr_account_no,
   qr_account_name, upload_max_mb, upload_retention_days, enabled_maps, enabled_avatar_groups, guest_join_enabled, stage_ad_enabled, stage_ad_text, stage_ad_url, device_limit_room_creator, ip_max_participants,
-  open_ended_enabled, open_ended_deposit_vnd::float8 as open_ended_deposit_vnd, updated_at
+  open_ended_enabled, open_ended_deposit_vnd::float8 as open_ended_deposit_vnd,
+  receipt_auto_approve_max_vnd::float8 as receipt_auto_approve_max_vnd, reminder_minutes_before, updated_at
   from app.settings where id = 1`;
 
 export async function getSettings(q: Queryable): Promise<Settings> {
@@ -113,6 +116,8 @@ export const settingsPatchSchema = z
     ip_max_participants: z.number().int().min(0).max(10000),
     open_ended_enabled: z.boolean(),
     open_ended_deposit_vnd: z.number().int().min(0).max(1_000_000_000),
+    receipt_auto_approve_max_vnd: z.number().int().min(0).max(100_000_000),
+    reminder_minutes_before: z.number().int().min(5).max(1440),
     stage_ad_text: z.string().trim().min(1).max(120),
     stage_ad_url: z.string().trim().max(500).url().refine((u) => u.startsWith("https://"), "Liên kết phải bắt đầu bằng https://"),
   })

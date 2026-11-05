@@ -30,6 +30,7 @@ export function AppShell({ children, narrow, requireLogin }: { children: (me: Me
           {link("/", "Tổng quan")}
           {user && !user.isGuest && link("/rooms/new", "Tạo phòng")}
           {user && !user.isGuest && link("/orders", "Đơn của tôi")}
+          {user && !user.isGuest && link("/account", "Tài khoản")}
           {user?.role === "app_owner" && link("/admin", "Quản trị")}
         </nav>
         <span className="spacer" />

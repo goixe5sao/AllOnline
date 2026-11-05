@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { AppShell } from "@/components/app-shell";
-import { api, ApiError, useMe } from "@/lib/api";
+import { api, ApiError, useApi, useMe } from "@/lib/api";
 
 function nextUrl() {
   const n = new URLSearchParams(window.location.search).get("next");
@@ -98,6 +98,39 @@ function RealLogin() {
   );
 }
 
+/** Zalo: "Đăng nhập bằng Zalo" (Zalo Login) and/or chatting "ĐĂNG KÝ" with the AllOnline OA bot. */
+function ZaloOptions() {
+  const { data } = useApi<{ zaloLogin: boolean; zaloBot: { url: string } | null }>("/api/catalog");
+  const err = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("error") : null;
+  if (!data || (!data.zaloLogin && !data.zaloBot)) return null;
+  return (
+    <div className="stack zalo-box">
+      <div className="or-line">
+        <span>hoặc</span>
+      </div>
+      {err === "zalo" && <p className="notice error">Đăng nhập Zalo không thành công, thử lại nhé.</p>}
+      {err === "link" && <p className="notice error">Link đăng nhập đã dùng hoặc hết hạn. Nhắn ĐĂNG NHẬP cho bot để lấy link mới.</p>}
+      {data.zaloLogin && (
+        <a className="btn zalo-btn" href={`/api/auth/zalo/start?next=${encodeURIComponent(typeof window !== "undefined" ? nextUrl() : "/")}`}>
+          <span className="zalo-logo" aria-hidden>
+            Z
+          </span>
+          Đăng nhập bằng Zalo
+        </a>
+      )}
+      {data.zaloBot && (
+        <p className="muted" style={{ margin: 0 }}>
+          Hoặc nhắn <b>ĐĂNG KÝ</b> cho{" "}
+          <a href={data.zaloBot.url} target="_blank" rel="noopener noreferrer">
+            bot AllOnline trên Zalo
+          </a>
+          : bot tạo tài khoản, gửi link đăng nhập một chạm và nhắc bạn trước mỗi sự kiện.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const { mode } = useMe();
   return (
@@ -106,6 +139,7 @@ export default function LoginPage() {
         <div className="card">
           <h1>Đăng nhập</h1>
           {mode === "demo" ? <DemoLogin /> : mode === "supabase" ? <RealLogin /> : <p className="muted">Đang tải…</p>}
+          {mode && <ZaloOptions />}
         </div>
       )}
     </AppShell>

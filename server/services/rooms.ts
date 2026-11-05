@@ -362,7 +362,7 @@ export type PaymentOutcome = "fulfilled" | "fulfilled_late" | "duplicate" | "alr
  */
 export async function confirmPayment(
   db: Db,
-  p: { orderCode: string; provider: "manual" | "webhook" | "demo" | "promo"; txnId: string | null; amount: number; actorId: string | null; raw?: unknown },
+  p: { orderCode: string; provider: "manual" | "webhook" | "demo" | "promo" | "sepay" | "receipt"; txnId: string | null; amount: number; actorId: string | null; raw?: unknown },
 ): Promise<{ outcome: PaymentOutcome; order: OrderRow | null; roomId?: string }> {
   return db.tx(async (q) => {
     await lockSlots(q);

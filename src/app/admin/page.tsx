@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { api, ApiError, fmtTime, useApi } from "@/lib/api";
 import { formatVnd, type PriceTier } from "@/core/pricing";
 import { MAP_INFO, type MapCode } from "@/core/maps";
+import { ProofsTab } from "./proofs-tab";
 import type { SlotBudget } from "@/core/slots";
 
 interface Overview {
@@ -189,6 +190,8 @@ function SettingsForm({ data, reload, msg, setMsg }: { data: { settings: Setting
         extension_enabled: !!form.extension_enabled,
         open_ended_enabled: !!form.open_ended_enabled,
         open_ended_deposit_vnd: Math.max(0, Math.floor(Number(form.open_ended_deposit_vnd) || 0)),
+        receipt_auto_approve_max_vnd: Math.max(0, Math.floor(Number(form.receipt_auto_approve_max_vnd) || 0)),
+        reminder_minutes_before: Math.min(1440, Math.max(5, Math.floor(Number(form.reminder_minutes_before) || 60))),
         guest_join_enabled: !!form.guest_join_enabled,
         stage_ad_enabled: !!form.stage_ad_enabled,
         device_limit_room_creator: !!form.device_limit_room_creator,
@@ -305,6 +308,21 @@ function SettingsForm({ data, reload, msg, setMsg }: { data: { settings: Setting
           <small>
             Đơn giá/giờ lấy từ bảng giá: giá rẻ nhất tính theo giờ của gói vừa sức chứa (thường là gói 24 giờ ÷ 24), cộng phụ phí chờ, làm tròn lên 100 ₫. Khi đóng phòng: tính số giờ đã mở, hoàn lại phần dư hoặc thu thêm (tab Quyết toán).
           </small>
+        </div>
+        <div className="card stack">
+          <h2>Bot Zalo: biên lai và nhắc lịch</h2>
+          <label className="field">
+            Tự mở phòng bằng ảnh chuyển khoản cho đơn tối đa (₫) — 0 = luôn chờ ngân hàng/duyệt tay
+            <input type="number" min={0} step={10000} value={Number(form.receipt_auto_approve_max_vnd ?? 0)} onChange={(e) => set("receipt_auto_approve_max_vnd", Number(e.target.value))} />
+          </label>
+          <small>
+            Ảnh chụp màn hình rất dễ làm giả. Khuyến nghị để 0 và bật SePay: tiền vào tài khoản là phòng tự mở, ảnh khách gửi chỉ để khớp đơn nhanh hơn. Nếu đặt mức lớn hơn 0, ảnh chỉ được tự duyệt khi
+            Claude đọc rõ, đúng mã đơn, đủ tiền, đúng số tài khoản nhận và mỗi người tối đa 2 lần/24 giờ.
+          </small>
+          <label className="field">
+            Bot nhắc trước giờ sự kiện (phút)
+            <input type="number" min={5} max={1440} value={Number(form.reminder_minutes_before ?? 60)} onChange={(e) => set("reminder_minutes_before", Number(e.target.value))} />
+          </label>
         </div>
         <div className="card stack">
           <h2>Nhận thanh toán QR (VietQR)</h2>
@@ -709,7 +727,7 @@ function SettlementsTab() {
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<"overview" | "settings" | "orders" | "settlements" | "promos" | "logs">("overview");
+  const [tab, setTab] = useState<"overview" | "settings" | "orders" | "proofs" | "settlements" | "promos" | "logs">("overview");
   return (
     <AppShell requireLogin>
       {(me) =>
@@ -724,6 +742,7 @@ export default function AdminPage() {
                   ["overview", "Tổng quan"],
                   ["settings", "Cài đặt & giá"],
                   ["orders", "Giao dịch"],
+                  ["proofs", "Biên lai & ngân hàng"],
                   ["settlements", "Quyết toán"],
                   ["promos", "Mã giảm giá"],
                   ["logs", "Log"],
@@ -737,6 +756,7 @@ export default function AdminPage() {
             {tab === "overview" && <OverviewTab />}
             {tab === "settings" && <SettingsTab />}
             {tab === "orders" && <OrdersTab />}
+            {tab === "proofs" && <ProofsTab />}
             {tab === "settlements" && <SettlementsTab />}
             {tab === "promos" && <PromosTab />}
             {tab === "logs" && <LogsTab />}
