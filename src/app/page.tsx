@@ -5,7 +5,8 @@ import { Be_Vietnam_Pro, Exo_2 } from "next/font/google";
 import { MAP_INFO, type MapCode } from "@/core/maps";
 import { getHomeData } from "@/lib/home-data";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
-import { HeroStage } from "@/components/home/hero-stage";
+import { Audience } from "@/components/home/audience";
+import { Spotlight } from "@/components/home/spotlight";
 import { HeroActions, HomeNav } from "@/components/home/home-nav";
 import { JoinCode } from "@/components/home/join-code";
 import { LiveRooms } from "@/components/home/live-rooms";
@@ -79,42 +80,77 @@ export default async function Home() {
       <HomeNav />
 
       <main>
-        <section className="hero" aria-labelledby="hero-h">
-          <div className="hero-copy">
-            <p className="eyebrow">Sân khấu của thời đại mới</p>
-            <h1 id="hero-h">
-              Người, robot, người ngoài hành tinh và AI
-              <span className="grad"> cùng chung một sân khấu.</span>
-            </h1>
-            <p className="lead">
-              AllOnline là khán phòng 3D trực tuyến: mở phòng trong một phút, mời mọi người bằng một đường link, cùng xem màn hình sân khấu, trò chuyện với người ngồi cạnh và bình chọn trực tiếp — ngay trên trình duyệt.
-            </p>
-            <HeroActions />
-            <JoinCode />
-            <dl className="stats">
+        {/* The whole first screen is a theater: curtains, beams, the stage screen (with the
+            introduction inside it) and rows of seats; the rest of the page sits below the seats. */}
+        <section className="theater" aria-labelledby="hero-h">
+          <Spotlight target=".theater" />
+          <div className="th-valance" aria-hidden />
+          <div className="th-curtain l" aria-hidden />
+          <div className="th-curtain r" aria-hidden />
+          <div className="th-beams" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="th-follow" aria-hidden />
+
+          <div className="th-screen-wrap">
+            <div className="th-screen">
+              <div className="th-screen-fx" aria-hidden />
+              <div className="th-badges" aria-hidden>
+                <span className="live">● LIVE</span>
+                <span>SÂN KHẤU CHÍNH · ALLONLINE</span>
+              </div>
+              <div className="th-content">
+                <p className="eyebrow">Sân khấu của thời đại mới</p>
+                <h1 id="hero-h">
+                  Người, robot, người ngoài hành tinh và AI
+                  <span className="grad"> cùng chung một sân khấu.</span>
+                </h1>
+                <p className="lead">
+                  Khán phòng 3D trực tuyến: mở phòng trong một phút, mời mọi người bằng một đường link, cùng xem màn hình sân khấu, trò chuyện với người ngồi cạnh và bình chọn trực tiếp — ngay trên trình duyệt.
+                </p>
+                <div className="th-cta">
+                  <HeroActions />
+                  <JoinCode />
+                </div>
+              </div>
+            </div>
+            <div className="th-reflect" aria-hidden />
+          </div>
+          {/* LED band on the stage lip */}
+          <div className="th-stage">
+            <dl className="led">
               <div>
-                <dt>Phòng công khai đang mở</dt>
+                <dt>phòng công khai đang mở</dt>
                 <dd>{rooms.length}</dd>
               </div>
               <div>
-                <dt>Người đang trong khán phòng</dt>
+                <dt>khán giả đang trong phòng</dt>
                 <dd>{Math.max(online, watching)}</dd>
               </div>
               <div>
-                <dt>Kiểu sân khấu</dt>
+                <dt>kiểu sân khấu</dt>
                 <dd>{enabledMaps.length}</dd>
               </div>
             </dl>
           </div>
-          <div className="hero-art">
-            <HeroStage />
+          <div className="th-audience">
+            <Audience />
           </div>
+          <a className="th-cue" href="#phong-dang-mo">
+            <span>Mời xuống hàng ghế</span>
+            <span aria-hidden>↓</span>
+          </a>
         </section>
 
+        <div className="floor">
         <section id="phong-dang-mo" className="hs-section" aria-labelledby="rooms-h">
           <div className="sec-head">
             <div>
-              <p className="eyebrow">Đang diễn ra</p>
+              <p className="row-sign">
+                <b>Hàng A</b> Đang diễn ra
+              </p>
               <h2 id="rooms-h">Phòng đang mở</h2>
             </div>
             <p className="sec-note">Chủ phòng tự chọn hiện phòng ở đây. Bấm vào một phòng để ghé xem — không cần tài khoản.</p>
@@ -127,7 +163,9 @@ export default async function Home() {
         <section id="kieu-san-khau" className="hs-section" aria-labelledby="stages-h">
           <div className="sec-head">
             <div>
-              <p className="eyebrow">Tham khảo</p>
+              <p className="row-sign">
+                <b>Hàng B</b> Tham khảo
+              </p>
               <h2 id="stages-h">Các kiểu sân khấu trên AllOnline</h2>
             </div>
             <p className="sec-note">Ảnh chụp từ khán phòng thật trong ứng dụng. Chọn kiểu phù hợp khi tạo phòng.</p>
@@ -151,7 +189,9 @@ export default async function Home() {
         <section id="cach-hoat-dong" className="hs-section" aria-labelledby="how-h">
           <div className="sec-head">
             <div>
-              <p className="eyebrow">3 bước</p>
+              <p className="row-sign">
+                <b>Hàng C</b> 3 bước
+              </p>
               <h2 id="how-h">Mở sân khấu của riêng bạn</h2>
             </div>
           </div>
@@ -198,7 +238,9 @@ export default async function Home() {
         <section id="hoi-dap" className="hs-section" aria-labelledby="faq-h">
           <div className="sec-head">
             <div>
-              <p className="eyebrow">Hỏi đáp</p>
+              <p className="row-sign">
+                <b>Hàng D</b> Hỏi đáp
+              </p>
               <h2 id="faq-h">Câu hỏi thường gặp</h2>
             </div>
           </div>
@@ -211,6 +253,7 @@ export default async function Home() {
             ))}
           </div>
         </section>
+        </div>
       </main>
 
       <footer className="foot">
