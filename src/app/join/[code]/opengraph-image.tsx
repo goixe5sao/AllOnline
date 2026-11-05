@@ -6,7 +6,7 @@ import { MAP_INFO } from "@/core/maps";
 import { getInviteMeta } from "@/lib/home-data";
 import { vnEventTime } from "@/lib/vn-time";
 
-export const alt = "Sự kiện trên AllOnline — sân khấu 3D";
+export const alt = "Sự kiện trên Sân Khấu Online — sân khấu 3D";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -37,7 +37,7 @@ export default async function Image({ params }: { params: Promise<{ code: string
       >
         <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 30 }}>
           <div style={{ width: 52, height: 52, borderRadius: 14, background: "linear-gradient(135deg,#3df5ff,#8b5cff 50%,#ff4fd8)", display: "flex" }} />
-          <span>AllOnline · Sân khấu 3D</span>
+          <span>Sân Khấu Online · 3D</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
           {when && (

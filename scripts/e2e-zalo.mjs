@@ -30,7 +30,7 @@ const say = async (p, text) => {
 // ---- 1. a newcomer signs up by chatting with the bot (simulator lives on /account of any member) ----
 const helper = await page();
 await helper.goto(BASE + "/login", { waitUntil: "networkidle0" });
-check(await helper.evaluate(() => document.body.textContent?.includes("bot AllOnline trên Zalo")), "login page offers the Zalo bot");
+check(await helper.evaluate(() => document.body.textContent?.includes("bot Sân Khấu Online trên Zalo")), "login page offers the Zalo bot");
 await helper.screenshot({ path: `${OUT}/zalo-login.png` });
 await post(helper, "/api/auth/demo-login", { displayName: "Người thử bot" });
 await helper.goto(BASE + "/account", { waitUntil: "networkidle0" });

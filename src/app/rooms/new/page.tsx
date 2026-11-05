@@ -170,7 +170,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
           </div>
         </div>
         <label className="check">
-          <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Hiện phòng trên trang chủ AllOnline (ai cũng thấy và bấm vào được; đổi lại bất cứ lúc nào)
+          <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Hiện phòng trên trang chủ Sân Khấu Online (ai cũng thấy và bấm vào được; đổi lại bất cứ lúc nào)
         </label>
         <div className="field">
           Kiểu sân khấu <small>(đổi được bất cứ lúc nào trong phòng)</small>

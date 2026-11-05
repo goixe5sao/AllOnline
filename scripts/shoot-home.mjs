@@ -100,6 +100,7 @@ for (const [name, w, h, mobile] of [
   }
   if (name === "desktop") {
     await p.setViewport({ width: 1200, height: 630 });
+    await p.evaluate(() => document.querySelectorAll("nextjs-portal").forEach((e) => e.remove())); // dev-only badge
     await sleep(500);
     await p.screenshot({ path: "public/og.png" });
   }

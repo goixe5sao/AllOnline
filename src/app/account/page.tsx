@@ -101,7 +101,7 @@ function Account({ me }: { me: Me }) {
       <div className="card stack">
         <h1>Tài khoản</h1>
         {params?.get("linked") === "zalo" && <p className="notice ok">Đã liên kết Zalo.</p>}
-        {params?.get("error") === "zalo_taken" && <p className="notice error">Tài khoản Zalo này đã gắn với một tài khoản AllOnline khác.</p>}
+        {params?.get("error") === "zalo_taken" && <p className="notice error">Tài khoản Zalo này đã gắn với một tài khoản Sân Khấu Online khác.</p>}
         <form
           className="row"
           onSubmit={async (e) => {
@@ -129,7 +129,7 @@ function Account({ me }: { me: Me }) {
       <div className="card stack">
         <h2>Zalo</h2>
         <p className="muted" style={{ margin: 0 }}>
-          Liên kết Zalo để bot AllOnline nhắn tin nhắc trước giờ sự kiện, báo khi thanh toán xong, và để bạn gửi ảnh chuyển khoản cho bot.
+          Liên kết Zalo để bot Sân Khấu Online nhắn tin nhắc trước giờ sự kiện, báo khi thanh toán xong, và để bạn gửi ảnh chuyển khoản cho bot.
         </p>
         <div className="row">
           <span className={`badge ${oa ? "ok" : ""}`}>{oa ? "✓ Bot Zalo đã liên kết" : "Bot Zalo: chưa liên kết"}</span>
@@ -151,10 +151,10 @@ function Account({ me }: { me: Me }) {
                 Nhắn <b style={{ fontSize: "1.2em", letterSpacing: 2 }}>LK {code}</b> cho{" "}
                 {data?.bot ? (
                   <a href={data.bot.url} target="_blank" rel="noopener noreferrer">
-                    bot AllOnline trên Zalo
+                    bot Sân Khấu Online trên Zalo
                   </a>
                 ) : (
-                  "bot AllOnline trên Zalo"
+                  "bot Sân Khấu Online trên Zalo"
                 )}{" "}
                 trong 10 phút.
               </div>

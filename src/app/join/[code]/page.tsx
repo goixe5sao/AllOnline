@@ -117,7 +117,7 @@ function EventBox({ code, data, me, onChange }: { code: string; data: InviteView
           {data.zaloBot ? (
             <>
               {" "}
-              hoặc nhắn <b>ĐĂNG KÝ</b> cho <a href={data.zaloBot.url} target="_blank" rel="noopener noreferrer">bot AllOnline trên Zalo</a>
+              hoặc nhắn <b>ĐĂNG KÝ</b> cho <a href={data.zaloBot.url} target="_blank" rel="noopener noreferrer">bot Sân Khấu Online trên Zalo</a>
             </>
           ) : null}
           . File lịch cũng tự nhắc 30 phút trước.

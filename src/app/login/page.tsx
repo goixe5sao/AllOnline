@@ -98,7 +98,7 @@ function RealLogin() {
   );
 }
 
-/** Zalo: "Đăng nhập bằng Zalo" (Zalo Login) and/or chatting "ĐĂNG KÝ" with the AllOnline OA bot. */
+/** Zalo: "Đăng nhập bằng Zalo" (Zalo Login) and/or chatting "ĐĂNG KÝ" with the Sân Khấu Online OA bot. */
 function ZaloOptions() {
   const { data } = useApi<{ zaloLogin: boolean; zaloBot: { url: string } | null }>("/api/catalog");
   const err = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("error") : null;
@@ -122,7 +122,7 @@ function ZaloOptions() {
         <p className="muted" style={{ margin: 0 }}>
           Hoặc nhắn <b>ĐĂNG KÝ</b> cho{" "}
           <a href={data.zaloBot.url} target="_blank" rel="noopener noreferrer">
-            bot AllOnline trên Zalo
+            bot Sân Khấu Online trên Zalo
           </a>
           : bot tạo tài khoản, gửi link đăng nhập một chạm và nhắc bạn trước mỗi sự kiện.
         </p>

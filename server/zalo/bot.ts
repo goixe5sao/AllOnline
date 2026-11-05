@@ -37,7 +37,7 @@ export function parseCommand(text: string): Command {
 }
 
 const HELP = [
-  "Chào bạn, mình là trợ lý AllOnline 🤖. Nhắn một trong các lệnh:",
+  "Chào bạn, mình là trợ lý Sân Khấu Online 🤖. Nhắn một trong các lệnh:",
   "• ĐĂNG KÝ hoặc ĐĂNG NHẬP — nhận link đăng nhập (không cần mật khẩu)",
   "• LK 123456 — liên kết tài khoản trên web với Zalo (lấy mã ở trang Tài khoản)",
   "• NHẮC <mã mời> — nhắc bạn trước giờ sự kiện; HỦY NHẮC <mã mời> để bỏ",
@@ -57,7 +57,7 @@ export interface ZaloEvent {
 }
 
 /**
- * The AllOnline Zalo OA bot: sign up / sign in with a one-time link, link a web account,
+ * The Sân Khấu Online Zalo OA bot: sign up / sign in with a one-time link, link a web account,
  * event reminders, payment status, and payment screenshots (read by Claude, matched with the
  * bank feed; a screenshot alone opens a room only below the app owner's auto-approve limit).
  */
@@ -105,7 +105,7 @@ export class ZaloBot {
   async handle(e: ZaloEvent) {
     const oaUid = e.sender?.id ?? e.follower?.id;
     if (!oaUid) return;
-    if (e.event_name === "follow") return this.say(oaUid, "Cảm ơn bạn đã quan tâm AllOnline — sân khấu 3D trực tuyến!\n\n" + HELP);
+    if (e.event_name === "follow") return this.say(oaUid, "Cảm ơn bạn đã quan tâm Sân Khấu Online — sân khấu 3D trực tuyến!\n\n" + HELP);
     if (e.event_name === "user_send_text") return this.onText(oaUid, e.message?.text ?? "", e.user_id_by_app);
     if (e.event_name === "user_send_image") {
       const url = e.message?.attachments?.find((a) => a.type === "image")?.payload?.url;
@@ -144,7 +144,7 @@ export class ZaloBot {
         }
         return this.say(
           oaUid,
-          `${created ? `🎉 Đã tạo tài khoản “${user.display_name}”.` : `Chào ${user.display_name}!`}\nBấm link để đăng nhập AllOnline (dùng một lần, hết hạn sau 10 phút):\n${this.loginUrl(user.id)}`,
+          `${created ? `🎉 Đã tạo tài khoản “${user.display_name}”.` : `Chào ${user.display_name}!`}\nBấm link để đăng nhập Sân Khấu Online (dùng một lần, hết hạn sau 10 phút):\n${this.loginUrl(user.id)}`,
         );
       }
       case "link": {
@@ -152,7 +152,7 @@ export class ZaloBot {
         if (!v || v.exp < Date.now()) return this.say(oaUid, "Mã liên kết không đúng hoặc đã hết hạn. Lấy mã mới ở trang Tài khoản trên web nhé.");
         this.linkCodes.delete(cmd.code);
         await linkIdentity(db, "zalo_oa", oaUid, v.userId);
-        return this.say(oaUid, "✅ Đã liên kết Zalo với tài khoản AllOnline của bạn. Từ giờ bot sẽ nhắc sự kiện và báo thanh toán ở đây.");
+        return this.say(oaUid, "✅ Đã liên kết Zalo với tài khoản Sân Khấu Online của bạn. Từ giờ bot sẽ nhắc sự kiện và báo thanh toán ở đây.");
       }
       case "remind": {
         const user = (await this.account(oaUid, appUid)) ?? (await findOrCreateZaloUser(db, "zalo_oa", oaUid, (await this.deps.sender.profile(oaUid))?.name ?? "Người dùng Zalo")).user;

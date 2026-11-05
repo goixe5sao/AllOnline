@@ -12,7 +12,7 @@ export function eventIcs(e: { uid: string; title: string; description: string; s
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//AllOnline//Su kien//VI",
+    "PRODID:-//San Khau Online//Su kien//VI",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",

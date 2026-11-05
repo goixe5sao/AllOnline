@@ -19,7 +19,7 @@ export const FAQ: { q: string; a: string }[] = [
   { q: "Phòng của tôi có hiện trên trang chủ không?", a: "Tuỳ bạn. Khi tạo phòng có ô “Hiện phòng trên trang chủ”; bật/tắt lại bất cứ lúc nào trong Phòng của tôi hoặc bảng điều khiển phòng. Phòng ẩn chỉ vào được bằng link mời." },
   { q: "Phòng mở vô thời hạn tính tiền thế nào?", a: "Bạn đặt cọc trước (mặc định 1.000.000 ₫). Phòng mở đến khi bạn tắt. Khi tắt, hệ thống tính số giờ đã mở (giờ dở tính tròn 1 giờ) × đơn giá theo sức chứa: còn dư thì hoàn lại cho bạn, thiếu thì thu thêm." },
   { q: "Một phòng chứa được bao nhiêu người?", a: "Bạn chọn số chỗ chính thức khi tạo phòng; có thể bật thêm khu chờ ngoài cổng. Người chờ được mời vào theo thứ tự khi có chỗ trống." },
-  { q: "Dùng được trên điện thoại không?", a: "Được. AllOnline chạy trên trình duyệt của máy tính, máy tính bảng và điện thoại; nút “Xem màn hình” mở riêng màn hình sân khấu toàn màn hình." },
+  { q: "Dùng được trên điện thoại không?", a: "Được. Sân Khấu Online chạy trên trình duyệt của máy tính, máy tính bảng và điện thoại; nút “Xem màn hình” mở riêng màn hình sân khấu toàn màn hình." },
 ];
 
 /** Friendly robot behind the reception desk (original SVG). */

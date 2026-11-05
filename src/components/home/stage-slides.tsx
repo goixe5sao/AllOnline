@@ -193,7 +193,7 @@ export function StageSlides({ intro, initialRooms, maps }: { intro: ReactNode; i
             {(Object.keys(MAP_INFO) as MapCode[]).map((m) => (
               <article key={m} className={`st-type ${maps.includes(m) ? "" : "off"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element -- static webp preview */}
-                <img src={`/maps/${m}.webp`} alt={`Ảnh ${MAP_INFO[m].name} trong AllOnline`} loading="lazy" width={480} height={300} />
+                <img src={`/maps/${m}.webp`} alt={`Ảnh ${MAP_INFO[m].name} trong Sân Khấu Online`} loading="lazy" width={480} height={300} />
                 <h3>{MAP_INFO[m].name}</h3>
                 <p className="st-type-tag">{STAGE_COPY[m].tag}</p>
                 <p>{STAGE_COPY[m].fit}</p>

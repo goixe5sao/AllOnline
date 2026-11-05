@@ -155,7 +155,7 @@ async function main() {
   });
 
   const onListen = () => {
-    console.log(`> AllOnline ${cfg.mode === "demo" ? "[CHẾ ĐỘ DEMO — PGlite cục bộ, đăng nhập demo, thanh toán giả]" : "[Supabase]"} http://${cfg.host ?? "localhost"}:${cfg.port}`);
+    console.log(`> Sân Khấu Online ${cfg.mode === "demo" ? "[CHẾ ĐỘ DEMO — PGlite cục bộ, đăng nhập demo, thanh toán giả]" : "[Supabase]"} http://${cfg.host ?? "localhost"}:${cfg.port}`);
   };
   if (cfg.host) server.listen(cfg.port, cfg.host, onListen);
   else server.listen(cfg.port, onListen);

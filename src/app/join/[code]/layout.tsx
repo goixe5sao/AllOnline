@@ -18,13 +18,13 @@ export async function generateMetadata({ params }: { params: Promise<{ code: str
   const title = when ? `${m.name} — ${when}` : m.name;
   const description =
     (m.description ? m.description.slice(0, 160) + " · " : "") +
-    `${MAP_INFO[m.map].name} 3D trên AllOnline${m.ownerName ? `, tổ chức bởi ${m.ownerName}` : ""}. Vào bằng trình duyệt, không cần cài đặt.`;
+    `${MAP_INFO[m.map].name} 3D trên Sân Khấu Online${m.ownerName ? `, tổ chức bởi ${m.ownerName}` : ""}. Vào bằng trình duyệt, không cần cài đặt.`;
   return {
     title,
     description,
     alternates: { canonical: `/join/${code}` },
     robots: m.isPublic ? undefined : { index: false, follow: false },
-    openGraph: { title, description, type: "website", url: `/join/${code}`, locale: "vi_VN", siteName: "AllOnline" },
+    openGraph: { title, description, type: "website", url: `/join/${code}`, locale: "vi_VN", siteName: "Sân Khấu Online" },
     twitter: { card: "summary_large_image", title, description },
   };
 }

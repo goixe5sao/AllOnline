@@ -24,7 +24,7 @@ export function AppShell({ children, narrow, requireLogin }: { children: (me: Me
       )}
       <header className="topnav">
         <Link href="/" className="brand">
-          <span className="brand-mark">A</span> AllOnline
+          <span className="brand-mark">S</span> Sân Khấu Online
         </Link>
         <nav aria-label="Điều hướng chính">
           {link("/", "Tổng quan")}
