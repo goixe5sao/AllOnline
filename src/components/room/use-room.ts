@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { publishLiveBars } from "./market-live";
-import { ERROR_TEXT, type StageAd, type ClientMsg, type PollViewDto, type RoomInfoDto, type RoomRole, type ServerMsg } from "@/core/protocol";
+import { ERROR_TEXT, type StageAd, type ClientMsg, type PollViewDto, type QuestionDto, type Reaction, type RoomInfoDto, type RoomRole, type ServerMsg } from "@/core/protocol";
 import type { PersonalState, PublicMember } from "@/core/room-engine";
 import { BLANK_SCREEN, type ScreenState } from "@/core/screen";
 import type { AvatarGroup } from "@/core/maps";
@@ -22,7 +22,10 @@ export interface RoomSession {
   conn: ConnState;
   endReason: string | null;
   role: RoomRole | null;
-  you: { userId: string; name: string; isGuest: boolean; isRoomOwner: boolean } | null;
+  you: { userId: string; name: string; isGuest: boolean; isRoomOwner: boolean; isModerator: boolean } | null;
+  hands: { userId: string; name: string; at: number }[];
+  questions: QuestionDto[];
+  myQuestionVotes: string[];
   room: RoomInfoDto | null;
   screen: ScreenState;
   polls: PollViewDto[];
@@ -40,6 +43,12 @@ export interface RoomSession {
 export class MemberStore {
   map = new Map<string, PublicMember>();
   bubbles = new Map<string, { text: string; at: number }>();
+  /** Last reaction per member (shown above the avatar for a moment). */
+  reacts = new Map<string, { e: Reaction; at: number }>();
+  /** Every reaction in the room, for the rising-emoji stream (trimmed). */
+  stream: { id: number; e: Reaction; at: number }[] = [];
+  /** Listeners for new reactions (stream overlay, clap sound) without re-rendering React. */
+  onReact = new Set<(e: Reaction, from: string) => void>();
   correction: { x: number; z: number } | null = null;
 }
 
@@ -60,6 +69,9 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
     toast: null,
     ad: null,
     version: 0,
+    hands: [],
+    questions: [],
+    myQuestionVotes: [],
   });
   const wsRef = useRef<WebSocket | null>(null);
   const offsetRef = useRef(0);
@@ -96,7 +108,46 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
           offsetRef.current = m.serverNow - Date.now();
           retryRef.current = 0;
           store.map = new Map(m.members.map((x) => [x.userId, x]));
-          setS((p) => ({ ...p, conn: "open", role: m.role, you: m.you, room: m.room, screen: m.screen, polls: m.polls, myVotes: m.myVotes, personal: m.personal, settings: m.settings, ad: m.ad, version: p.version + 1 }));
+          setS((p) => ({
+            ...p,
+            conn: "open",
+            role: m.role,
+            you: m.you,
+            room: m.room,
+            screen: m.screen,
+            polls: m.polls,
+            myVotes: m.myVotes,
+            personal: m.personal,
+            settings: m.settings,
+            ad: m.ad,
+            hands: m.hands,
+            questions: m.questions,
+            myQuestionVotes: m.myQuestionVotes,
+            version: p.version + 1,
+          }));
+          return;
+        case "react": {
+          const at = Date.now();
+          store.reacts.set(m.from, { e: m.e, at });
+          store.stream = [...store.stream.filter((x) => at - x.at < 4000).slice(-40), { id: at + Math.random(), e: m.e, at }];
+          for (const f of store.onReact) f(m.e, m.from);
+          return;
+        }
+        case "hands":
+          setS((p) => ({ ...p, hands: m.hands }));
+          return;
+        case "question":
+          setS((p) => ({ ...p, questions: p.questions.some((x) => x.id === m.q.id) ? p.questions.map((x) => (x.id === m.q.id ? m.q : x)) : [...p.questions, m.q] }));
+          return;
+        case "question_remove":
+          setS((p) => ({ ...p, questions: p.questions.filter((x) => x.id !== m.id) }));
+          return;
+        case "my_qvote":
+          setS((p) => ({ ...p, myQuestionVotes: m.on ? [...p.myQuestionVotes, m.id] : p.myQuestionVotes.filter((x) => x !== m.id) }));
+          return;
+        case "mod":
+          setS((p) => (p.you ? { ...p, you: { ...p.you, isModerator: m.isModerator } } : p));
+          toast(m.isModerator ? "Bạn vừa được chủ phòng chọn làm trợ lý điều hành." : "Bạn không còn là trợ lý điều hành.");
           return;
         case "members": {
           let structural = m.remove.length > 0;

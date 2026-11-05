@@ -13,7 +13,9 @@ export type ScreenContent =
   /** Official TradingView widget (real data, full tools). TradingView does not serve HOSE/HNX symbols in widgets. */
   | { kind: "tradingview"; symbol: string; interval: ChartInterval }
   | { kind: "chat"; text: string; author: string }
-  | { kind: "poll"; pollId: string };
+  | { kind: "poll"; pollId: string }
+  /** A question from the room's Q&A, put on the stage by the owner / a co-host. */
+  | { kind: "question"; questionId: string; text: string; author: string; votes: number };
 // Reserved for the future "Diễn giả trực tiếp" source (not in v1 scope):
 // | { kind: "live_speaker"; speakerUserId: string; streamRef: string }
 
@@ -56,6 +58,7 @@ export const screenContentSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("tradingview"), symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9_]{1,20}:[A-Z0-9_.!]{1,20}$|^[A-Z0-9_.!]{1,20}$/), interval: z.enum(CHART_INTERVALS) }),
   z.object({ kind: z.literal("poll"), pollId: z.string().uuid() }),
+  z.object({ kind: z.literal("question"), questionId: z.string().uuid(), text: z.string().max(300), author: z.string().max(60), votes: z.number().int().min(0) }),
 ]);
 
 /** Accepts a full YouTube URL or a bare id. Returns null when it is not a YouTube video. */

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { MAP_INFO, type MapCode } from "@/core/maps";
 import type { HomeRoom } from "@/lib/home-data";
 import { MAP_SHORT, STAGE_COPY } from "./stage-info";
+import { vnEventTime } from "@/lib/vn-time";
 
 const PER_PAGE = 6;
 const DWELL_MS = 9000;
@@ -28,7 +29,13 @@ function RoomTile({ r }: { r: HomeRoom }) {
           {MAP_SHORT[r.map]} · {r.officialCapacity} chỗ{r.openEnded ? " · ∞" : ""}
           {r.hasPassword ? " · 🔒" : ""}
         </span>
-        <span className={`st-room-live ${watching ? "on" : ""}`}>{watching ? `● ${watching} đang xem` : "● Sẵn sàng"}</span>
+        {r.startsAt && !watching ? (
+          <span className="st-room-live soon" suppressHydrationWarning>
+            🗓 {vnEventTime(r.startsAt)}
+          </span>
+        ) : (
+          <span className={`st-room-live ${watching ? "on" : ""}`}>{watching ? `● ${watching} đang xem` : "● Sẵn sàng"}</span>
+        )}
       </span>
       <span className="st-room-go" aria-hidden>
         ›

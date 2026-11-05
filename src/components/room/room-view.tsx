@@ -9,6 +9,7 @@ import { hourIndex, ringBell, unlockAudio, vnHourLabel } from "./bell";
 import { PITCH_RANGE, RoomScene, type Controls } from "./scene";
 import { ScreenContent } from "./screen-content";
 import { OwnerPanel } from "./owner-panel";
+import { QaPanel, ReactionBar, ReactionStream } from "./engage";
 import { useRoom } from "./use-room";
 
 function readSession<T>(key: string): T | null {
@@ -140,7 +141,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [wrap, setWrap] = useState<HTMLDivElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [fullView, setFullView] = useState(false);
-  const [panel, setPanel] = useState<"owner" | "seats" | null>(null);
+  const [panel, setPanel] = useState<"owner" | "seats" | "qa" | null>(null);
   const [lite, setLite] = useState(false);
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(true);
@@ -229,6 +230,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const movable = isParticipant && me && (me.status === "finding" || me.status === "waiting");
   const members = useMemo(() => [...store.map.values()], [s.version]); // eslint-disable-line react-hooks/exhaustive-deps
   const occupied = useMemo(() => new Set(members.filter((m) => m.status === "seated" && m.seatId).map((m) => m.seatId!)), [members]);
+  const handSet = useMemo(() => new Set(s.hands.map((h) => h.userId)), [s.hands]);
 
   // Default: the view from behind (own avatar + screen); ↑ / the HUD button for the own eyes.
   const [behind, setBehind] = useState(true);
@@ -390,6 +392,8 @@ export function RoomView({ roomId }: { roomId: string }) {
   const remaining = s.room.openEnded ? Infinity : s.room.expiresAt - (now + (serverNow() - Date.now()));
   const warnWindow = Math.max(0, ...(s.settings?.warningMinutes ?? [30])) * 60_000;
   const openPoll = [...s.polls].reverse().find((x) => x.status === "open") ?? null;
+  const canModerate = s.you.isRoomOwner || s.you.isModerator;
+  const openQuestions = s.questions.filter((q) => q.status === "open").length;
 
   return (
     <div className="room-root">
@@ -417,6 +421,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           ad={s.ad}
           selectedSeat={seatPick?.id ?? goingTo}
           behindView={isParticipant && behind}
+          hands={handSet}
           onSeatClick={onSeatClick}
           onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
           screen={<ScreenContent {...screenProps} active={!fullView} />}
@@ -471,9 +476,9 @@ export function RoomView({ roomId }: { roomId: string }) {
         >
           {bellOn ? "🔔 Chuông: bật" : "🔕 Chuông: tắt"}
         </button>
-        {s.you.isRoomOwner && (
+        {canModerate && (
           <button className="hud-btn primary" onClick={() => setPanel(panel === "owner" ? null : "owner")}>
-            Điều khiển
+            Điều khiển{s.hands.length > 0 && ` · ✋${s.hands.length}`}
           </button>
         )}
         {s.you.isRoomOwner && (
@@ -575,7 +580,18 @@ export function RoomView({ roomId }: { roomId: string }) {
         {isParticipant && me?.status === "seated" && <span className="hud-chip">Chỗ {me.seatId}</span>}
         {s.role === "owner" && <span className="hud-chip">Camera tự do: kéo để xoay, chuột phải/hai ngón để di chuyển, cuộn để zoom, nhấn đúp để đến vị trí</span>}
         {s.role === "observer" && <span className="hud-chip">Chủ ứng dụng — chế độ quan sát</span>}
+        {s.role !== "observer" && (
+          <ReactionBar
+            send={send}
+            canHand={isParticipant}
+            handUp={handSet.has(s.you.userId)}
+            qaCount={openQuestions}
+            qaOpen={panel === "qa"}
+            onQa={() => setPanel(panel === "qa" ? null : "qa")}
+          />
+        )}
       </div>
+      <ReactionStream store={store} muted={muted} volume={volume} reduceMotion={reduceMotion} />
 
       {seatPick && (
         <div className="status-card" style={{ top: Math.max(56, seatPick.y - 110), left: seatPick.x, transform: "translateX(-50%)", width: 220 }} role="dialog" aria-label="Chọn chỗ">
@@ -610,8 +626,31 @@ export function RoomView({ roomId }: { roomId: string }) {
         </div>
       )}
 
-      {panel === "owner" && s.you.isRoomOwner && (
-        <OwnerPanel send={send} screen={s.screen} serverNow={serverNow} polls={s.polls} members={members} room={s.room} chat={s.chat} onClose={() => setPanel(null)} />
+      {panel === "owner" && canModerate && (
+        <OwnerPanel
+          send={send}
+          screen={s.screen}
+          serverNow={serverNow}
+          polls={s.polls}
+          members={members}
+          room={s.room}
+          chat={s.chat}
+          hands={s.hands}
+          isOwner={s.you.isRoomOwner}
+          selfId={s.you.userId}
+          onClose={() => setPanel(null)}
+        />
+      )}
+      {panel === "qa" && (
+        <QaPanel
+          questions={s.questions}
+          myVotes={s.myQuestionVotes}
+          selfId={s.you.userId}
+          canAsk={s.role !== "observer"}
+          isMod={canModerate}
+          send={send}
+          onClose={() => setPanel(null)}
+        />
       )}
       {panel === "seats" && me && (
         <SeatPicker

@@ -7,11 +7,12 @@ import { buildLayout, isValidAvatar, type AvatarGroup } from "@/core/maps";
 import { RoomEngine } from "@/core/room-engine";
 import { applyScreenAction, BLANK_SCREEN, screenContentSchema, type ScreenState } from "@/core/screen";
 import { DuplicateFilter, RateLimiter, sanitizeChat } from "@/core/chat";
-import { ERROR_TEXT, type ClientMsg, type RoomInfoDto, type RoomRole, type ServerMsg } from "@/core/protocol";
+import { ERROR_TEXT, REACTIONS, type ClientMsg, type QuestionDto, type RoomInfoDto, type RoomRole, type ServerMsg } from "@/core/protocol";
 import { getSettings, type Settings } from "./services/settings";
 import { getRoom, logRoomEvent, saveScreenState, AppError, type RoomRow } from "./services/rooms";
 import { castVote, createPoll, listPolls, myVotes, pollCreateSchema, pollView, setPollStatus } from "./services/polls";
 import type { AppUser } from "./services/users";
+import { askQuestion, getQuestion, listModerators, listQuestions, myQuestionVotes, setQuestionStatus, toggleVote } from "./services/qa";
 import type { MarketService } from "./market/service";
 
 interface Client {
@@ -38,6 +39,12 @@ interface LiveRoom {
   movesPending: boolean;
   /** Signature of the last live market bar sent to this room (avoid resending unchanged data). */
   liveSig?: string;
+  /** Co-hosts (user ids): stage, polls, Q&A, kick — not close / pay / transfer. */
+  mods: Set<string>;
+  /** Raised hands, in order. Cleared when the person leaves or a moderator lowers it. */
+  hands: Map<string, { name: string; at: number }>;
+  /** Activity since the last statistics sample (counts only, no content). */
+  counters: { reactions: number; chats: number };
 }
 
 const num = z.number().finite();
@@ -61,6 +68,13 @@ const msgSchema = z.union([
   z.object({ t: z.literal("poll_open"), id: z.string().uuid() }),
   z.object({ t: z.literal("poll_close"), id: z.string().uuid() }),
   z.object({ t: z.literal("poll_show"), id: z.string().uuid() }),
+  z.object({ t: z.literal("react"), e: z.enum(REACTIONS) }),
+  z.object({ t: z.literal("hand"), up: z.boolean() }),
+  z.object({ t: z.literal("q_ask"), text: z.string().max(2000) }),
+  z.object({ t: z.literal("q_vote"), id: z.string().uuid() }),
+  z.object({ t: z.literal("hand_lower"), userId: z.string().uuid() }),
+  z.object({ t: z.literal("q_set"), id: z.string().uuid(), status: z.enum(["open", "answered", "hidden"]) }),
+  z.object({ t: z.literal("q_show"), id: z.string().uuid() }),
 ] as const) as unknown as z.ZodType<ClientMsg>;
 
 export class Hub {
@@ -70,6 +84,8 @@ export class Hub {
   private byUser = new Map<string, Client>();
   private clients = new Set<Client>();
   private chatLimiter = new RateLimiter(5, 2000);
+  private reactLimiter = new RateLimiter(8, 2000);
+  private qaLimiter = new RateLimiter(1, 20_000);
   private dupFilter = new DuplicateFilter(15_000, 2);
   private settings!: Settings;
   private timers: NodeJS.Timeout[] = [];
@@ -90,6 +106,7 @@ export class Hub {
     this.settings = await getSettings(this.db);
     this.timers.push(setInterval(() => this.tick(), 1000));
     this.timers.push(setInterval(() => this.flushMoves(), 100));
+    this.timers.push(setInterval(() => void this.sampleStats(), 60_000));
     this.timers.push(
       setInterval(() => {
         for (const c of this.clients) {
@@ -186,6 +203,7 @@ export class Hub {
     const room = client.roomId ? this.rooms.get(client.roomId) : null;
     if (room) {
       room.clients.delete(client);
+      if (leave && room.hands.delete(client.user.id)) this.sendHands(room);
       if (client.role === "participant") {
         if (leave) room.engine.leave(client.user.id, Date.now(), "left");
         else room.engine.disconnect(client.user.id, Date.now());
@@ -224,7 +242,8 @@ export class Hub {
         this.engineSettings(),
       );
       const screen = (row.screen_state as ScreenState)?.content ? (row.screen_state as ScreenState) : BLANK_SCREEN;
-      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false };
+      const mods = new Set((await listModerators(this.db, roomId)).map((m) => m.userId));
+      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 } };
       this.rooms.set(roomId, r);
       return r;
     })().finally(() => this.loading.delete(roomId));
@@ -245,6 +264,7 @@ export class Hub {
       expiresAt: new Date(row.expires_at).getTime(),
       openEnded: row.open_ended,
       isTrial: row.is_trial,
+      startsAt: row.scheduled_at ? new Date(row.scheduled_at).getTime() : null,
     };
   }
 
@@ -268,6 +288,57 @@ export class Hub {
     if (!row) return;
     room.row = row;
     this.broadcast(room, { t: "room", expiresAt: new Date(row.expires_at).getTime() });
+  }
+
+  /** Co-hosts changed (REST): update powers of everyone connected right away. */
+  async refreshModerators(roomId: string) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    room.mods = new Set((await listModerators(this.db, roomId)).map((m) => m.userId));
+    for (const c of room.clients) this.send(c, { t: "mod", isModerator: room.mods.has(c.user.id) });
+  }
+
+  /** Ownership moved to another account: reload the row so owner checks follow it. */
+  async refreshOwner(roomId: string) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    const row = await getRoom(this.db, roomId);
+    if (row) room.row = row;
+    await this.refreshModerators(roomId);
+  }
+
+  private isMod(room: LiveRoom, uid: string) {
+    return room.row.owner_id === uid || room.mods.has(uid);
+  }
+
+  private sendHands(room: LiveRoom) {
+    this.broadcast(room, { t: "hands", hands: [...room.hands].map(([userId, h]) => ({ userId, name: h.name, at: h.at })) });
+  }
+
+  /** Hidden questions are visible to moderators only. */
+  private sendQuestion(room: LiveRoom, q: QuestionDto) {
+    const full = JSON.stringify({ t: "question", q } satisfies ServerMsg);
+    const removed = JSON.stringify({ t: "question_remove", id: q.id } satisfies ServerMsg);
+    for (const c of room.clients) {
+      if (c.ws.readyState !== c.ws.OPEN) continue;
+      c.ws.send(q.status !== "hidden" || this.isMod(room, c.user.id) ? full : removed);
+    }
+  }
+
+  /** Per-minute attendance sample for the owner's report. */
+  private async sampleStats() {
+    const at = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+    for (const room of this.rooms.values()) {
+      const st = room.engine.stats();
+      const { reactions, chats } = room.counters;
+      room.counters = { reactions: 0, chats: 0 };
+      await this.db
+        .query(
+          "insert into app.room_stats (room_id, at, connections, seated, waiting, reactions, chats) values ($1, $2, $3, $4, $5, $6, $7) on conflict (room_id, at) do update set connections = excluded.connections, seated = excluded.seated, waiting = excluded.waiting, reactions = app.room_stats.reactions + excluded.reactions, chats = app.room_stats.chats + excluded.chats",
+          [room.row.id, at, room.clients.size, st.seated, st.waiting, reactions, chats],
+        )
+        .catch((e) => console.error("[hub] stats", e));
+    }
   }
 
   private flush(room: LiveRoom) {
@@ -328,10 +399,10 @@ export class Hub {
     if (!room) return this.error(c, "ROOM_NOT_OPEN", "Bạn chưa ở trong phòng.");
     const uid = c.user.id;
     const now = Date.now();
-    // Owner powers follow the account (the owner may also attend as a seated participant).
-    const isOwner = room.row.owner_id === uid;
+    // Owner / co-host powers follow the account (they may also attend as a seated participant).
+    const isMod = this.isMod(room, uid);
     const requireOwner = () => {
-      if (!isOwner) throw new AppError("FORBIDDEN", "Chỉ chủ phòng được thao tác này.", 403);
+      if (!isMod) throw new AppError("FORBIDDEN", "Chỉ chủ phòng hoặc trợ lý được thao tác này.", 403);
     };
 
     switch (m.t) {
@@ -415,6 +486,57 @@ export class Hub {
         }
         return;
       }
+      case "react": {
+        if (!this.reactLimiter.take(uid, now)) return;
+        room.counters.reactions++;
+        this.broadcast(room, { t: "react", from: uid, e: m.e });
+        return;
+      }
+      case "hand": {
+        if (c.role !== "participant") return;
+        if (m.up) room.hands.set(uid, { name: c.user.display_name, at: now });
+        else room.hands.delete(uid);
+        this.sendHands(room);
+        return;
+      }
+      case "hand_lower": {
+        requireOwner();
+        if (room.hands.delete(m.userId)) this.sendHands(room);
+        return;
+      }
+      case "q_ask": {
+        const text = sanitizeChat(m.text, 300);
+        if (!text) return;
+        if (c.role === "observer") return this.error(c, "FORBIDDEN");
+        if (!this.qaLimiter.take(uid, now)) return this.error(c, "QA_RATE", ERROR_TEXT.QA_RATE);
+        const q = await askQuestion(this.db, room.row.id, uid, c.user.display_name, text);
+        this.sendQuestion(room, q);
+        return;
+      }
+      case "q_vote": {
+        if (c.role === "observer") return;
+        const r = await toggleVote(this.db, room.row.id, m.id, uid);
+        this.send(c, { t: "my_qvote", id: m.id, on: r.on });
+        this.sendQuestion(room, r.q);
+        return;
+      }
+      case "q_set": {
+        requireOwner();
+        const q = await setQuestionStatus(this.db, room.row.id, m.id, m.status);
+        await logRoomEvent(this.db, room.row.id, uid, "question_" + m.status, { questionId: q.id, text: q.text, author: q.author });
+        this.sendQuestion(room, q);
+        return;
+      }
+      case "q_show": {
+        requireOwner();
+        const q = await getQuestion(this.db, room.row.id, m.id);
+        if (!q) return this.error(c, "INVALID");
+        room.screen = applyScreenAction(room.screen, { action: "set", content: { kind: "question", questionId: q.id, text: q.text, author: q.author, votes: q.votes } }, now);
+        await saveScreenState(this.db, room.row.id, room.screen);
+        await logRoomEvent(this.db, room.row.id, uid, "screen_set", { content: room.screen.content });
+        this.broadcast(room, { t: "screen", state: room.screen });
+        return;
+      }
       case "poll_show": {
         requireOwner();
         const v = await pollView(this.db, m.id);
@@ -480,7 +602,7 @@ export class Hub {
     this.send(c, {
       t: "welcome",
       role,
-      you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner },
+      you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner, isModerator: room.mods.has(uid) },
       room: this.roomInfo(room.row),
       members: room.engine.publicMembers(),
       screen: room.screen,
@@ -490,6 +612,9 @@ export class Hub {
       serverNow: Date.now(),
       settings: { chatRadius: this.settings.chat_radius, chatMaxLength: this.settings.chat_max_length, warningMinutes: this.settings.warning_minutes, findSeatSeconds: this.settings.find_seat_seconds },
       ad: this.stageAd(),
+      hands: [...room.hands].map(([userId, h]) => ({ userId, name: h.name, at: h.at })),
+      questions: (await listQuestions(this.db, room.row.id)).filter((q) => q.status !== "hidden" || this.isMod(room, uid)),
+      myQuestionVotes: await myQuestionVotes(this.db, room.row.id, uid),
     });
   }
 
@@ -498,6 +623,7 @@ export class Hub {
     if (!text) return;
     if (!this.chatLimiter.take(c.user.id, now)) return this.error(c, "CHAT_RATE");
     if (!this.dupFilter.allow(c.user.id, text, now)) return this.error(c, "CHAT_SPAM");
+    room.counters.chats++;
     const msg: ServerMsg = { t: "chat", id: randomUUID(), from: c.user.id, name: c.user.display_name, text, at: now };
     const recipients = new Set(room.engine.chatRecipients(c.user.id));
     // Deliver only to recipients in range. Nothing is written to the DB or logs.
@@ -505,7 +631,7 @@ export class Hub {
     for (const rc of room.clients) {
       if (!recipients.has(rc.user.id) || rc.ws.readyState !== rc.ws.OPEN) continue;
       rc.ws.send(data);
-      if (rc.user.id === room.row.owner_id) room.ownerInbox.set(msg.id, { text, name: c.user.display_name, at: now });
+      if (this.isMod(room, rc.user.id)) room.ownerInbox.set(msg.id, { text, name: c.user.display_name, at: now });
     }
   }
 
@@ -522,6 +648,14 @@ export class Hub {
       waiting: sum("waiting"),
       rooms,
     };
+  }
+
+  /** Live numbers not yet in app.room_stats (the report adds them so it is never "0" mid-event). */
+  liveActivity(roomId: string) {
+    const r = this.rooms.get(roomId);
+    if (!r) return null;
+    const st = r.engine.stats();
+    return { connections: r.clients.size, seated: st.seated, waiting: st.waiting, reactions: r.counters.reactions, chats: r.counters.chats };
   }
 
   roomStats(roomId: string) {

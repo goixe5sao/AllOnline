@@ -11,6 +11,8 @@ import type { ClientMsg, PollViewDto, RoomInfoDto } from "@/core/protocol";
 import type { PublicMember } from "@/core/room-engine";
 import type { ChatLine } from "./use-room";
 import { SymbolPicker } from "./symbol-picker";
+import { HandsList } from "./engage";
+import { HostsSection, ScheduleSection, StatsTab } from "./owner-extra";
 
 const STATUS_VI: Record<string, string> = { seated: "Đang ngồi", finding: "Đang tìm chỗ", invited: "Được mời vào chỗ", waiting: "Chờ ngoài cổng" };
 
@@ -226,10 +228,13 @@ function PollsTab({ send, polls }: { send: (m: ClientMsg) => void; polls: PollVi
   );
 }
 
-function PeopleTab({ members, send }: { members: PublicMember[]; send: (m: ClientMsg) => void }) {
+function PeopleTab({ members, send, hands, isOwner, selfId, roomId }: { members: PublicMember[]; send: (m: ClientMsg) => void; hands: { userId: string; name: string; at: number }[]; isOwner: boolean; selfId: string; roomId: string }) {
   const count = (s: string) => members.filter((m) => m.status === s).length;
+  const [msg, setMsg] = useState("");
   return (
     <div className="stack">
+      <HandsList hands={hands} send={send} />
+      {msg && <small className="notice">{msg}</small>}
       <div className="row">
         <span className="badge ok">{count("seated")} đang ngồi</span>
         <span className="badge warn">{count("finding") + count("invited")} đang tìm/nhận chỗ</span>
@@ -248,7 +253,23 @@ function PeopleTab({ members, send }: { members: PublicMember[]; send: (m: Clien
                   {m.seatId && ` · ${m.seatId}`}
                 </small>
               </td>
-              <td style={{ textAlign: "right" }}>
+              <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                {isOwner && m.userId !== selfId && (
+                  <button
+                    className="hud-btn"
+                    title="Trợ lý được điều khiển màn hình, bình chọn, hỏi đáp và mời người ra (cần có tài khoản)"
+                    onClick={async () => {
+                      try {
+                        const r = await api<{ name: string }>(`/api/rooms/${roomId}/moderators`, { body: { userId: m.userId } });
+                        setMsg(`${r.name} đã là trợ lý điều hành.`);
+                      } catch (e) {
+                        setMsg((e as ApiError).message);
+                      }
+                    }}
+                  >
+                    Làm trợ lý
+                  </button>
+                )}{" "}
                 <button className="hud-btn" onClick={() => confirm(`Mời ${m.name} ra khỏi phòng?`) && send({ t: "kick", userId: m.userId })}>
                   Mời ra
                 </button>
@@ -351,6 +372,8 @@ function RoomTab({ room, serverNow }: { room: RoomInfoDto; serverNow: () => numb
           {msg && <small>{msg}</small>}
         </div>
       )}
+      <ScheduleSection roomId={room.id} startsAt={room.startsAt} />
+      <HostsSection roomId={room.id} />
       <Link className="hud-btn" href={`/room/${room.id}/logs`} target="_blank">
         Xem log phòng
       </Link>
@@ -377,20 +400,24 @@ export function OwnerPanel(p: {
   members: PublicMember[];
   room: RoomInfoDto;
   chat: ChatLine[];
+  hands: { userId: string; name: string; at: number }[];
+  isOwner: boolean;
+  selfId: string;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<"screen" | "polls" | "people" | "chat" | "room">("screen");
+  const [tab, setTab] = useState<"screen" | "polls" | "people" | "chat" | "stats" | "room">("screen");
   const tabs: [typeof tab, string][] = [
     ["screen", "Màn hình"],
     ["polls", "Bình chọn"],
-    ["people", "Người tham dự"],
+    ["people", p.hands.length ? `Người tham dự · ✋${p.hands.length}` : "Người tham dự"],
     ["chat", "Chat"],
-    ["room", "Phòng"],
+    ["stats", "Thống kê"],
+    ...(p.isOwner ? ([["room", "Phòng"]] as [typeof tab, string][]) : []),
   ];
   return (
     <aside className="side-panel" aria-label="Điều khiển chủ phòng">
       <div className="row between">
-        <strong>Điều khiển chủ phòng</strong>
+        <strong>{p.isOwner ? "Điều khiển chủ phòng" : "Điều khiển (trợ lý)"}</strong>
         <button className="hud-btn" onClick={p.onClose} aria-label="Đóng bảng điều khiển">
           ✕
         </button>
@@ -404,7 +431,8 @@ export function OwnerPanel(p: {
       </div>
       {tab === "screen" && <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} />}
       {tab === "polls" && <PollsTab send={p.send} polls={p.polls} />}
-      {tab === "people" && <PeopleTab members={p.members} send={p.send} />}
+      {tab === "people" && <PeopleTab members={p.members} send={p.send} hands={p.hands} isOwner={p.isOwner} selfId={p.selfId} roomId={p.room.id} />}
+      {tab === "stats" && <StatsTab roomId={p.room.id} />}
       {tab === "chat" && (
         <div className="stack">
           <small>
@@ -423,7 +451,7 @@ export function OwnerPanel(p: {
           {!p.chat.length && <small>Chưa có tin nhắn ở gần.</small>}
         </div>
       )}
-      {tab === "room" && <RoomTab room={p.room} serverNow={p.serverNow} />}
+      {tab === "room" && p.isOwner && <RoomTab room={p.room} serverNow={p.serverNow} />}
     </aside>
   );
 }

@@ -34,11 +34,16 @@ import {
   requestExtension,
   requestRoom,
   roomConfigSchema,
+  transferOwnership,
   verifyPassword,
 } from "./services/rooms";
 import { setDisplayName, type AppUser } from "./services/users";
 import { toHomeRoom } from "@/lib/home-data";
 import { listPromos, promoInputSchema, upsertPromo } from "./services/promos";
+import { addModerator, listModerators, removeModerator, resolveNewOwner } from "./services/qa";
+import { reportCsv, roomReport } from "./services/report";
+import { eventIcs } from "./services/calendar";
+import { hasZalo } from "./services/identities";
 
 interface Ctx {
   req: IncomingMessage;
@@ -283,6 +288,120 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { events: events.rows, orders: orders.rows };
   });
 
+  /** Zalo OA bot users can chat with (shown on invite / login pages); null when not set up. */
+  const zaloBotInfo = () => (cfg.zaloOaId ? { oaId: cfg.zaloOaId, url: `https://zalo.me/${cfg.zaloOaId}` } : null);
+
+  // ----- co-hosts, ownership, schedule, report -----
+  /** Owner, co-host or app owner (report / Q&A tools); owner-only actions use ownedRoom. */
+  const moderatedRoom = async (ctx: Ctx, id: string) => {
+    const u = needUser(ctx);
+    const room = await getRoom(db, id);
+    if (!room) throw new AppError("NOT_FOUND", "Không tìm thấy phòng.", 404);
+    if (room.owner_id !== u.id && u.role !== "app_owner") {
+      const m = await db.query("select 1 from app.room_moderators where room_id = $1 and user_id = $2", [room.id, u.id]);
+      if (!m.rows.length) throw new AppError("FORBIDDEN", "Bạn không phải chủ phòng hoặc trợ lý của phòng này.", 403);
+    }
+    return { u, room };
+  };
+
+  route("GET", "/api/rooms/:id/moderators", async (ctx) => {
+    const { room } = await moderatedRoom(ctx, ctx.params[0]);
+    return { moderators: await listModerators(db, room.id) };
+  });
+
+  route("POST", "/api/rooms/:id/moderators", async (ctx) => {
+    const { u, room } = await ownedRoom(ctx, ctx.params[0]);
+    const b = z.object({ userId: z.string().uuid().optional(), email: z.string().email().optional() }).refine((x) => x.userId || x.email).parse(await readJson(ctx.req));
+    const r = await addModerator(db, room.id, room.owner_id, b);
+    await hub.refreshModerators(room.id);
+    void u;
+    return r;
+  });
+
+  route("POST", "/api/rooms/:id/moderators/:uid/remove", async (ctx) => {
+    const { u, room } = await ownedRoom(ctx, ctx.params[0]);
+    await removeModerator(db, room.id, u.id, ctx.params[1]);
+    await hub.refreshModerators(room.id);
+    return { ok: true };
+  });
+
+  route("POST", "/api/rooms/:id/transfer", async (ctx) => {
+    const { u, room } = await ownedRoom(ctx, ctx.params[0], false);
+    if (room.open_ended) throw new AppError("OPEN_ENDED_NO_TRANSFER", "Phòng vô thời hạn gắn với tiền cọc của bạn nên không chuyển chủ được. Hãy thêm người đó làm trợ lý.");
+    const b = z.object({ userId: z.string().uuid().optional(), email: z.string().email().optional(), keepAsModerator: z.boolean().default(true) }).refine((x) => x.userId || x.email).parse(await readJson(ctx.req));
+    const next = await resolveNewOwner(db, b);
+    if (next.id === room.owner_id) throw new AppError("ALREADY_OWNER", "Người này đã là chủ phòng.");
+    await transferOwnership(db, room.id, next.id, u.id);
+    await db.query("delete from app.room_moderators where room_id = $1 and user_id = $2", [room.id, next.id]);
+    if (b.keepAsModerator) await db.query("insert into app.room_moderators (room_id, user_id, added_by) values ($1, $2, $3) on conflict do nothing", [room.id, room.owner_id, u.id]);
+    await hub.refreshOwner(room.id);
+    return { ownerId: next.id, name: next.display_name };
+  });
+
+  route("POST", "/api/rooms/:id/schedule", async (ctx) => {
+    const { u, room } = await ownedRoom(ctx, ctx.params[0]);
+    const b = z.object({ startsAt: z.number().int().positive().nullable() }).parse(await readJson(ctx.req));
+    if (b.startsAt && b.startsAt > Date.now() + 366 * 86400_000) throw new AppError("INVALID", "Giờ bắt đầu quá xa.");
+    await db.query("update app.rooms set scheduled_at = $2 where id = $1", [room.id, b.startsAt ? new Date(b.startsAt) : null]);
+    // A new time means new reminders.
+    await db.query("update app.room_reminders set sent_soon_at = null, sent_start_at = null where room_id = $1", [room.id]);
+    await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'schedule_set', $3)", [room.id, u.id, JSON.stringify({ startsAt: b.startsAt })]);
+    await hub.refreshRoom(room.id);
+    return { startsAt: b.startsAt };
+  });
+
+  route("GET", "/api/rooms/:id/report", async (ctx) => {
+    const { room } = await moderatedRoom(ctx, ctx.params[0]);
+    return withLive(room.id, await roomReport(db, room.id));
+  });
+
+  /** Adds what happened since the last per-minute sample (live rooms only). */
+  const withLive = (roomId: string, r: Awaited<ReturnType<typeof roomReport>>) => {
+    const live = hub.liveActivity(roomId);
+    if (!live) return r;
+    const now = Date.now();
+    return {
+      ...r,
+      peak: live.connections > r.peak.connections ? { connections: live.connections, at: now } : r.peak,
+      totals: { ...r.totals, reactions: r.totals.reactions + live.reactions, chats: r.totals.chats + live.chats },
+      series: [...r.series, { at: now, connections: live.connections, seated: live.seated, waiting: live.waiting }],
+    };
+  };
+
+  route("GET", "/api/rooms/:id/report.csv", async (ctx) => {
+    const { room } = await moderatedRoom(ctx, ctx.params[0]);
+    const csv = reportCsv(withLive(room.id, await roomReport(db, room.id)));
+    const name = `bao-cao-${room.invite_code}.csv`;
+    ctx.res.writeHead(200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"`, "Cache-Control": "no-store" });
+    ctx.res.end(csv);
+    return undefined;
+  });
+
+  // ----- reminders ("Nhắc tôi") and calendar file -----
+  route("POST", "/api/rooms/:id/remind", async (ctx) => {
+    const u = needUser(ctx);
+    const b = z.object({ on: z.boolean() }).parse(await readJson(ctx.req));
+    const room = await getRoom(db, ctx.params[0]);
+    if (!room || room.status !== "open") throw new AppError("NOT_FOUND", "Phòng không còn mở.", 404);
+    if (b.on) await db.query("insert into app.room_reminders (room_id, user_id) values ($1, $2) on conflict do nothing", [room.id, u.id]);
+    else await db.query("delete from app.room_reminders where room_id = $1 and user_id = $2", [room.id, u.id]);
+    return { on: b.on, zaloLinked: await hasZalo(db, u.id) };
+  });
+
+  route(
+    "GET",
+    "/api/invite/:code/calendar.ics",
+    async ({ params, res, url }) => {
+      const r = await getRoomByInvite(db, params[0]);
+      if (!r || r.status !== "open" || !r.scheduled_at) throw new AppError("NOT_FOUND", "Phòng chưa có lịch.", 404);
+      const origin = cfg.publicOrigin ?? url.origin;
+      res.writeHead(200, { "Content-Type": "text/calendar; charset=utf-8", "Content-Disposition": `attachment; filename="su-kien-${r.invite_code}.ics"` });
+      res.end(eventIcs({ uid: r.id, title: r.name, description: r.description, startsAt: new Date(r.scheduled_at).getTime(), url: `${origin}/join/${r.invite_code}` }));
+      return undefined;
+    },
+    { public: true },
+  );
+
   route("POST", "/api/rooms/:id/uploads", async (ctx) => {
     const { u, room } = await ownedRoom(ctx, ctx.params[0], false);
     const s = await getSettings(db);
@@ -327,10 +446,26 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     async ({ params, user }) => {
       const r = await getRoomByInvite(db, params[0]);
       if (!r || r.status !== "open") throw new AppError("NOT_FOUND", "Link mời không hợp lệ hoặc phòng đã đóng.", 404);
+      const account = user && !user.is_guest ? user : null;
       return {
-        room: { id: r.id, name: r.name, description: r.description, map: r.map_code, avatarGroups: r.avatar_groups, entryMode: r.entry_mode, hasPassword: !!r.password_hash, expiresAt: r.expires_at, openEnded: r.open_ended },
+        room: {
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          map: r.map_code,
+          avatarGroups: r.avatar_groups,
+          entryMode: r.entry_mode,
+          hasPassword: !!r.password_hash,
+          expiresAt: r.expires_at,
+          openEnded: r.open_ended,
+          startsAt: r.scheduled_at ? new Date(r.scheduled_at).getTime() : null,
+          isPublic: r.is_public,
+        },
         isOwner: !!user && user.id === r.owner_id,
         guestJoinEnabled: (await getSettings(db)).guest_join_enabled,
+        reminded: account ? (await db.query("select 1 from app.room_reminders where room_id = $1 and user_id = $2", [r.id, account.id])).rows.length > 0 : false,
+        zaloLinked: account ? await hasZalo(db, account.id) : false,
+        zaloBot: zaloBotInfo(),
       };
     },
     { public: true },

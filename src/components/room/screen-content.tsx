@@ -255,6 +255,18 @@ export function ScreenContent(p: ScreenProps) {
     case "poll":
       body = <PollOnScreen poll={p.polls.find((x) => x.id === c.pollId)} />;
       break;
+    case "question":
+      body = (
+        <div className="screen-text screen-question">
+          <div className="sq-tag">❓ Câu hỏi từ khán giả</div>
+          “{c.text}”
+          <div style={{ fontSize: "0.55em", opacity: 0.8, marginTop: "0.5em" }}>
+            — {c.author}
+            {c.votes > 0 && ` · ▲ ${c.votes}`}
+          </div>
+        </div>
+      );
+      break;
   }
   return (
     <div className={`screen-surface ${p.fullscreen ? "fullscreen" : ""} ${p.reduceMotion ? "reduce-motion" : ""}`}>

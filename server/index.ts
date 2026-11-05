@@ -17,10 +17,10 @@ import { createApi } from "./routes";
 import { createStorage } from "./storage";
 import { MarketService } from "./market/service";
 import { StockVnAnalysis } from "./analysis/stockvn";
-import { closeRoom, dueRooms, expireOrders, listPublicRooms } from "./services/rooms";
+import { closeRoom, dueRooms, expireOrders, getRoomByInvite, listPublicRooms } from "./services/rooms";
 import { getPriceTiers, getSettings } from "./services/settings";
 import { openEndedHourlyRate } from "@/core/pricing";
-import { registerHomeData, toHomeRoom } from "@/lib/home-data";
+import { registerHomeData, registerInviteMeta, toHomeRoom } from "@/lib/home-data";
 import type { MapCode } from "@/core/maps";
 import { getUser } from "./services/users";
 import { clientIp } from "./http";
@@ -60,6 +60,20 @@ async function main() {
         durations: s.duration_options,
         openEnded: { enabled: s.open_ended_enabled, deposit: Number(s.open_ended_deposit_vnd), hourlyFrom: openEndedHourlyRate(tiers, 1, 0, 0) },
       },
+    };
+  });
+  // Invite page metadata (title / share image) for the server-rendered layout of /join/[code].
+  registerInviteMeta(async (code) => {
+    const r = await getRoomByInvite(db, code);
+    if (!r || r.status !== "open") return null;
+    const owner = await getUser(db, r.owner_id);
+    return {
+      name: r.name,
+      description: r.description,
+      map: r.map_code,
+      startsAt: r.scheduled_at ? new Date(r.scheduled_at).getTime() : null,
+      isPublic: r.is_public,
+      ownerName: owner?.display_name ?? "",
     };
   });
 

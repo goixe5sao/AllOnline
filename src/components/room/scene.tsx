@@ -10,7 +10,7 @@ import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
 import * as THREE from "three";
 import { AVATARS, HALL_RISE, clampToRect, type Layout, type Seat } from "@/core/maps";
 import type { PublicMember } from "@/core/room-engine";
-import type { ClientMsg, RoomRole, StageAd } from "@/core/protocol";
+import { REACTION_EMOJI, type ClientMsg, type RoomRole, type StageAd } from "@/core/protocol";
 import type { MemberStore } from "./use-room";
 
 /** Participants may only tilt the view a little (±12°) — they turn around themselves instead. */
@@ -144,11 +144,13 @@ const tmpV = new THREE.Vector3();
 const SHOULDER: Record<string, [number, number, number]> = { people: [0.3, 0.95, 0], animals: [0.2, 0.75, 0], vehicles: [0, 1.5, 0] };
 const tmpA = new THREE.Vector3();
 
-const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, portal }: { id: string; store: MemberStore; layout: Layout; lite: boolean; bubbleTick: number; portal: React.RefObject<HTMLElement | null> }) {
+const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, portal, hand }: { id: string; store: MemberStore; layout: Layout; lite: boolean; bubbleTick: number; portal: React.RefObject<HTMLElement | null>; hand: boolean }) {
   const g = useRef<THREE.Group>(null);
   const detailed = useRef<THREE.Group>(null);
   const simple = useRef<THREE.Group>(null);
   const tag = useRef<HTMLDivElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const popAt = useRef(0);
   const m = store.map.get(id);
   const seat = m?.seatId ? layout.seats.find((s) => s.id === m.seatId) : undefined;
   const { camera } = useThree();
@@ -187,6 +189,19 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
       }
       tag.current.style.display = show ? "block" : "none";
     }
+    // Reaction pop above the head (2.5 s), restarted on every new reaction.
+    const r = store.reacts.get(id);
+    if (pop.current) {
+      const fresh = !!r && Date.now() - r.at < 2500 && dist < 40;
+      if (fresh && r!.at !== popAt.current) {
+        popAt.current = r!.at;
+        pop.current.textContent = REACTION_EMOJI[r!.e];
+        pop.current.classList.remove("go");
+        void pop.current.offsetWidth; // restart the CSS animation
+        pop.current.classList.add("go");
+      }
+      pop.current.style.display = fresh ? "block" : "none";
+    }
   });
 
   if (!m) return null;
@@ -210,6 +225,14 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
           <div className="bubble">{bubble!.text}</div>
         </Html>
       )}
+      <Html position={[0, height + 0.35, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+        <div ref={pop} className="react-pop" style={{ display: "none" }} />
+        {hand && (
+          <div className="hand-pop" title="Đang giơ tay">
+            ✋
+          </div>
+        )}
+      </Html>
       {/* Name on the shoulder: readable from behind without covering the head or the screen. */}
       <Html position={shoulder} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
         <div ref={tag} className="nametag" style={{ opacity: m.connected ? 1 : 0.5 }}>
@@ -739,6 +762,8 @@ export interface SceneProps {
   ad: StageAd | null;
   selectedSeat: string | null;
   behindView?: boolean;
+  /** Members with a raised hand (✋ above the avatar). */
+  hands?: Set<string>;
   onSeatClick?: (seatId: string, x: number, y: number) => void;
   /** Room owner attending as a participant: double-click a free seat to go there at once. */
   onSeatDoubleClick?: (seatId: string) => void;
@@ -769,7 +794,7 @@ export function RoomScene(p: SceneProps) {
           {p.screen}
         </StageScreen>
         {ids.map((id) => (
-          <Avatar key={id} id={id} store={p.store} layout={p.layout} lite={p.lite} bubbleTick={p.bubbleTick} portal={p.portal} />
+          <Avatar key={id} id={id} store={p.store} layout={p.layout} lite={p.lite} bubbleTick={p.bubbleTick} portal={p.portal} hand={!!p.hands?.has(id)} />
         ))}
       </World>
       <AdClickTarget layout={p.layout} ad={p.ad} domElement={p.domElement} />

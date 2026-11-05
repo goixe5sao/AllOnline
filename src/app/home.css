@@ -264,6 +264,7 @@
 .st-room-meta { font-size: 0.78rem; color: var(--h-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .st-room-live { font-size: 0.75rem; font-weight: 700; color: var(--h-faint); }
 .st-room-live.on { color: var(--h-lime); }
+.st-room-live.soon { color: var(--h-led); }
 .st-room-go { color: var(--h-cyan); font-size: 1.6rem; padding-right: 4px; }
 .st-empty { display: flex; justify-content: center; padding: 10px 0; }
 .st-types { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }

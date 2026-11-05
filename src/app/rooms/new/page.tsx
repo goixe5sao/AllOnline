@@ -43,6 +43,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   // "Mở vô thời hạn – đến khi tắt": deposit now, settled by hours used when the room is closed.
   const [openEnded, setOpenEnded] = useState(false);
   const [isPublic, setIsPublic] = useState(true);
+  const [startsAt, setStartsAt] = useState("");
   const [password, setPassword] = useState("");
   const [screenKind, setScreenKind] = useState<"text" | "youtube" | "chart" | "blank">("text");
   const [screenValue, setScreenValue] = useState("Chào mừng đến với phòng!");
@@ -78,7 +79,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
     return undefined;
   }, [screenKind, screenValue, chartInterval]);
 
-  const config = { name: name || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen };
+  const config = { name: name || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen, scheduledAt: startsAt ? new Date(startsAt).getTime() : null };
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -169,6 +170,10 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
         </div>
         <label className="check">
           <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Hiện phòng trên trang chủ AllOnline (ai cũng thấy và bấm vào được; đổi lại bất cứ lúc nào)
+        </label>
+        <label className="field">
+          Giờ bắt đầu sự kiện <small>(không bắt buộc — trang mời hiện đếm ngược, khách bấm “Nhắc tôi” để bot Zalo nhắc)</small>
+          <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
         </label>
         <label className="field">
           Mật mã phòng <small>(không bắt buộc)</small>
