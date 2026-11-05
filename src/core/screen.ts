@@ -7,7 +7,12 @@ export type ScreenContent =
   | { kind: "blank" }
   | { kind: "text"; text: string }
   | { kind: "image"; url: string }
-  | { kind: "youtube"; videoId: string }
+  /**
+   * endMode — what happens when the video ends: "stop" (default), "loop" = play it again from the
+   * start, "next" = the next video of `playlist` (back to the first after the last one).
+   * `index` = position of `videoId` in `playlist`.
+   */
+  | { kind: "youtube"; videoId: string; endMode?: YouTubeEndMode; playlist?: string[]; index?: number }
   | { kind: "audio"; url: string; title: string }
   | { kind: "chart"; symbol: string; source: "demo"; interval?: ChartInterval; chartType?: ChartType; indicators?: Indicator[]; layers?: AnalysisLayer[] }
   /** Official TradingView widget (real data, full tools). TradingView does not serve HOSE/HNX symbols in widgets. */
@@ -18,6 +23,12 @@ export type ScreenContent =
   | { kind: "question"; questionId: string; text: string; author: string; votes: number };
 // Reserved for the future "Diễn giả trực tiếp" source (not in v1 scope):
 // | { kind: "live_speaker"; speakerUserId: string; streamRef: string }
+
+export const YOUTUBE_END_MODES = ["stop", "loop", "next"] as const;
+export type YouTubeEndMode = (typeof YOUTUBE_END_MODES)[number];
+/** Longest playlist the owner can build. */
+export const PLAYLIST_MAX = 50;
+const ytId = z.string().regex(/^[A-Za-z0-9_-]{11}$/);
 
 export interface ScreenState {
   content: ScreenContent;
@@ -41,7 +52,13 @@ export const screenContentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("blank") }),
   z.object({ kind: z.literal("text"), text: z.string().trim().min(1).max(500) }),
   z.object({ kind: z.literal("image"), url: z.union([httpsUrl, z.string().regex(/^\/api\/uploads\/[0-9a-f-]{36}$/)]) }),
-  z.object({ kind: z.literal("youtube"), videoId: z.string().regex(/^[A-Za-z0-9_-]{11}$/) }),
+  z.object({
+    kind: z.literal("youtube"),
+    videoId: ytId,
+    endMode: z.enum(YOUTUBE_END_MODES).optional(),
+    playlist: z.array(ytId).max(PLAYLIST_MAX).optional(),
+    index: z.number().int().min(0).max(PLAYLIST_MAX).optional(),
+  }),
   z.object({
     kind: z.literal("audio"),
     url: z.union([httpsUrl, z.string().regex(/^\/api\/uploads\/[0-9a-f-]{36}$/)]),
@@ -95,7 +112,30 @@ export type ScreenAction =
   | { action: "set"; content: ScreenContent }
   | { action: "play" }
   | { action: "pause" }
-  | { action: "seek"; positionSec: number };
+  | { action: "seek"; positionSec: number }
+  /** Change what happens at the end / the playlist of the video on screen, without restarting it. */
+  | { action: "yt_options"; endMode: YouTubeEndMode; playlist: string[] }
+  /** Owner skips to the next video of the playlist now. */
+  | { action: "yt_next" };
+
+/**
+ * What the screen shows once the current YouTube video has ended (or the owner skips):
+ * "loop" → same video from 0, "next" → next playlist entry (wrapping), playing at once.
+ * null = nothing to do ("stop", or not a YouTube video).
+ */
+export function advanceVideo(prev: ScreenState, now: number, force = false): ScreenState | null {
+  const c = prev.content;
+  if (c.kind !== "youtube") return null;
+  const mode = force ? (c.playlist?.length ? "next" : "loop") : (c.endMode ?? "stop");
+  if (mode === "stop") return null;
+  let content: ScreenContent = c;
+  if (mode === "next" && c.playlist?.length) {
+    const cur = c.index !== undefined && c.playlist[c.index] === c.videoId ? c.index : c.playlist.indexOf(c.videoId);
+    const i = (cur + 1) % c.playlist.length; // not in the list any more (cur = -1) → its first video
+    content = { ...c, videoId: c.playlist[i], index: i };
+  }
+  return { content, playing: true, positionSec: 0, updatedAt: now, rev: prev.rev + 1 };
+}
 
 export function applyScreenAction(prev: ScreenState, a: ScreenAction, now: number): ScreenState {
   const pos = currentPosition(prev, now);
@@ -108,5 +148,16 @@ export function applyScreenAction(prev: ScreenState, a: ScreenAction, now: numbe
       return { ...prev, playing: false, positionSec: pos, updatedAt: now, rev: prev.rev + 1 };
     case "seek":
       return { ...prev, positionSec: Math.max(0, a.positionSec), updatedAt: now, rev: prev.rev + 1 };
+    case "yt_options": {
+      const c = prev.content;
+      if (c.kind !== "youtube") return prev;
+      // the list is kept whatever the mode (switching modes must not lose it); only "next" uses it
+      const playlist = a.playlist.length ? a.playlist.slice(0, PLAYLIST_MAX) : undefined;
+      const index = playlist ? playlist.indexOf(c.videoId) : undefined;
+      // playing state and position untouched: only the rule for "after the end" changes
+      return { ...prev, positionSec: pos, updatedAt: now, content: { ...c, endMode: a.endMode, playlist, index: index !== undefined && index >= 0 ? index : undefined }, rev: prev.rev + 1 };
+    }
+    case "yt_next":
+      return advanceVideo(prev, now, true) ?? prev;
   }
 }

@@ -5,7 +5,8 @@ import type { Db } from "./db";
 import type { Auth } from "./auth";
 import { buildLayout, isValidAvatar, type AvatarGroup } from "@/core/maps";
 import { RoomEngine } from "@/core/room-engine";
-import { applyScreenAction, BLANK_SCREEN, screenContentSchema, type ScreenState } from "@/core/screen";
+import { advanceVideo, applyScreenAction, BLANK_SCREEN, currentPosition, PLAYLIST_MAX, screenContentSchema, YOUTUBE_END_MODES, type ScreenState } from "@/core/screen";
+import { knownDuration } from "./youtube";
 import { DuplicateFilter, RateLimiter, sanitizeChat } from "@/core/chat";
 import { ERROR_TEXT, REACTIONS, type ClientMsg, type QuestionDto, type RoomInfoDto, type RoomRole, type ServerMsg } from "@/core/protocol";
 import { getSettings, type Settings } from "./services/settings";
@@ -64,6 +65,9 @@ const msgSchema = z.union([
   z.object({ t: z.literal("screen"), action: z.literal("set"), content: screenContentSchema }),
   z.object({ t: z.literal("screen"), action: z.enum(["play", "pause"]) }),
   z.object({ t: z.literal("screen"), action: z.literal("seek"), positionSec: num.min(0).max(86400) }),
+  z.object({ t: z.literal("screen"), action: z.literal("yt_options"), endMode: z.enum(YOUTUBE_END_MODES), playlist: z.array(z.string().regex(/^[A-Za-z0-9_-]{11}$/)).max(PLAYLIST_MAX) }),
+  z.object({ t: z.literal("screen"), action: z.literal("yt_next") }),
+  z.object({ t: z.literal("screen_ended"), rev: z.number().int().min(0) }),
   z.object({ t: z.literal("promote_chat"), id: z.string().max(64) }),
   z.object({ t: z.literal("kick"), userId: z.string().uuid() }),
   z.object({ t: z.literal("poll_create"), question: z.string(), options: z.array(z.string()), verifiedOnly: z.boolean().optional() }),
@@ -397,10 +401,36 @@ export class Hub {
     const now = Date.now();
     for (const room of this.rooms.values()) {
       room.engine.tick(now);
+      this.autoAdvanceVideo(room, now);
       this.pushLiveMarket(room);
       for (const [id, m] of room.ownerInbox) if (now - m.at > 120_000) room.ownerInbox.delete(id);
       this.flush(room);
     }
+  }
+
+  // ---------- YouTube: loop / next in playlist, decided by the server ----------
+
+  /** The server knows the video length → it moves on by itself when the video ends. */
+  private autoAdvanceVideo(room: LiveRoom, now: number) {
+    const c = room.screen.content;
+    if (c.kind !== "youtube" || !room.screen.playing) return;
+    const d = knownDuration(c.videoId);
+    if (typeof d !== "number" || currentPosition(room.screen, now) < d - 0.5) return;
+    if (c.endMode && c.endMode !== "stop") return this.advanceVideo(room, now, null, "screen_auto_" + c.endMode);
+    // "stop": the video is over → paused on its last frame (the owner sees "tạm dừng", not a running clock)
+    room.screen = { ...room.screen, playing: false, positionSec: d, updatedAt: now, rev: room.screen.rev + 1 };
+    saveScreenState(this.db, room.row.id, room.screen).catch((e) => console.error("[hub] screen", e));
+    this.broadcast(room, { t: "screen", state: room.screen });
+  }
+
+  private advanceVideo(room: LiveRoom, now: number, actorId: string | null, type: string, force = false) {
+    const next = advanceVideo(room.screen, now, force);
+    if (!next) return;
+    room.screen = next;
+    if (next.content.kind === "youtube") knownDuration(next.content.videoId); // look the next length up now
+    saveScreenState(this.db, room.row.id, room.screen).catch((e) => console.error("[hub] screen", e));
+    logRoomEvent(this.db, room.row.id, actorId, type, { content: room.screen.content }).catch((e) => console.error("[hub] log", e));
+    this.broadcast(room, { t: "screen", state: room.screen });
   }
 
   // ---------- message handling ----------
@@ -455,9 +485,26 @@ export class Hub {
         if (v) this.broadcast(room, { t: "poll", poll: v });
         return;
       }
+      case "screen_ended": {
+        // Fallback only when the server could not learn the video length: a player says "ended".
+        // Trusted from the owner / a co-host, or from anyone when no moderator is in the room.
+        const c = room.screen.content;
+        if (m.rev !== room.screen.rev || c.kind !== "youtube" || !room.screen.playing) return;
+        if (typeof knownDuration(c.videoId) === "number") return; // the server handles it itself
+        const modHere = [...room.clients].some((x) => this.isMod(room, x.user.id));
+        if (!isMod && modHere) return;
+        if (currentPosition(room.screen, now) < 5) return;
+        this.advanceVideo(room, now, uid, "screen_ended_" + (c.endMode ?? "stop"));
+        return;
+      }
       case "screen": {
         requireOwner();
+        if (m.action === "yt_next") {
+          this.advanceVideo(room, now, uid, "screen_yt_next", true);
+          return;
+        }
         room.screen = applyScreenAction(room.screen, m, now);
+        if (room.screen.content.kind === "youtube") knownDuration(room.screen.content.videoId); // learn the length early
         await saveScreenState(this.db, room.row.id, room.screen);
         await logRoomEvent(this.db, room.row.id, uid, `screen_${m.action}`, m.action === "set" ? { content: m.content } : { positionSec: room.screen.positionSec, playing: room.screen.playing });
         this.broadcast(room, { t: "screen", state: room.screen });

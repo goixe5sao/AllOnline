@@ -19,6 +19,8 @@ export interface ScreenProps {
   fullscreen?: boolean;
   reduceMotion?: boolean;
   ad?: StageAd | null;
+  /** The video player reached the end (fallback signal for loop / next, see server hub). */
+  onEnded?: (rev: number) => void;
 }
 
 // ---------- YouTube (official IFrame Player API) ----------
@@ -58,13 +60,15 @@ function loadYouTubeApi() {
   return ytReady;
 }
 
-function YouTubeSync({ videoId, state, serverNow, volume, muted }: { videoId: string } & Pick<ScreenProps, "state" | "serverNow" | "volume" | "muted">) {
+function YouTubeSync({ videoId, state, serverNow, volume, muted, onEnded }: { videoId: string } & Pick<ScreenProps, "state" | "serverNow" | "volume" | "muted" | "onEnded">) {
   const host = useRef<HTMLDivElement>(null);
   const player = useRef<YTPlayer | null>(null);
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const endedRef = useRef(onEnded);
+  endedRef.current = onEnded;
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +85,11 @@ function YouTubeSync({ videoId, state, serverNow, volume, muted }: { videoId: st
         playerVars: { controls: 0, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1, start: Math.floor(currentPosition(stateRef.current, serverNow())) },
         events: {
           onReady: () => !cancelled && setReady(true),
+          // 0 = ENDED: tell the server (it moves on by itself when it knows the length)
+          onStateChange: (e: { data: number }) => {
+            const st = stateRef.current;
+            if (e.data === 0 && st.content.kind === "youtube" && st.content.endMode && st.content.endMode !== "stop") endedRef.current?.(st.rev);
+          },
           onError: (e: { data: number }) =>
             setErr(e.data === 101 || e.data === 150 ? "Chủ sở hữu video không cho phép phát nhúng. Hãy chọn video khác." : e.data === 2 || e.data === 100 ? "Video không tồn tại hoặc đã bị gỡ." : "Không phát được video."),
         },
@@ -222,7 +231,7 @@ export function ScreenContent(p: ScreenProps) {
       body = <img src={c.url} alt="Hình ảnh trên màn hình" referrerPolicy="no-referrer" />;
       break;
     case "youtube":
-      body = p.active ? <YouTubeSync videoId={c.videoId} {...p} /> : <div className="screen-text">▶ Video đang phát ở chế độ xem màn hình</div>;
+      body = p.active ? <YouTubeSync key={c.videoId} videoId={c.videoId} {...p} /> : <div className="screen-text">▶ Video đang phát ở chế độ xem màn hình</div>;
       break;
     case "audio":
       body = p.active ? <AudioSync url={c.url} title={c.title} {...p} /> : <div className="screen-text">♪ {c.title}</div>;

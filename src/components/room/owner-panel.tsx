@@ -13,6 +13,7 @@ import type { ChatLine } from "./use-room";
 import { SymbolPicker } from "./symbol-picker";
 import { HandsList } from "./engage";
 import { HostsSection, ScheduleSection, StatsTab } from "./owner-extra";
+import { YouTubePanel } from "./youtube-panel";
 
 const STATUS_VI: Record<string, string> = { seated: "Đang ngồi", finding: "Đang tìm chỗ", invited: "Được mời vào chỗ", waiting: "Chờ ngoài cổng" };
 
@@ -45,7 +46,8 @@ function StageStyleSwitch({ roomId, style, lights, send }: { roomId: string; sty
 }
 
 function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) => void; screen: ScreenState; serverNow: () => number; roomId: string }) {
-  const [kind, setKind] = useState<ScreenContent["kind"]>("text");
+  // a YouTube video on screen → open its controls straight away
+  const [kind, setKind] = useState<ScreenContent["kind"]>(screen.content.kind === "youtube" ? "youtube" : "text");
   const [value, setValue] = useState("");
   const [title, setTitle] = useState("");
   const [interval, setIntervalOpt] = useState<ChartInterval>("D");
@@ -96,6 +98,8 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
       <div className="notice">
         Đang chiếu: <strong>{screen.content.kind}</strong>
         {playable && ` · ${screen.playing ? "đang phát" : "tạm dừng"} · ${fmtDuration(pos * 1000)}`}
+        {screen.content.kind === "youtube" && screen.content.endMode === "loop" && " · 🔁 lặp lại"}
+        {screen.content.kind === "youtube" && screen.content.endMode === "next" && ` · ⏭ danh sách ${(screen.content.index ?? 0) + 1}/${screen.content.playlist?.length ?? 1}`}
       </div>
       {playable && (
         <div className="row">
@@ -130,8 +134,9 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
       </label>
       {kind === "text" && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
       {kind === "chart" && <SymbolPicker value={value} onChange={setValue} />}
-      {(kind === "image" || kind === "audio" || kind === "youtube" || kind === "tradingview") && (
-        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "youtube" ? "https://www.youtube.com/watch?v=…" : kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
+      {kind === "youtube" && <YouTubePanel send={send} screen={screen} />}
+      {(kind === "image" || kind === "audio" || kind === "tradingview") && (
+        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
       )}
       {kind === "audio" && <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tiêu đề" />}
       {(kind === "image" || kind === "audio") && (
@@ -185,10 +190,11 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
         </>
       )}
       {kind === "tradingview" && <small>TradingView không cho nhúng mã sàn Việt Nam (HOSE/HNX). Dùng cho cổ phiếu quốc tế, crypto, vàng, ngoại tệ. Ở chế độ “Xem màn hình”, người xem dùng đủ công cụ vẽ/chỉ báo của TradingView.</small>}
-      {kind === "youtube" && <small>Dùng trình phát nhúng chính thức của YouTube. Video bị chủ sở hữu chặn nhúng sẽ báo lỗi trên màn hình.</small>}
-      <button className="hud-btn primary" onClick={show}>
-        Hiển thị lên màn hình
-      </button>
+      {kind !== "youtube" && (
+        <button className="hud-btn primary" onClick={show}>
+          Hiển thị lên màn hình
+        </button>
+      )}
       {err && <p className="notice">{err}</p>}
     </div>
   );

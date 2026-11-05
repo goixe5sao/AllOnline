@@ -46,6 +46,7 @@ import { eventIcs } from "./services/calendar";
 import { hasZalo } from "./services/identities";
 import type { ZaloBot } from "./zalo/bot";
 import { zaloRoutes } from "./zalo/routes";
+import { getVideoInfo } from "./youtube";
 
 interface Ctx {
   req: IncomingMessage;
@@ -341,6 +342,15 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     if (b.keepAsModerator) await db.query("insert into app.room_moderators (room_id, user_id, added_by) values ($1, $2, $3) on conflict do nothing", [room.id, room.owner_id, u.id]);
     await hub.refreshOwner(room.id);
     return { ownerId: next.id, name: next.display_name };
+  });
+
+  /** Title + length of a YouTube video for the owner's playlist (null fields when YouTube does not say). */
+  route("GET", "/api/youtube/:id", async (ctx) => {
+    needUser(ctx);
+    const id = ctx.params[0];
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) throw new AppError("INVALID", "Mã video không hợp lệ.");
+    const info = await getVideoInfo(id);
+    return { videoId: id, title: info?.title ?? null, durationSec: info?.durationSec ?? null };
   });
 
   route("POST", "/api/rooms/:id/stage-style", async (ctx) => {

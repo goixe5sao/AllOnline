@@ -70,6 +70,8 @@ export type ClientMsg =
   | { t: "hand"; up: boolean }
   | { t: "q_ask"; text: string }
   | { t: "q_vote"; id: string }
+  /** The YouTube player of this viewer reached the end of the video (fallback, see hub). */
+  | { t: "screen_ended"; rev: number }
   // owner / co-host only
   | { t: "hand_lower"; userId: string }
   | { t: "q_set"; id: string; status: "open" | "answered" | "hidden" }

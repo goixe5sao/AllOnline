@@ -407,6 +407,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     muted,
     reduceMotion,
     ad: s.ad,
+    onEnded: (rev: number) => send({ t: "screen_ended", rev }),
   };
   const p = s.personal;
   const remaining = s.room.openEnded ? Infinity : s.room.expiresAt - (now + (serverNow() - Date.now()));

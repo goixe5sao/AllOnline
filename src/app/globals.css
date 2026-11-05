@@ -366,3 +366,12 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
   .room-root:has(.orb-root:not(.moved)) .chat-box { width: calc(100% - 76px); }
 }
 @media (prefers-reduced-motion: reduce) { .orb, .orb-ring, .orb-eye, .orb-antenna::after { animation: none; } }
+
+/* owner's YouTube playlist */
+.yt-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; max-height: 240px; overflow: auto; }
+.yt-list li { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; background: rgb(255 255 255 / 0.04); }
+.yt-list li.on-air { background: rgb(61 245 255 / 0.12); outline: 1px solid rgb(61 245 255 / 0.4); }
+.yt-n { width: 20px; text-align: center; font-weight: 700; opacity: 0.8; }
+.yt-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.yt-b { display: inline-flex; gap: 3px; flex: none; }
+.yt-b .hud-btn { min-height: 28px; padding: 2px 8px; }
