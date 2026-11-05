@@ -63,6 +63,35 @@ for (const [name, w, h, mobile] of [
     await p.screenshot({ path: `${OUT}/home-${name}-lobby.png` });
     await p.evaluate(() => window.scrollTo(0, 0));
     await sleep(400);
+
+    // site theme: light (☀ in the header), remembered after a reload, then back to dark
+    await p.click(".hn-theme");
+    await sleep(900);
+    check(await p.evaluate(() => document.documentElement.dataset.theme === "light"), `${name}: header button switches the site to the light theme`);
+    await p.screenshot({ path: `${OUT}/home-${name}-light.png` });
+    await p.click(".lsw");
+    await sleep(1000);
+    await p.screenshot({ path: `${OUT}/home-${name}-light-lights-on.png` });
+    await p.click(".lsw");
+    await p.evaluate(() => document.querySelector("#quay-ve")?.scrollIntoView());
+    await sleep(600);
+    await p.screenshot({ path: `${OUT}/home-${name}-light-lobby.png` });
+    await p.reload({ waitUntil: "networkidle0" });
+    check(await p.evaluate(() => document.documentElement.dataset.theme === "light"), `${name}: light theme is remembered after reload`);
+    if (name === "desktop") {
+      await p.goto(BASE + "/login", { waitUntil: "networkidle0" });
+      check(await p.evaluate(() => getComputedStyle(document.body).backgroundColor === "rgb(246, 247, 244)"), "other pages follow the light theme");
+      await p.screenshot({ path: `${OUT}/login-light.png` });
+      await p.click(".theme-toggle");
+      await sleep(400);
+      check(await p.evaluate(() => getComputedStyle(document.body).backgroundColor === "rgb(16, 22, 20)"), "other pages switch to dark with their own button");
+      await p.screenshot({ path: `${OUT}/login-dark.png` });
+      await p.goto(BASE + "/", { waitUntil: "networkidle0" });
+    } else {
+      await p.click(".hn-theme");
+    }
+    await sleep(400);
+    await p.evaluate(() => window.scrollTo(0, 0));
   }
   if (name === "mobile") {
     await p.click(".hn-burger");

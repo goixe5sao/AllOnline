@@ -113,8 +113,8 @@ export function Audience() {
           <stop offset="1" stopColor="#4a2bd8" />
         </radialGradient>
         <linearGradient id="au-fade" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#05060f" stopOpacity="0" />
-          <stop offset="1" stopColor="#05060f" stopOpacity="0.9" />
+          <stop offset="0" style={{ stopColor: "var(--h-bg)" }} stopOpacity="0" />
+          <stop offset="1" style={{ stopColor: "var(--h-bg)" }} stopOpacity="0.9" />
         </linearGradient>
       </defs>
       <Row y={150} count={17} seatW={92} scale={0.62} dim={0.55} offset={3} />

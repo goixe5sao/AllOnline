@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { api, useMe, type Me } from "@/lib/api";
+import { ThemeToggle } from "./theme-toggle";
 
 export function AppShell({ children, narrow, requireLogin }: { children: (me: Me) => ReactNode; narrow?: boolean; requireLogin?: boolean }) {
   const { loading, user, mode } = useMe();
@@ -32,6 +33,7 @@ export function AppShell({ children, narrow, requireLogin }: { children: (me: Me
           {user?.role === "app_owner" && link("/admin", "Quản trị")}
         </nav>
         <span className="spacer" />
+        <ThemeToggle />
         {user ? (
           <span className="row">
             <span className="muted">

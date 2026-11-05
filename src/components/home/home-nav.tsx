@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { api, useMe } from "@/lib/api";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 /** Header of the home page: section links + account actions (server-rendered as "signed out"). */
 export function HomeNav() {
@@ -19,6 +20,7 @@ export function HomeNav() {
           All<b>Online</b>
         </span>
       </Link>
+      <ThemeToggle className="hn-theme" />
       <button className="hn-burger" aria-expanded={open} aria-controls="hn-menu" onClick={() => setOpen(!open)}>
         <span className="sr-only">Mở menu</span>
         <span aria-hidden>☰</span>

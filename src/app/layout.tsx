@@ -13,11 +13,25 @@ export const metadata: Metadata = {
   formatDetection: { telephone: false },
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#05060f" };
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f5f1fc" },
+    { media: "(prefers-color-scheme: dark)", color: "#05060f" },
+  ],
+};
+
+// Runs before first paint: the visitor's saved theme, otherwise dark (the stage look).
+const THEME_SCRIPT = `(function(){var t="dark";try{var s=localStorage.getItem("ao-theme");if(s==="light"||s==="dark")t=s}catch(e){}var r=document.documentElement;r.dataset.theme=t;r.style.colorScheme=t})()`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="vi">
+    <html lang="vi" data-theme="dark" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );
