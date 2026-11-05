@@ -12,7 +12,11 @@ function Invoke-Step([string]$dir, [string]$label, [string[]]$npmArgs) {
 }
 
 Invoke-Step $AllOnlineDir 'AllOnline: npm ci' @('ci', '--no-audit', '--no-fund')
+# Trang tĩnh (SEO: canonical, Open Graph) gắn địa chỉ công khai lúc build — dùng tên miền thật,
+# không lấy giá trị localhost trong .env.local (biến môi trường được ưu tiên hơn file .env).
+$env:PUBLIC_ORIGIN = "https://$($site.allonlineHosts[0])"
 Invoke-Step $AllOnlineDir 'AllOnline: build' @('run', 'build')
+Remove-Item Env:PUBLIC_ORIGIN
 Invoke-Step $site.stockvnDir 'StockVN: npm ci' @('ci', '--no-audit', '--no-fund')
 Invoke-Step $site.stockvnDir 'StockVN: build' @('run', 'build')
 Write-Host 'Build xong.'
