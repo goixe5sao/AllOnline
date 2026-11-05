@@ -230,8 +230,8 @@ export function RoomView({ roomId }: { roomId: string }) {
   const members = useMemo(() => [...store.map.values()], [s.version]); // eslint-disable-line react-hooks/exhaustive-deps
   const occupied = useMemo(() => new Set(members.filter((m) => m.status === "seated" && m.seatId).map((m) => m.seatId!)), [members]);
 
-  // "View from 2 rows behind": ↓ while seated (↑ to return), or the HUD button.
-  const [behind, setBehind] = useState(false);
+  // Default: the view from behind (own avatar + screen); ↑ / the HUD button for the own eyes.
+  const [behind, setBehind] = useState(true);
   useEffect(() => {
     controls.current.behind = behind;
   }, [behind]);

@@ -140,6 +140,8 @@ function SimpleModel({ group, color }: { group: string; color: string }) {
 }
 
 const tmpV = new THREE.Vector3();
+/** Where the name tag sits on each kind of avatar (local coords; +x = the avatar's right side). */
+const SHOULDER: Record<string, [number, number, number]> = { people: [0.22, 0.95, 0], animals: [0.2, 0.75, 0], vehicles: [0, 1.5, 0] };
 const tmpA = new THREE.Vector3();
 
 const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, portal }: { id: string; store: MemberStore; layout: Layout; lite: boolean; bubbleTick: number; portal: React.RefObject<HTMLElement | null> }) {
@@ -174,7 +176,7 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
       let show = dist < 7;
       if (show) {
         const sc = layout.screen;
-        tmpV.set(g.current.position.x, g.current.position.y + 1.8, g.current.position.z).project(camera);
+        tmpV.set(g.current.position.x, g.current.position.y + SHOULDER[cur.avatar.group][1], g.current.position.z).project(camera);
         // Outside the view (e.g. the neighbour right below / beside the camera): a projected
         // point behind the camera would otherwise flip and float over the screen.
         if (tmpV.z > 1 || Math.abs(tmpV.x) > 1.05 || Math.abs(tmpV.y) > 1.05) show = false;
@@ -190,6 +192,7 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
   if (!m) return null;
   const color = AVATARS[m.avatar.group].models.find((x) => x.id === m.avatar.model)?.color ?? "#888";
   const height = m.avatar.group === "vehicles" ? 2.2 : 1.6;
+  const shoulder = SHOULDER[m.avatar.group];
   const bubble = store.bubbles.get(id);
   const showBubble = bubble && Date.now() - bubble.at < 8000;
   void bubbleTick;
@@ -202,13 +205,16 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
       <group ref={simple} visible={false}>
         <SimpleModel group={m.avatar.group} color={color} />
       </group>
-      <Html position={[0, height + 0.15, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
-        <div>
-          {showBubble && <div className="bubble">{bubble!.text}</div>}
-          <div ref={tag} className="nametag" style={{ opacity: m.connected ? 1 : 0.5 }}>
-            {m.name}
-            {!m.connected && " (mất kết nối)"}
-          </div>
+      {showBubble && (
+        <Html position={[0, height + 0.15, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+          <div className="bubble">{bubble!.text}</div>
+        </Html>
+      )}
+      {/* Name on the shoulder: readable from behind without covering the head or the screen. */}
+      <Html position={shoulder} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+        <div ref={tag} className="nametag" style={{ opacity: m.connected ? 1 : 0.5 }}>
+          {m.name}
+          {!m.connected && " (mất kết nối)"}
         </div>
       </Html>
     </group>
@@ -350,7 +356,7 @@ function World({ layout, children }: { layout: Layout; children?: ReactNode }) {
         <planeGeometry args={[w.maxX - w.minX, w.maxZ - w.minZ + 2]} />
         <meshStandardMaterial color={night ? "#14181c" : "#b9c4b0"} />
       </mesh>
-      {/* fence with a gate */}
+      {/* low fence with an opening (no arch: it blocked the view from the back rows) */}
       <mesh position={[m.minX + fenceLeft / 2, 0.6, m.maxZ]}>
         <boxGeometry args={[fenceLeft, 1.2, 0.15]} />
         <meshStandardMaterial color="#6b5440" />
@@ -358,16 +364,6 @@ function World({ layout, children }: { layout: Layout; children?: ReactNode }) {
       <mesh position={[m.maxX - fenceRight / 2, 0.6, m.maxZ]}>
         <boxGeometry args={[fenceRight, 1.2, 0.15]} />
         <meshStandardMaterial color="#6b5440" />
-      </mesh>
-      {[-1, 1].map((s) => (
-        <mesh key={s} position={[layout.gate.x + s * layout.gate.halfWidth, 1.6, m.maxZ]}>
-          <boxGeometry args={[0.3, 3.2, 0.3]} />
-          <meshStandardMaterial color="#c8a24a" emissive={night ? "#5a4210" : "#000"} />
-        </mesh>
-      ))}
-      <mesh position={[layout.gate.x, 3.25, m.maxZ]}>
-        <boxGeometry args={[layout.gate.halfWidth * 2 + 0.6, 0.3, 0.3]} />
-        <meshStandardMaterial color="#c8a24a" emissive={night ? "#5a4210" : "#000"} />
       </mesh>
       {/* stage / screen frame */}
       {layout.map !== "drive_in" && (
@@ -628,26 +624,43 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
     if (c.behind) {
       // Eyes of someone sitting 2 rows behind: own avatar + the rows in front + the screen.
       const seated = !!seat && me.status === "seated";
-      // Walking: a little further back, higher (clears the gate beam and the fence) and looking
-      // down a bit, so the own avatar stays in frame together with the screen.
-      const back = layout.rowGap * 2 + (seated ? 0 : layout.rowGap * 2);
-      const bx = sf.x - h.fx * back;
-      const bz = sf.z - h.fz * back;
-      const floor = floorY(layout, bz, me.status !== "waiting");
-      camera.position.set(bx, floor + (seated ? layout.eyeHeight + (isCar ? 1 : 0.15) : isCar ? 5 : 3.8), bz);
-      if (!seated) tilt = -0.35;
+      // The camera is level with the centre of the stage screen (same height on desktop and
+      // mobile). It stays far enough back that the own avatar is at most ~30° below the horizon,
+      // and pitches down just enough to put the own avatar in the lower part of the frame while
+      // the whole screen stays in view.
+      const selfFloor = seat ? seat.y : floorY(layout, sf.z, me.status !== "waiting");
+      const selfTop = selfFloor + (isCar ? 2.2 : 1.6);
+      let back = layout.rowGap * 2 + (seated ? 0 : layout.rowGap);
+      let bx = sf.x - h.fx * back;
+      let bz = sf.z - h.fz * back;
+      let y = Math.max(layout.screen.y, floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.6);
+      const minBack = (y - selfTop) / Math.tan(0.53);
+      if (back < minBack) {
+        back = minBack;
+        bx = sf.x - h.fx * back;
+        bz = sf.z - h.fz * back;
+        y = Math.max(y, floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.6);
+      }
+      camera.position.set(bx, y, bz);
+      tilt = -Math.max(0, Math.atan2(Math.max(0, y - selfTop), back) - 0.38);
     } else {
       // Own view: always level with the centre of the stage screen, looking straight ahead,
       // so the screen sits in the middle of the display (also right after joining).
       const driver = isCar ? -0.38 : 0;
-      camera.position.set(sf.x + h.rx * driver + h.fx * (isCar ? 0.2 : 0), layout.screen.y, sf.z + h.rz * driver + h.fz * (isCar ? 0.2 : 0));
+      const ex = sf.x + h.rx * driver + h.fx * (isCar ? 0.2 : 0);
+      const ez = sf.z + h.rz * driver + h.fz * (isCar ? 0.2 : 0);
+      // Never below the own eyes (back rows of a big raked hall sit higher than the screen centre).
+      const eye = (seat ? seat.y : floorY(layout, ez, me.status !== "waiting")) + layout.eyeHeight;
+      camera.position.set(ex, Math.max(layout.screen.y, eye), ez);
     }
     camera.rotation.set(0, 0, 0, "YXZ");
     camera.rotation.y = heading;
     camera.rotation.x = tilt + Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, c.pitch));
     const pc = camera as THREE.PerspectiveCamera;
-    if (Math.abs(pc.fov - c.fov) > 0.05) {
-      pc.fov += (c.fov - pc.fov) * Math.min(1, dt * 8);
+    // Phone held upright: widen the vertical angle so the screen is not cut at the sides.
+    const want = pc.aspect < 1 ? Math.min(90, c.fov + (1 - pc.aspect) * 40) : c.fov;
+    if (Math.abs(pc.fov - want) > 0.05) {
+      pc.fov += (want - pc.fov) * Math.min(1, dt * 8);
       pc.updateProjectionMatrix();
     }
   });

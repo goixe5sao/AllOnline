@@ -1,8 +1,9 @@
 import puppeteer from "puppeteer-core";
 /**
  * Screenshots of the participant camera (real headless Chrome):
- *  - own view, level with the stage-screen centre (seated, and right after joining via the gate),
- *  - ↓ = view from 2 rows behind (own avatar visible), ↑ = back.
+ *  - default = view from behind (own avatar + name on the shoulder), camera level with the
+ *    stage-screen centre, on desktop and on a phone,
+ *  - ↑ = own eyes, ↓ = back to the view from behind; also right after joining via the gate.
  * Needs a running DEMO server (see e2e-browser-seat.mjs):
  *   BASE=http://localhost:3100 node scripts/e2e-browser-view.mjs <outDir>
  */
@@ -20,9 +21,9 @@ await op.evaluate(async () => fetch("/api/admin/settings", { method: "PATCH", he
 await op.evaluate(async () => { const o = await (await fetch("/api/admin/overview")).json(); for (const r of o.rooms) if (r.status === "open") await fetch("/api/rooms/" + r.id + "/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); });
 const mkRoom = (mode) => op.evaluate(async (mode) => (await fetch("/api/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ useTrial: true, config: { name: "Góc nhìn " + mode, description: "", map: "hall", avatarGroups: ["people"], officialCapacity: 60, waitingEnabled: false, entryMode: mode, durationHours: 6, password: "" } }) })).json(), mode);
 
-async function guest(invite, name, wait = 1500) {
+async function guest(invite, name, wait = 1500, mobile = false) {
   const p = await (await browser.createBrowserContext()).newPage();
-  await p.setViewport({ width: 1280, height: 720 });
+  await p.setViewport(mobile ? { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { width: 1280, height: 720 });
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/join/${invite}`, { waitUntil: "networkidle0" });
   await p.type("input[maxlength='60']", name);
@@ -42,16 +43,19 @@ for (let i = 0; i < 14; i++) {
   crowd.push(p);
 }
 const me = await guest(a.inviteCode, "Tôi", 5000);
-await me.screenshot({ path: `${OUT}/view-seated-own.png` });
-await me.keyboard.press("ArrowDown");
-await sleep(1500);
 await me.screenshot({ path: `${OUT}/view-seated-behind.png` });
 const behindBtn = await me.evaluate(() => [...document.querySelectorAll(".hud-btn")].map((b) => b.textContent).find((t) => t?.includes("Góc của tôi")) ?? null);
+const ownTag = await me.evaluate(() => [...document.querySelectorAll(".nametag")].some((e) => e.textContent === "Tôi" && e.style.display !== "none"));
+console.log(ownTag ? "PASS  default view from behind shows the own name tag" : "FAIL  own name tag not shown");
+if (!ownTag) failed++;
 await me.keyboard.press("ArrowUp");
-await sleep(1000);
+await sleep(1500);
+await me.screenshot({ path: `${OUT}/view-seated-own.png` });
 const backBtn = await me.evaluate(() => [...document.querySelectorAll(".hud-btn")].map((b) => b.textContent).find((t) => t?.includes("Xem từ phía sau")) ?? null);
+const phone = await guest(a.inviteCode, "Điện thoại", 6000, true);
+await phone.screenshot({ path: `${OUT}/view-mobile-behind.png` });
 console.log("seat:", await me.evaluate(() => [...document.querySelectorAll(".hud-chip")].map((e) => e.textContent).find((t) => t?.startsWith("Chỗ"))));
-console.log(behindBtn && backBtn ? "PASS  ↓ / ↑ toggles the behind view" : "FAIL  toggle", behindBtn, backBtn);
+console.log(behindBtn && backBtn ? "PASS  behind view by default, ↑ switches to own eyes" : "FAIL  toggle", behindBtn, backBtn);
 if (!behindBtn || !backBtn) failed++;
 
 // B) gate entry: the view right after joining (walking, before taking a seat).
@@ -60,10 +64,10 @@ const b = await mkRoom("gate_entry");
 if (!b.inviteCode) throw new Error("create room B: " + JSON.stringify(b));
 const walker = await guest(b.inviteCode, "Khách mới", 5000);
 await walker.screenshot({ path: `${OUT}/view-join-gate.png` });
-// The behind-view button also works while walking.
-await walker.evaluate(() => [...document.querySelectorAll(".hud-btn")].find((x) => x.textContent?.includes("Xem từ phía sau"))?.click());
+// The view button also works while walking (default behind → own eyes).
+await walker.evaluate(() => [...document.querySelectorAll(".hud-btn")].find((x) => x.textContent?.includes("Góc của tôi"))?.click());
 await sleep(1500);
-await walker.screenshot({ path: `${OUT}/view-join-gate-behind.png` });
+await walker.screenshot({ path: `${OUT}/view-join-gate-own.png` });
 
 console.log("errors:", errors.length ? errors : "none");
 for (const p of crowd) await p.close();
