@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from "node:crypto";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { Config } from "../config";
 import type { Db } from "../db";
 import type { Auth } from "../auth";
@@ -19,6 +19,8 @@ export function plain(s: string) {
 
 export type Command =
   | { kind: "login" }
+  /** Code shown on the web login page ("DN 123456", or just the 6 digits). */
+  | { kind: "weblogin"; code: string }
   | { kind: "link"; code: string }
   | { kind: "remind"; invite: string; on: boolean }
   | { kind: "events" }
@@ -29,6 +31,7 @@ export function parseCommand(text: string): Command {
   const t = plain(text);
   let m: RegExpMatchArray | null;
   if ((m = t.match(/^(?:lk|lien ket)\s*(\d{6})$/))) return { kind: "link", code: m[1] };
+  if ((m = t.match(/^(?:(?:dn|dang nhap|login|ma)\s*)?(\d{6})$/))) return { kind: "weblogin", code: m[1] };
   if ((m = t.match(/^(huy nhac|bo nhac|nhac)\s+([a-z0-9]{6,12})$/))) return { kind: "remind", invite: m[2].toUpperCase(), on: m[1] === "nhac" };
   if (/^(dang ky|dang nhap|dk|dn|login|dangky|dangnhap|tao tai khoan)\b/.test(t)) return { kind: "login" };
   if (/^(lich|su kien|lich cua toi|sk)\b/.test(t)) return { kind: "events" };
@@ -38,6 +41,7 @@ export function parseCommand(text: string): Command {
 
 const HELP = [
   "Chào bạn, mình là trợ lý Sân Khấu Online 🤖. Nhắn một trong các lệnh:",
+  "• DN 123456 — đăng nhập trang web đang mở (mã hiện ở trang Đăng nhập → Zalo)",
   "• ĐĂNG KÝ hoặc ĐĂNG NHẬP — nhận link đăng nhập (không cần mật khẩu)",
   "• LK 123456 — liên kết tài khoản trên web với Zalo (lấy mã ở trang Tài khoản)",
   "• NHẮC <mã mời> — nhắc bạn trước giờ sự kiện; HỦY NHẮC <mã mời> để bỏ",
@@ -66,6 +70,13 @@ export class ZaloBot {
   private linkCodes = new Map<string, { userId: string; exp: number }>();
   /** One-time login links already used. */
   private usedLogins = new Set<string>();
+  /**
+   * Web login codes: the login page shows the code, the person sends it to the bot, the page
+   * (holding the secret claim) is signed in. code → claim, expiry, account once confirmed.
+   */
+  private webLogins = new Map<string, { claim: string; exp: number; userId: string | null }>();
+  /** Wrong codes per follower (guessing guard): count, window start. */
+  private wrongCodes = new Map<string, { n: number; since: number }>();
 
   constructor(
     private deps: { cfg: Config; db: Db; auth: Auth; storage: Storage; sender: OaSender; origin: () => string; onPaid?: (r: { roomId?: string; kind?: string }) => Promise<void> },
@@ -84,6 +95,28 @@ export class ZaloBot {
     while (this.linkCodes.has(code));
     this.linkCodes.set(code, { userId, exp: Date.now() + 10 * 60_000 });
     return code;
+  }
+
+  /** New web login code (10 minutes). The claim stays in the browser that asked for it. */
+  createWebLogin(): { code: string; claim: string; expiresAt: number } {
+    const now = Date.now();
+    for (const [c, v] of this.webLogins) if (v.exp < now) this.webLogins.delete(c);
+    if (this.webLogins.size > 20_000) throw new Error("too many pending logins");
+    let code = "";
+    do code = String(randomInt(100000, 1000000));
+    while (this.webLogins.has(code));
+    const v = { claim: randomBytes(24).toString("base64url"), exp: now + 10 * 60_000, userId: null };
+    this.webLogins.set(code, v);
+    return { code, claim: v.claim, expiresAt: v.exp };
+  }
+
+  /** The login page asks: has the code been sent to the bot? Single use once confirmed. */
+  checkWebLogin(code: string, claim: string): { status: "pending" | "expired" } | { status: "ok"; userId: string } {
+    const v = this.webLogins.get(code);
+    if (!v || v.claim !== claim || v.exp < Date.now()) return { status: "expired" };
+    if (!v.userId) return { status: "pending" };
+    this.webLogins.delete(code);
+    return { status: "ok", userId: v.userId };
   }
 
   loginUrl(userId: string) {
@@ -146,6 +179,24 @@ export class ZaloBot {
           oaUid,
           `${created ? `🎉 Đã tạo tài khoản “${user.display_name}”.` : `Chào ${user.display_name}!`}\nBấm link để đăng nhập Sân Khấu Online (dùng một lần, hết hạn sau 10 phút):\n${this.loginUrl(user.id)}`,
         );
+      }
+      case "weblogin": {
+        const now = Date.now();
+        const w = this.wrongCodes.get(oaUid);
+        if (w && now - w.since < 10 * 60_000 && w.n >= 8) return this.say(oaUid, "Bạn nhập sai mã quá nhiều lần. Thử lại sau ít phút nhé.");
+        const v = this.webLogins.get(cmd.code);
+        if (!v || v.exp < now || v.userId) {
+          this.wrongCodes.set(oaUid, w && now - w.since < 10 * 60_000 ? { n: w.n + 1, since: w.since } : { n: 1, since: now });
+          return this.say(oaUid, "Mã đăng nhập không đúng hoặc đã hết hạn. Trên trang web, bấm “Lấy mã mới” rồi nhắn lại mã mới nhé.");
+        }
+        let user = await this.account(oaUid, appUid);
+        let created = false;
+        if (!user) {
+          const p = await this.deps.sender.profile(oaUid);
+          ({ user, created } = await findOrCreateZaloUser(db, "zalo_oa", oaUid, p?.name ?? "Người dùng Zalo", p?.avatar));
+        }
+        v.userId = user.id;
+        return this.say(oaUid, `${created ? `🎉 Đã tạo tài khoản “${user.display_name}”.\n` : ""}✅ Đã đăng nhập Sân Khấu Online cho ${user.display_name}. Quay lại trang web — trang sẽ tự vào tài khoản của bạn.`);
       }
       case "link": {
         const v = this.linkCodes.get(cmd.code);

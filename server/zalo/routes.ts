@@ -115,6 +115,31 @@ export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth
     { public: true },
   );
 
+  /** Login page → Zalo: a code to send to the bot; the page then polls with its secret claim. */
+  route(
+    "POST",
+    "/api/auth/zalo/code",
+    async () => {
+      if (!cfg.zaloOaId) throw new AppError("ZALO_DISABLED", "Chưa bật bot Zalo.", 404);
+      return { ...bot.createWebLogin(), botUrl: `https://zalo.me/${cfg.zaloOaId}` };
+    },
+    { public: true },
+  );
+
+  route(
+    "POST",
+    "/api/auth/zalo/code/check",
+    async ({ req, res }) => {
+      const b = z.object({ code: z.string().regex(/^\d{6}$/), claim: z.string().min(10).max(100) }).parse(await readJson(req, 4096));
+      const r = bot.checkWebLogin(b.code, b.claim);
+      if (r.status !== "ok") return { status: r.status };
+      auth.startAccount(res, r.userId);
+      auth.invalidate(r.userId);
+      return { status: "ok" };
+    },
+    { public: true },
+  );
+
   /** One-time link the bot sends ("ĐĂNG KÝ" / "ĐĂNG NHẬP"). */
   route(
     "GET",

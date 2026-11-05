@@ -19,6 +19,11 @@ describe("bot commands", () => {
     expect(parseCommand("Đăng ký")).toEqual({ kind: "login" });
     expect(parseCommand("dang nhap")).toEqual({ kind: "login" });
     expect(parseCommand("LK 123456")).toEqual({ kind: "link", code: "123456" });
+    expect(parseCommand("DN 482913")).toEqual({ kind: "weblogin", code: "482913" });
+    expect(parseCommand("đăng nhập 482913")).toEqual({ kind: "weblogin", code: "482913" });
+    expect(parseCommand(" 482913 ")).toEqual({ kind: "weblogin", code: "482913" });
+    expect(parseCommand("dn482913")).toEqual({ kind: "weblogin", code: "482913" });
+    expect(parseCommand("DN 4829")).toEqual({ kind: "login" });
     expect(parseCommand("liên kết 654321")).toEqual({ kind: "link", code: "654321" });
     expect(parseCommand("Nhắc ab12cd34")).toEqual({ kind: "remind", invite: "AB12CD34", on: true });
     expect(parseCommand("hủy nhắc AB12CD34")).toEqual({ kind: "remind", invite: "AB12CD34", on: false });
