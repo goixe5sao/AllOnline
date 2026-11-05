@@ -43,7 +43,8 @@ function DemoLogin() {
 }
 
 function RealLogin() {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  // ?mode=signup (from "Tạo tài khoản" on the home page) opens the sign-up form directly.
+  const [mode, setMode] = useState<"login" | "signup">(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "signup" ? "signup" : "login"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");

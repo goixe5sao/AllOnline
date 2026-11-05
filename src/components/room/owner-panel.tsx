@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { api, ApiError, fmtDuration, fmtTime, useApi } from "@/lib/api";
+import { formatVnd } from "@/core/pricing";
 import { currentPosition, parseYouTubeId, type ScreenContent, type ScreenState } from "@/core/screen";
 import { ANALYSIS_LAYERS, DEFAULT_LAYERS, LAYER_LABEL, type AnalysisLayer } from "@/core/analysis";
 import { CHART_INTERVALS, INDICATORS, INTERVAL_LABEL, type ChartInterval, type ChartType, type Indicator } from "@/core/market";
@@ -263,16 +264,48 @@ function PeopleTab({ members, send }: { members: PublicMember[]; send: (m: Clien
 
 function RoomTab({ room, serverNow }: { room: RoomInfoDto; serverNow: () => number }) {
   const { data: catalog } = useApi<{ durationOptions: number[]; extensionEnabled: boolean }>("/api/catalog");
-  const { data } = useApi<{ room: { invite_code: string } }>(`/api/rooms/${room.id}`);
+  const { data, reload } = useApi<{
+    room: { invite_code: string; is_public: boolean };
+    bill: { deposit: number; hourlyRate: number; billedHours: number; charge: number; balance: number } | null;
+  }>(`/api/rooms/${room.id}`, 60_000);
   const [hours, setHours] = useState<number | null>(null);
   const [promo, setPromo] = useState("");
   const [msg, setMsg] = useState("");
   const link = data ? `${typeof location !== "undefined" ? location.origin : ""}/join/${data.room.invite_code}` : "";
   return (
     <div className="stack">
-      <div className="notice">
-        Hết hạn lúc {fmtTime(room.expiresAt)} (còn {fmtDuration(room.expiresAt - serverNow())})
-      </div>
+      {room.openEnded ? (
+        <div className="notice stack" style={{ gap: 4 }}>
+          <strong>Phòng mở vô thời hạn — đến khi bạn tắt</strong>
+          {data?.bill && (
+            <>
+              <span>
+                Đã tính {data.bill.billedHours} giờ × {formatVnd(data.bill.hourlyRate)} = <strong>{formatVnd(data.bill.charge)}</strong> (đã cọc {formatVnd(data.bill.deposit)})
+              </span>
+              <span style={{ color: data.bill.balance < 0 ? "#ff9a8f" : undefined }}>
+                {data.bill.balance >= 0 ? `Nếu tắt bây giờ: hoàn lại ${formatVnd(data.bill.balance)}` : `Nếu tắt bây giờ: cần trả thêm ${formatVnd(-data.bill.balance)}`}
+              </span>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="notice">
+          Hết hạn lúc {fmtTime(room.expiresAt)} (còn {fmtDuration(room.expiresAt - serverNow())})
+        </div>
+      )}
+      {data && (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={data.room.is_public}
+            onChange={async (e) => {
+              await api(`/api/rooms/${room.id}/visibility`, { body: { isPublic: e.target.checked } });
+              reload();
+            }}
+          />{" "}
+          Hiện phòng trên trang chủ
+        </label>
+      )}
       {data && (
         <div className="stack">
           <small>Link mời</small>
@@ -282,7 +315,7 @@ function RoomTab({ room, serverNow }: { room: RoomInfoDto; serverNow: () => numb
           </button>
         </div>
       )}
-      {catalog?.extensionEnabled && (
+      {catalog?.extensionEnabled && !room.openEnded && (
         <div className="stack">
           <strong>Gia hạn (giữ nguyên sức chứa)</strong>
           <select value={hours ?? ""} onChange={(e) => setHours(Number(e.target.value))}>
@@ -325,7 +358,8 @@ function RoomTab({ room, serverNow }: { room: RoomInfoDto; serverNow: () => numb
         className="hud-btn"
         style={{ color: "#ff9a8f" }}
         onClick={async () => {
-          if (!confirm("Đóng phòng ngay? Mọi người sẽ bị kết thúc phiên và slot được trả về hệ thống.")) return;
+          const bill = room.openEnded ? " Phòng vô thời hạn sẽ được quyết toán theo số giờ đã mở." : "";
+          if (!confirm("Đóng phòng ngay? Mọi người sẽ bị kết thúc phiên và slot được trả về hệ thống." + bill)) return;
           await api(`/api/rooms/${room.id}/close`, { body: {} });
         }}
       >

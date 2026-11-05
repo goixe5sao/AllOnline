@@ -20,8 +20,8 @@ export interface Controls {
   yaw: number;
   /** Look up/down offset chosen by the user, limited to ±PITCH_RANGE around pitchBase. */
   pitch: number;
-  /** Default vertical view: screen centre when seated, slightly down when walking. */
-  pitchBase?: number;
+  /** View from 2 rows behind the user's own position (sees the user's own avatar). */
+  behind?: boolean;
   fov: number;
   keys: Set<string>;
   joy: { x: number; y: number };
@@ -140,6 +140,8 @@ function SimpleModel({ group, color }: { group: string; color: string }) {
 }
 
 const tmpV = new THREE.Vector3();
+/** Where the name tag sits on each kind of avatar (local coords; +x = the avatar's right side). */
+const SHOULDER: Record<string, [number, number, number]> = { people: [0.22, 0.95, 0], animals: [0.2, 0.75, 0], vehicles: [0, 1.5, 0] };
 const tmpA = new THREE.Vector3();
 
 const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, portal }: { id: string; store: MemberStore; layout: Layout; lite: boolean; bubbleTick: number; portal: React.RefObject<HTMLElement | null> }) {
@@ -174,7 +176,10 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
       let show = dist < 7;
       if (show) {
         const sc = layout.screen;
-        tmpV.set(g.current.position.x, g.current.position.y + 1.8, g.current.position.z).project(camera);
+        tmpV.set(g.current.position.x, g.current.position.y + SHOULDER[cur.avatar.group][1], g.current.position.z).project(camera);
+        // Outside the view (e.g. the neighbour right below / beside the camera): a projected
+        // point behind the camera would otherwise flip and float over the screen.
+        if (tmpV.z > 1 || Math.abs(tmpV.x) > 1.05 || Math.abs(tmpV.y) > 1.05) show = false;
         const a = tmpA.set(sc.x - sc.width / 2, sc.y - sc.height / 2, sc.z).project(camera);
         const ax = a.x, ay = a.y;
         const b = tmpA.set(sc.x + sc.width / 2, sc.y + sc.height / 2, sc.z).project(camera);
@@ -187,6 +192,7 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
   if (!m) return null;
   const color = AVATARS[m.avatar.group].models.find((x) => x.id === m.avatar.model)?.color ?? "#888";
   const height = m.avatar.group === "vehicles" ? 2.2 : 1.6;
+  const shoulder = SHOULDER[m.avatar.group];
   const bubble = store.bubbles.get(id);
   const showBubble = bubble && Date.now() - bubble.at < 8000;
   void bubbleTick;
@@ -199,13 +205,16 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
       <group ref={simple} visible={false}>
         <SimpleModel group={m.avatar.group} color={color} />
       </group>
-      <Html position={[0, height + 0.15, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
-        <div>
-          {showBubble && <div className="bubble">{bubble!.text}</div>}
-          <div ref={tag} className="nametag" style={{ opacity: m.connected ? 1 : 0.5 }}>
-            {m.name}
-            {!m.connected && " (mất kết nối)"}
-          </div>
+      {showBubble && (
+        <Html position={[0, height + 0.15, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+          <div className="bubble">{bubble!.text}</div>
+        </Html>
+      )}
+      {/* Name on the shoulder: readable from behind without covering the head or the screen. */}
+      <Html position={shoulder} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+        <div ref={tag} className="nametag" style={{ opacity: m.connected ? 1 : 0.5 }}>
+          {m.name}
+          {!m.connected && " (mất kết nối)"}
         </div>
       </Html>
     </group>
@@ -347,7 +356,7 @@ function World({ layout, children }: { layout: Layout; children?: ReactNode }) {
         <planeGeometry args={[w.maxX - w.minX, w.maxZ - w.minZ + 2]} />
         <meshStandardMaterial color={night ? "#14181c" : "#b9c4b0"} />
       </mesh>
-      {/* fence with a gate */}
+      {/* low fence with an opening (no arch: it blocked the view from the back rows) */}
       <mesh position={[m.minX + fenceLeft / 2, 0.6, m.maxZ]}>
         <boxGeometry args={[fenceLeft, 1.2, 0.15]} />
         <meshStandardMaterial color="#6b5440" />
@@ -355,16 +364,6 @@ function World({ layout, children }: { layout: Layout; children?: ReactNode }) {
       <mesh position={[m.maxX - fenceRight / 2, 0.6, m.maxZ]}>
         <boxGeometry args={[fenceRight, 1.2, 0.15]} />
         <meshStandardMaterial color="#6b5440" />
-      </mesh>
-      {[-1, 1].map((s) => (
-        <mesh key={s} position={[layout.gate.x + s * layout.gate.halfWidth, 1.6, m.maxZ]}>
-          <boxGeometry args={[0.3, 3.2, 0.3]} />
-          <meshStandardMaterial color="#c8a24a" emissive={night ? "#5a4210" : "#000"} />
-        </mesh>
-      ))}
-      <mesh position={[layout.gate.x, 3.25, m.maxZ]}>
-        <boxGeometry args={[layout.gate.halfWidth * 2 + 0.6, 0.3, 0.3]} />
-        <meshStandardMaterial color="#c8a24a" emissive={night ? "#5a4210" : "#000"} />
       </mesh>
       {/* stage / screen frame */}
       {layout.map !== "drive_in" && (
@@ -539,17 +538,7 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
       sf.x = me.x;
       sf.z = me.z;
       c.yaw = me.status === "seated" || me.status === "invited" ? 0 : me.rotY;
-      // Look at the centre of the stage screen (front rows tilt up, back rows level).
-      const seatNow = me.seatId ? layout.seats.find((s) => s.id === me.seatId) : undefined;
-      const sc = layout.screen;
-      const eyeY = (seatNow?.y ?? floorY(layout, me.z, me.status !== "waiting")) + layout.eyeHeight;
-      // Seated: look at the screen centre. Walking (finding / waiting): look slightly down so free
-      // seats and the floor ahead are visible.
       c.pitch = 0;
-      c.pitchBase =
-        me.status === "seated" || me.status === "invited"
-          ? Math.max(-0.7, Math.min(0.7, Math.atan2(sc.y - eyeY, Math.max(1, Math.hypot(sc.x - me.x, sc.z - me.z)))))
-          : -0.28;
     }
     if (store.correction) {
       sf.x = store.correction.x;
@@ -630,19 +619,48 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
         }
       }
     }
-    const baseY = seat && me.status === "seated" ? seat.y : floorY(layout, sf.z, me.status !== "waiting");
     const h = headingVec(heading);
-    const driver = isCar ? -0.38 : 0;
-    camera.position.set(sf.x + h.rx * driver + h.fx * (isCar ? 0.2 : 0), baseY + layout.eyeHeight + (isCar ? 0.2 : 0), sf.z + h.rz * driver + h.fz * (isCar ? 0.2 : 0));
+    let tilt = 0;
+    if (c.behind) {
+      // Eyes of someone sitting 2 rows behind: own avatar + the rows in front + the screen.
+      const seated = !!seat && me.status === "seated";
+      // The camera is level with the centre of the stage screen (same height on desktop and
+      // mobile). It stays far enough back that the own avatar is at most ~30° below the horizon,
+      // and pitches down just enough to put the own avatar in the lower part of the frame while
+      // the whole screen stays in view.
+      const selfFloor = seat ? seat.y : floorY(layout, sf.z, me.status !== "waiting");
+      const selfTop = selfFloor + (isCar ? 2.2 : 1.6);
+      let back = layout.rowGap * 2 + (seated ? 0 : layout.rowGap);
+      let bx = sf.x - h.fx * back;
+      let bz = sf.z - h.fz * back;
+      let y = Math.max(layout.screen.y, floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.6);
+      const minBack = (y - selfTop) / Math.tan(0.53);
+      if (back < minBack) {
+        back = minBack;
+        bx = sf.x - h.fx * back;
+        bz = sf.z - h.fz * back;
+        y = Math.max(y, floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.6);
+      }
+      camera.position.set(bx, y, bz);
+      tilt = -Math.max(0, Math.atan2(Math.max(0, y - selfTop), back) - 0.38);
+    } else {
+      // Own view: always level with the centre of the stage screen, looking straight ahead,
+      // so the screen sits in the middle of the display (also right after joining).
+      const driver = isCar ? -0.38 : 0;
+      const ex = sf.x + h.rx * driver + h.fx * (isCar ? 0.2 : 0);
+      const ez = sf.z + h.rz * driver + h.fz * (isCar ? 0.2 : 0);
+      // Never below the own eyes (back rows of a big raked hall sit higher than the screen centre).
+      const eye = (seat ? seat.y : floorY(layout, ez, me.status !== "waiting")) + layout.eyeHeight;
+      camera.position.set(ex, Math.max(layout.screen.y, eye), ez);
+    }
     camera.rotation.set(0, 0, 0, "YXZ");
     camera.rotation.y = heading;
-    // Seated: the "look at the screen" tilt fades out as the user turns away from the stage,
-    // so turning around shows the audience at eye level instead of the ceiling.
-    const base = me.status === "seated" ? (c.pitchBase ?? 0) * Math.max(0, Math.cos(c.yaw)) : (c.pitchBase ?? 0);
-    camera.rotation.x = base + Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, c.pitch));
+    camera.rotation.x = tilt + Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, c.pitch));
     const pc = camera as THREE.PerspectiveCamera;
-    if (Math.abs(pc.fov - c.fov) > 0.05) {
-      pc.fov += (c.fov - pc.fov) * Math.min(1, dt * 8);
+    // Phone held upright: widen the vertical angle so the screen is not cut at the sides.
+    const want = pc.aspect < 1 ? Math.min(90, c.fov + (1 - pc.aspect) * 40) : c.fov;
+    if (Math.abs(pc.fov - want) > 0.05) {
+      pc.fov += (want - pc.fov) * Math.min(1, dt * 8);
       pc.updateProjectionMatrix();
     }
   });
@@ -726,6 +744,7 @@ export interface SceneProps {
   highlightFree: boolean;
   ad: StageAd | null;
   selectedSeat: string | null;
+  behindView?: boolean;
   onSeatClick?: (seatId: string, x: number, y: number) => void;
   /** Room owner attending as a participant: double-click a free seat to go there at once. */
   onSeatDoubleClick?: (seatId: string) => void;
@@ -733,9 +752,10 @@ export interface SceneProps {
 
 export function RoomScene(p: SceneProps) {
   const ids = useMemo(
-    () => [...p.store.map.keys()].filter((id) => p.role !== "participant" || id !== p.selfId),
+    // Participants do not see their own avatar, except in the "2 rows behind" view.
+    () => [...p.store.map.keys()].filter((id) => p.role !== "participant" || id !== p.selfId || p.behindView),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.version, p.role, p.selfId],
+    [p.version, p.role, p.selfId, p.behindView],
   );
   const occupied = useMemo(
     () => new Set([...p.store.map.values()].filter((m: PublicMember) => m.status === "seated" && m.seatId).map((m) => m.seatId!)),

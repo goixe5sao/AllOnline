@@ -23,14 +23,21 @@ import {
   getRoom,
   getRoomByInvite,
   listOrders,
+  listPublicRooms,
   listRooms,
+  listSettlements,
+  markSettlementDone,
   previewQuote,
+  roomDeposit,
+  runningBill,
+  setRoomVisibility,
   requestExtension,
   requestRoom,
   roomConfigSchema,
   verifyPassword,
 } from "./services/rooms";
 import { setDisplayName, type AppUser } from "./services/users";
+import { toHomeRoom } from "@/lib/home-data";
 import { listPromos, promoInputSchema, upsertPromo } from "./services/promos";
 
 interface Ctx {
@@ -177,6 +184,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
         maxRoomCapacity: s.max_room_capacity,
         trial: { enabled: s.trial_enabled, maxHours: s.trial_max_hours, maxCapacity: s.trial_max_capacity, perAccount: s.trial_rooms_per_account, startsAt: s.trial_starts_at, endsAt: s.trial_ends_at },
         extensionEnabled: s.extension_enabled,
+        openEnded: { enabled: s.open_ended_enabled, deposit: Number(s.open_ended_deposit_vnd) },
         priceTiers: await getPriceTiers(db),
         waitingSurchargePct: s.waiting_surcharge_pct,
         budget: await slotBudget(db),
@@ -207,12 +215,44 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   route("GET", "/api/rooms/mine", async (ctx) => {
     const u = needUser(ctx);
     const rooms = await listRooms(db, { ownerId: u.id });
-    return { rooms: rooms.map((r) => ({ ...r, live: hub.roomStats(r.id) && { ...hub.roomStats(r.id), members: undefined, queue: undefined } })) };
+    const settlements = new Map((await listSettlements(db, { ownerId: u.id })).map((s) => [s.room_id, s]));
+    const out = [];
+    for (const r of rooms) {
+      // Open-ended rooms: cost so far while open, the final bill once closed.
+      const bill = r.open_ended && !r.slots_released_at ? runningBill(r, await roomDeposit(db, r.id)) : null;
+      out.push({ ...r, live: hub.roomStats(r.id) && { ...hub.roomStats(r.id), members: undefined, queue: undefined }, bill, settlement: settlements.get(r.id) ?? null });
+    }
+    return { rooms: out };
+  });
+
+  // Rooms their owners chose to show on the home page (no secrets: invite links are meant to be shared).
+  route(
+    "GET",
+    "/api/rooms/public",
+    async () => {
+      const rooms = await listPublicRooms(db);
+      return {
+        rooms: rooms.map((r) => {
+          const live = hub.roomStats(r.id);
+          return toHomeRoom(r, live ? { admitted: live.admitted, seated: live.seated } : null);
+        }),
+        online: hub.stats().onlineUsers,
+      };
+    },
+    { public: true },
+  );
+
+  route("POST", "/api/rooms/:id/visibility", async (ctx) => {
+    const { u, room } = await ownedRoom(ctx, ctx.params[0]);
+    const b = z.object({ isPublic: z.boolean() }).parse(await readJson(ctx.req));
+    await setRoomVisibility(db, room.id, b.isPublic, u.id);
+    return { isPublic: b.isPublic };
   });
 
   route("GET", "/api/rooms/:id", async (ctx) => {
     const { room } = await ownedRoom(ctx, ctx.params[0]);
-    return { room, live: hub.roomStats(room.id) };
+    const bill = room.open_ended && !room.slots_released_at ? runningBill(room, await roomDeposit(db, room.id)) : null;
+    return { room, live: hub.roomStats(room.id), bill };
   });
 
   route("POST", "/api/rooms/:id/close", async (ctx) => {
@@ -288,7 +328,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
       const r = await getRoomByInvite(db, params[0]);
       if (!r || r.status !== "open") throw new AppError("NOT_FOUND", "Link mời không hợp lệ hoặc phòng đã đóng.", 404);
       return {
-        room: { id: r.id, name: r.name, description: r.description, map: r.map_code, avatarGroups: r.avatar_groups, entryMode: r.entry_mode, hasPassword: !!r.password_hash, expiresAt: r.expires_at },
+        room: { id: r.id, name: r.name, description: r.description, map: r.map_code, avatarGroups: r.avatar_groups, entryMode: r.entry_mode, hasPassword: !!r.password_hash, expiresAt: r.expires_at, openEnded: r.open_ended },
         isOwner: !!user && user.id === r.owner_id,
         guestJoinEnabled: (await getSettings(db)).guest_join_enabled,
       };
@@ -455,15 +495,30 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     const rooms = await listRooms(db, {});
     const pending = await db.query<{ n: number }>("select count(*)::int as n from app.orders where status = 'pending' and hold_expires_at > now()");
     const review = await db.query<{ n: number }>("select count(*)::int as n from app.orders where status in ('needs_review', 'underpaid')");
+    const due = await db.query<{ n: number }>("select count(*)::int as n from app.room_settlements where status <> 'settled'");
     const s = await getSettings(db);
     const soon = Math.max(...s.warning_minutes) * 60_000;
     const now = Date.now();
     const alerts = [
-      ...rooms.filter((r) => r.status === "open" && new Date(r.expires_at).getTime() - now < soon).map((r) => ({ kind: "expiring", text: `Phòng “${r.name}” sắp hết hạn`, roomId: r.id })),
+      ...rooms.filter((r) => r.status === "open" && !r.open_ended && new Date(r.expires_at).getTime() - now < soon).map((r) => ({ kind: "expiring", text: `Phòng “${r.name}” sắp hết hạn`, roomId: r.id })),
       ...(Number(review.rows[0].n) ? [{ kind: "payments", text: `${review.rows[0].n} giao dịch cần xem xét`, roomId: null }] : []),
+      ...(Number(due.rows[0].n) ? [{ kind: "settlements", text: `${due.rows[0].n} phòng vô thời hạn cần hoàn tiền / thu thêm (tab Quyết toán)`, roomId: null }] : []),
       ...(budget.allocated > budget.budget ? [{ kind: "budget", text: "Slot đã phân bổ vượt ngân sách mới — chỉ ảnh hưởng phòng mới.", roomId: null }] : []),
     ];
     return { market: market.status, budget, live: hub.stats(), rooms, pendingOrders: Number(pending.rows[0].n), reviewOrders: Number(review.rows[0].n), alerts };
+  });
+
+  route("GET", "/api/admin/settlements", async (ctx) => {
+    needAdmin(ctx);
+    const status = z.enum(["refund_due", "collect_due", "settled"]).optional().parse(ctx.url.searchParams.get("status") || undefined);
+    return { settlements: await listSettlements(db, { status }) };
+  });
+
+  route("POST", "/api/admin/settlements/:id/done", async (ctx) => {
+    const u = needAdmin(ctx);
+    const b = z.object({ note: z.string().trim().max(500).default("") }).parse(await readJson(ctx.req));
+    await markSettlementDone(db, ctx.params[0], u.id, b.note);
+    return { ok: true };
   });
 
   route("GET", "/api/admin/settings", async (ctx) => {

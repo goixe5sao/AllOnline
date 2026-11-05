@@ -53,7 +53,7 @@ export default function OrderPage() {
                 <span className={`badge ${o.status.startsWith("paid") ? "ok" : pending ? "warn" : "danger"}`}>{STATUS_TEXT[o.status] ?? o.status}</span>
               </div>
               <p className="muted" style={{ margin: 0 }}>
-                {o.kind === "create_room" ? "Tạo phòng" : "Gia hạn phòng"} · {o.quote.officialCapacity} chỗ chính thức + {o.quote.waitingCapacity} chờ · {o.quote.durationHours} giờ
+                {o.kind === "create_room" ? "Tạo phòng" : "Gia hạn phòng"} · {o.quote.officialCapacity} chỗ chính thức + {o.quote.waitingCapacity} chờ · {o.quote.openEnded ? `vô thời hạn (đặt cọc, ${formatVnd(o.quote.openEnded.hourlyRate)}/giờ)` : `${o.quote.durationHours} giờ`}
                 {o.kind === "create_room" && ` · giữ ${o.slots} slot`}
               </p>
               <div className="row between">

@@ -1,139 +1,148 @@
-"use client";
+import type { Metadata } from "next";
+import { connection } from "next/server";
+import { Be_Vietnam_Pro, Exo_2 } from "next/font/google";
+import { getHomeData } from "@/lib/home-data";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
+import { Audience } from "@/components/home/audience";
+import { HeroActions, HomeNav } from "@/components/home/home-nav";
+import { JoinCode } from "@/components/home/join-code";
+import { LightSwitch } from "@/components/home/light-switch";
+import { FAQ, Lobby } from "@/components/home/lobby";
+import { MyRooms } from "@/components/home/my-rooms";
+import { Spotlight } from "@/components/home/spotlight";
+import { StageSlides } from "@/components/home/stage-slides";
+import "./home.css";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { AppShell } from "@/components/app-shell";
-import { fmtTime, useApi } from "@/lib/api";
-import { MAP_INFO, type MapCode } from "@/core/maps";
+const display = Exo_2({ subsets: ["latin", "vietnamese"], weight: ["600", "800"], variable: "--f-display", display: "swap" });
+const body = Be_Vietnam_Pro({ subsets: ["latin", "vietnamese"], weight: ["400", "500", "700"], variable: "--f-body", display: "swap" });
 
-interface MyRoom {
-  id: string;
-  name: string;
-  map_code: MapCode;
-  status: string;
-  official_capacity: number;
-  waiting_capacity: number;
-  total_slots: number;
-  expires_at: string;
-  invite_code: string;
-  is_trial: boolean;
-  live: { admitted: number; seated: number; waiting: number } | null;
+export const metadata: Metadata = {
+  title: { absolute: "AllOnline — Sân khấu 3D của tương lai | Phòng đang mở" },
+  description: SITE_DESCRIPTION,
+  alternates: { canonical: "/" },
+};
+
+function JsonLd({ rooms }: { rooms: { name: string; inviteCode: string }[] }) {
+  const data = [
+    { "@context": "https://schema.org", "@type": "WebSite", name: SITE_NAME, url: SITE_URL, inLanguage: "vi-VN", description: SITE_DESCRIPTION },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      name: "AllOnline",
+      url: SITE_URL,
+      applicationCategory: "MultimediaApplication",
+      operatingSystem: "Web (Windows, macOS, Android, iOS)",
+      inLanguage: "vi-VN",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "VND", description: "Dùng thử miễn phí" },
+    },
+    { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: FAQ.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) },
+    ...(rooms.length
+      ? [{ "@context": "https://schema.org", "@type": "ItemList", name: "Phòng đang mở", itemListElement: rooms.slice(0, 20).map((r, i) => ({ "@type": "ListItem", position: i + 1, name: r.name, url: `${SITE_URL}/join/${r.inviteCode}` })) }]
+      : []),
+  ];
+  // JSON.stringify output is safe in a script tag once "<" is escaped.
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data).replace(/</g, "\\u003c") }} />;
 }
 
-function JoinByCode() {
-  const router = useRouter();
-  const [code, setCode] = useState("");
-  return (
-    <form
-      className="row"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const c = code.trim().split("/").pop();
-        if (c) router.push(`/join/${encodeURIComponent(c.toUpperCase())}`);
-      }}
-    >
-      <input type="text" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Mã mời, ví dụ K7QX2MPA" aria-label="Mã mời" style={{ flex: 1, minWidth: 180 }} />
-      <button className="btn primary">Vào phòng</button>
-    </form>
-  );
-}
+export default async function Home() {
+  await connection(); // live data: render per request
+  const { rooms, enabledMaps, online, pricing } = await getHomeData();
+  const watching = rooms.reduce((n, r) => n + (r.live?.admitted ?? 0), 0);
 
-function MyRooms() {
-  const { data } = useApi<{ rooms: MyRoom[] }>("/api/rooms/mine", 10_000);
-  if (!data) return <p className="muted">Đang tải phòng…</p>;
-  if (!data.rooms.length) return <p className="muted">Bạn chưa tạo phòng nào.</p>;
-  return (
-    <div className="grid grid-2">
-      {data.rooms.map((r) => (
-        <article className="card" key={r.id}>
-          <div className="row between">
-            <h3 style={{ margin: 0 }}>{r.name}</h3>
-            <span className={`badge ${r.status === "open" ? "ok" : ""}`}>{r.status === "open" ? "Đang mở" : r.status === "expired" ? "Hết hạn" : "Đã đóng"}</span>
-          </div>
-          <p className="muted" style={{ margin: "6px 0" }}>
-            {MAP_INFO[r.map_code].name} · {r.official_capacity} chỗ + {r.waiting_capacity} chờ = {r.total_slots} slot {r.is_trial && <span className="badge warn">dùng thử</span>}
-          </p>
-          <p className="muted" style={{ margin: "6px 0" }}>
-            Hết hạn: {fmtTime(r.expires_at)}
-            {r.live && ` · Đang có ${r.live.admitted} người (${r.live.seated} ngồi, ${r.live.waiting} chờ)`}
-          </p>
-          {r.status === "open" && (
-            <div className="row">
-              <Link className="btn primary small" href={`/room/${r.id}`} onClick={() => sessionStorage.removeItem(`ao-mode-${r.id}`)}>
-                Vào điều khiển
-              </Link>
-              <button className="btn small" onClick={() => navigator.clipboard?.writeText(`${location.origin}/join/${r.invite_code}`)}>
-                Sao chép link mời
-              </button>
-              <code>{r.invite_code}</code>
-            </div>
-          )}
-          <div className="row" style={{ marginTop: 8 }}>
-            <Link className="btn small" href={`/room/${r.id}/logs`}>
-              Log phòng
-            </Link>
-          </div>
-        </article>
-      ))}
+  const intro = (
+    <div className="th-content">
+      <p className="eyebrow">Sân khấu của thời đại mới</p>
+      <h1 id="hero-h">
+        Người, robot, người ngoài hành tinh và AI
+        <span className="grad"> cùng chung một sân khấu.</span>
+      </h1>
+      <p className="lead">
+        Khán phòng 3D trực tuyến: mở phòng trong một phút, mời mọi người bằng một đường link, cùng xem màn hình sân khấu, trò chuyện với người ngồi cạnh và bình chọn trực tiếp — ngay trên trình duyệt.
+      </p>
+      <div className="th-cta">
+        <HeroActions />
+        <JoinCode />
+      </div>
     </div>
   );
-}
 
-export default function Home() {
   return (
-    <AppShell>
-      {(me) => (
-        <div className="stack">
-          <section className="card">
-            <h1>Mọi người, cùng một không gian.</h1>
-            <p className="muted">Phòng 3D với màn hình sân khấu chung, chat với người ở gần và bình chọn trực tiếp. Hỗ trợ máy tính và điện thoại.</p>
-            {me && !me.isGuest ? (
-              <div className="grid grid-2">
-                <div className="stack">
-                  <strong>Tham gia phòng bằng mã mời</strong>
-                  <JoinByCode />
-                </div>
-                <div className="stack">
-                  <strong>Tổ chức phòng của bạn</strong>
-                  <Link className="btn primary" href="/rooms/new">
-                    Tạo phòng mới
-                  </Link>
-                </div>
+    <div className={`home ${display.variable} ${body.variable}`}>
+      <JsonLd rooms={rooms} />
+      <div className="stars" aria-hidden />
+      <HomeNav />
+
+      <main>
+        {/* The whole first screen is a theater. The stage screen shows slides (introduction,
+            open rooms, stage types); the house lights can be switched on and off. */}
+        <section className="theater" aria-labelledby="hero-h">
+          <Spotlight target=".theater" />
+          <div className="th-valance" aria-hidden />
+          <div className="th-curtain l" aria-hidden />
+          <div className="th-curtain r" aria-hidden />
+          <div className="th-sconces" aria-hidden>
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="th-beams" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="th-follow" aria-hidden />
+
+          <div className="th-screen-wrap">
+            <div className="th-screen">
+              <div className="th-screen-fx" aria-hidden />
+              <StageSlides intro={intro} initialRooms={rooms} maps={enabledMaps} />
+            </div>
+            <div className="th-reflect" aria-hidden />
+          </div>
+
+          <div className="th-stage">
+            <LightSwitch target=".theater" />
+            <dl className="led">
+              <div>
+                <dt>phòng công khai đang mở</dt>
+                <dd>{rooms.length}</dd>
               </div>
-            ) : (
-              <div className="grid grid-2">
-                <div className="stack">
-                  <strong>Có mã mời? Vào ngay, không cần tài khoản</strong>
-                  <JoinByCode />
-                </div>
-                <div className="stack">
-                  <strong>Muốn tổ chức phòng?</strong>
-                  <Link className="btn primary" href="/login">
-                    Đăng nhập / đăng ký
-                  </Link>
-                </div>
+              <div>
+                <dt>khán giả đang trong phòng</dt>
+                <dd>{Math.max(online, watching)}</dd>
               </div>
-            )}
-          </section>
-          {me && !me.isGuest && (
-            <section>
-              <h2>Phòng của tôi</h2>
-              <MyRooms />
-            </section>
-          )}
-          <section className="grid grid-4">
-            {(Object.keys(MAP_INFO) as MapCode[]).map((m) => (
-              <div className="card" key={m}>
-                <h3>{MAP_INFO[m].name}</h3>
-                <p className="muted" style={{ margin: 0 }}>
-                  {MAP_INFO[m].description}
-                </p>
+              <div>
+                <dt>kiểu sân khấu</dt>
+                <dd>{enabledMaps.length}</dd>
               </div>
-            ))}
-          </section>
+            </dl>
+          </div>
+          <div className="th-audience">
+            <Audience />
+          </div>
+          <a className="th-cue" href="#sanh">
+            <span>Ra sảnh</span>
+            <span aria-hidden>↓</span>
+          </a>
+        </section>
+
+        <div className="floor" id="sanh">
+          <MyRooms />
+          <Lobby pricing={pricing} />
         </div>
-      )}
-    </AppShell>
+      </main>
+
+      <footer className="foot">
+        <span>
+          © {new Date().getFullYear()} AllOnline · <a href={SITE_URL}>{SITE_URL.replace(/^https?:\/\//, "")}</a>
+        </span>
+        <nav aria-label="Liên kết cuối trang">
+          <a href="#phong-dang-mo">Phòng đang mở</a>
+          <a href="#quay-ve">Quầy vé</a>
+          <a href="#hoi-dap">Hỏi đáp</a>
+        </nav>
+      </footer>
+    </div>
   );
 }

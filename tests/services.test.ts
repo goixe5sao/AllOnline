@@ -19,6 +19,8 @@ const cfg = (official: number, extra: Partial<RoomConfig> = {}): RoomConfig => (
   waitingEnabled: true,
   entryMode: "auto_assign",
   durationHours: 6,
+  openEnded: false,
+  isPublic: false,
   password: "",
   ...extra,
 });

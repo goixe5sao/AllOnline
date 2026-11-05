@@ -8,7 +8,7 @@ import { api, ApiError, fmtTime, useApi, type Me } from "@/lib/api";
 import { AVATARS, MAP_INFO, type AvatarGroup, type MapCode } from "@/core/maps";
 
 interface InviteView {
-  room: { id: string; name: string; description: string; map: MapCode; avatarGroups: AvatarGroup[]; entryMode: string; hasPassword: boolean; expiresAt: string };
+  room: { id: string; name: string; description: string; map: MapCode; avatarGroups: AvatarGroup[]; entryMode: string; hasPassword: boolean; expiresAt: string; openEnded?: boolean };
   isOwner: boolean;
   guestJoinEnabled: boolean;
 }
@@ -61,7 +61,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
       <h1>{r.name}</h1>
       {r.description && <p>{r.description}</p>}
       <p className="muted">
-        {MAP_INFO[r.map].name} · {r.entryMode === "auto_assign" ? "Tự xếp chỗ" : "Vào từ cổng, tự tìm chỗ"} · đến {fmtTime(r.expiresAt)}
+        {MAP_INFO[r.map].name} · {r.entryMode === "auto_assign" ? "Tự xếp chỗ" : "Vào từ cổng, tự tìm chỗ"} · {r.openEnded ? "mở đến khi chủ phòng tắt" : `đến ${fmtTime(r.expiresAt)}`}
       </p>
 
       {data.isOwner && (

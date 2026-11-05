@@ -11,7 +11,7 @@ import type { SlotBudget } from "@/core/slots";
 interface Overview {
   budget: SlotBudget;
   live: { onlineUsers: number; connections: number; seated: number; findingSeat: number; waiting: number; rooms: { roomId: string; name: string; connections: number; seated: number; waiting: number; finding: number }[] };
-  rooms: { id: string; name: string; owner_name: string; map_code: MapCode; status: string; total_slots: number; official_capacity: number; waiting_capacity: number; expires_at: string; is_trial: boolean }[];
+  rooms: { id: string; name: string; owner_name: string; map_code: MapCode; status: string; total_slots: number; official_capacity: number; waiting_capacity: number; expires_at: string; is_trial: boolean; open_ended: boolean; is_public: boolean }[];
   pendingOrders: number;
   reviewOrders: number;
   alerts: { kind: string; text: string; roomId: string | null }[];
@@ -94,7 +94,7 @@ function OverviewTab() {
               return (
                 <tr key={r.id}>
                   <td>
-                    {r.name} {r.is_trial && <span className="badge warn">thử</span>}
+                    {r.name} {r.is_trial && <span className="badge warn">thử</span>} {r.open_ended && <span className="badge">vô thời hạn</span>} {r.is_public && <span className="badge ok">trang chủ</span>}
                   </td>
                   <td>{r.owner_name}</td>
                   <td>{MAP_INFO[r.map_code].name}</td>
@@ -102,7 +102,7 @@ function OverviewTab() {
                     {r.official_capacity}+{r.waiting_capacity}={r.total_slots}
                   </td>
                   <td>{live ? `${live.seated} ngồi, ${live.finding} tìm, ${live.waiting} chờ` : "—"}</td>
-                  <td>{fmtTime(r.expires_at)}</td>
+                  <td>{r.open_ended ? "Đến khi tắt" : fmtTime(r.expires_at)}</td>
                   <td>{r.status}</td>
                   <td className="row">
                     <Link className="btn small" href={`/room/${r.id}/logs`}>
@@ -187,6 +187,8 @@ function SettingsForm({ data, reload, msg, setMsg }: { data: { settings: Setting
         duration_options: form.duration_options,
         trial_enabled: !!form.trial_enabled,
         extension_enabled: !!form.extension_enabled,
+        open_ended_enabled: !!form.open_ended_enabled,
+        open_ended_deposit_vnd: Math.max(0, Math.floor(Number(form.open_ended_deposit_vnd) || 0)),
         guest_join_enabled: !!form.guest_join_enabled,
         stage_ad_enabled: !!form.stage_ad_enabled,
         device_limit_room_creator: !!form.device_limit_room_creator,
@@ -290,6 +292,19 @@ function SettingsForm({ data, reload, msg, setMsg }: { data: { settings: Setting
             <input type="url" value={String(form.stage_ad_url ?? "")} onChange={(e) => set("stage_ad_url", e.target.value)} />
           </label>
           <small>Mở trong tab mới. Thay đổi áp dụng ngay cho mọi phòng đang mở.</small>
+        </div>
+        <div className="card stack">
+          <h2>Phòng mở vô thời hạn</h2>
+          <label className="check">
+            <input type="checkbox" checked={!!form.open_ended_enabled} onChange={(e) => set("open_ended_enabled", e.target.checked)} /> Cho chủ phòng chọn “Vô thời hạn — mở đến khi tắt”
+          </label>
+          <label className="field">
+            Tiền đặt cọc (₫)
+            <input type="number" min={0} step={10000} value={Number(form.open_ended_deposit_vnd ?? 0)} onChange={(e) => set("open_ended_deposit_vnd", Number(e.target.value))} />
+          </label>
+          <small>
+            Đơn giá/giờ lấy từ bảng giá: giá rẻ nhất tính theo giờ của gói vừa sức chứa (thường là gói 24 giờ ÷ 24), cộng phụ phí chờ, làm tròn lên 100 ₫. Khi đóng phòng: tính số giờ đã mở, hoàn lại phần dư hoặc thu thêm (tab Quyết toán).
+          </small>
         </div>
         <div className="card stack">
           <h2>Nhận thanh toán QR (VietQR)</h2>
@@ -589,8 +604,112 @@ function LogsTab() {
   );
 }
 
+interface Settlement {
+  room_id: string;
+  room_name: string;
+  owner_name: string;
+  deposit_vnd: number;
+  hourly_rate_vnd: number;
+  started_at: string;
+  ended_at: string;
+  billed_hours: number;
+  charge_vnd: number;
+  balance_vnd: number;
+  status: "refund_due" | "collect_due" | "settled";
+  settled_at: string | null;
+  note: string;
+}
+
+/** Open-ended rooms: refunds to pay out / shortfalls to collect after the room was closed. */
+function SettlementsTab() {
+  const [status, setStatus] = useState("");
+  const { data, reload } = useApi<{ settlements: Settlement[] }>(`/api/admin/settlements${status ? `?status=${status}` : ""}`, 15_000);
+  const [msg, setMsg] = useState("");
+  const label = { refund_due: "Cần hoàn tiền", collect_due: "Cần thu thêm", settled: "Đã xong" } as const;
+  return (
+    <div className="stack">
+      <p className="muted" style={{ margin: 0 }}>
+        Phòng mở vô thời hạn được quyết toán khi đóng: số giờ đã mở (giờ dở tính tròn) × đơn giá, so với tiền cọc. Chuyển khoản hoàn lại / thu thêm xong thì bấm “Đã xử lý”.
+      </p>
+      <div className="row">
+        <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: "auto" }} aria-label="Lọc trạng thái">
+          <option value="">Tất cả</option>
+          <option value="refund_due">Cần hoàn tiền</option>
+          <option value="collect_due">Cần thu thêm</option>
+          <option value="settled">Đã xong</option>
+        </select>
+        {msg && <small>{msg}</small>}
+      </div>
+      {!data ? (
+        <p className="muted">Đang tải…</p>
+      ) : !data.settlements.length ? (
+        <p className="muted">Chưa có quyết toán nào.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Phòng</th>
+                <th>Chủ phòng</th>
+                <th>Thời gian mở</th>
+                <th>Số giờ × đơn giá</th>
+                <th>Đã cọc</th>
+                <th>Chênh lệch</th>
+                <th>Trạng thái</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {data.settlements.map((s) => (
+                <tr key={s.room_id}>
+                  <td>{s.room_name}</td>
+                  <td>{s.owner_name}</td>
+                  <td>
+                    {fmtTime(s.started_at)} → {fmtTime(s.ended_at)}
+                  </td>
+                  <td>
+                    {s.billed_hours} × {formatVnd(s.hourly_rate_vnd)} = <strong>{formatVnd(s.charge_vnd)}</strong>
+                  </td>
+                  <td>{formatVnd(s.deposit_vnd)}</td>
+                  <td style={{ color: s.balance_vnd < 0 ? "var(--danger)" : s.balance_vnd > 0 ? "var(--ok)" : undefined }}>
+                    {s.balance_vnd > 0 ? `Hoàn ${formatVnd(s.balance_vnd)}` : s.balance_vnd < 0 ? `Thu thêm ${formatVnd(-s.balance_vnd)}` : "0 ₫"}
+                  </td>
+                  <td>
+                    <span className={`badge ${s.status === "settled" ? "ok" : "warn"}`}>{label[s.status]}</span>
+                    {s.note && <div><small>{s.note}</small></div>}
+                  </td>
+                  <td>
+                    {s.status !== "settled" && (
+                      <button
+                        className="btn small primary"
+                        onClick={async () => {
+                          const note = prompt(s.status === "refund_due" ? "Ghi chú (ví dụ: đã chuyển khoản hoàn tiền, mã GD…)" : "Ghi chú (ví dụ: đã nhận tiền thu thêm, mã GD…)", "");
+                          if (note === null) return;
+                          try {
+                            await api(`/api/admin/settlements/${s.room_id}/done`, { body: { note } });
+                            setMsg("Đã ghi nhận.");
+                            reload();
+                          } catch (e) {
+                            setMsg((e as ApiError).message);
+                          }
+                        }}
+                      >
+                        Đã xử lý
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
-  const [tab, setTab] = useState<"overview" | "settings" | "orders" | "promos" | "logs">("overview");
+  const [tab, setTab] = useState<"overview" | "settings" | "orders" | "settlements" | "promos" | "logs">("overview");
   return (
     <AppShell requireLogin>
       {(me) =>
@@ -605,6 +724,7 @@ export default function AdminPage() {
                   ["overview", "Tổng quan"],
                   ["settings", "Cài đặt & giá"],
                   ["orders", "Giao dịch"],
+                  ["settlements", "Quyết toán"],
                   ["promos", "Mã giảm giá"],
                   ["logs", "Log"],
                 ] as const
@@ -617,6 +737,7 @@ export default function AdminPage() {
             {tab === "overview" && <OverviewTab />}
             {tab === "settings" && <SettingsTab />}
             {tab === "orders" && <OrdersTab />}
+            {tab === "settlements" && <SettlementsTab />}
             {tab === "promos" && <PromosTab />}
             {tab === "logs" && <LogsTab />}
           </>

@@ -230,11 +230,24 @@ export function RoomView({ roomId }: { roomId: string }) {
   const members = useMemo(() => [...store.map.values()], [s.version]); // eslint-disable-line react-hooks/exhaustive-deps
   const occupied = useMemo(() => new Set(members.filter((m) => m.status === "seated" && m.seatId).map((m) => m.seatId!)), [members]);
 
+  // Default: the view from behind (own avatar + screen); ↑ / the HUD button for the own eyes.
+  const [behind, setBehind] = useState(true);
+  useEffect(() => {
+    controls.current.behind = behind;
+  }, [behind]);
+  const movableRef = useRef(false);
+  movableRef.current = !!movable;
+
   // keyboard
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT" || (e.target as HTMLElement)?.tagName === "TEXTAREA") return;
       controls.current.keys.add(e.key.toLowerCase());
+      // While walking, ↓/↑ move; otherwise they switch between own view and the view from behind.
+      if (!movableRef.current && !e.repeat) {
+        if (e.key === "ArrowDown" || e.key.toLowerCase() === "s") setBehind(true);
+        if (e.key === "ArrowUp" || e.key.toLowerCase() === "w") setBehind(false);
+      }
       if (e.key === "Escape") setFullView(false);
     };
     const up = (e: KeyboardEvent) => controls.current.keys.delete(e.key.toLowerCase());
@@ -366,7 +379,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     serverNow,
     polls: s.polls,
     roomName: s.room.name,
-    expiresAt: s.room.expiresAt,
+    expiresAt: s.room.openEnded ? null : s.room.expiresAt,
     warningMinutes: s.settings?.warningMinutes ?? [30, 10, 1],
     volume,
     muted,
@@ -374,7 +387,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     ad: s.ad,
   };
   const p = s.personal;
-  const remaining = s.room.expiresAt - (now + (serverNow() - Date.now()));
+  const remaining = s.room.openEnded ? Infinity : s.room.expiresAt - (now + (serverNow() - Date.now()));
   const warnWindow = Math.max(0, ...(s.settings?.warningMinutes ?? [30])) * 60_000;
   const openPoll = [...s.polls].reverse().find((x) => x.status === "open") ?? null;
 
@@ -403,6 +416,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           highlightFree={me?.status === "finding"}
           ad={s.ad}
           selectedSeat={seatPick?.id ?? goingTo}
+          behindView={isParticipant && behind}
           onSeatClick={onSeatClick}
           onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
           screen={<ScreenContent {...screenProps} active={!fullView} />}
@@ -478,6 +492,11 @@ export function RoomView({ roomId }: { roomId: string }) {
             }}
           >
             {isParticipant ? "Chế độ chủ phòng" : "Ngồi như khách"}
+          </button>
+        )}
+        {isParticipant && (
+          <button className="hud-btn" aria-pressed={behind} onClick={() => setBehind(!behind)} title={movable ? "Xem từ phía sau 2 hàng" : "Phím ↓: xem từ phía sau 2 hàng · ↑: về chỗ mình"}>
+            {behind ? "👁 Góc của tôi" : "🎥 Xem từ phía sau"}
           </button>
         )}
         {isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" && (
