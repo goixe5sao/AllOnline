@@ -4,8 +4,9 @@
   .\deploy\windows\setup.ps1 -AllOnline "allonline.vn,www.allonline.vn" -StockVN "stockvn.vn,www.stockvn.vn"
 
   Yêu cầu: cả hai tên miền đã được thêm vào tài khoản Cloudflare (nameserver đã trỏ về Cloudflare).
-  Lần đầu, cloudflared mở trình duyệt để bạn đăng nhập Cloudflare và chọn một tên miền — chọn tên nào
-  cũng được, quyền sẽ dùng cho mọi tên miền trong tài khoản.
+  Lần đầu, cloudflared mở trình duyệt để bạn đăng nhập Cloudflare và chọn một tên miền — PHẢI chọn
+  đúng tên miền của app (vd. sankhau.pro.vn): lệnh trỏ DNS ghi vào tên miền đã chọn lúc đăng nhập,
+  chọn nhầm tên miền khác trong cùng tài khoản sẽ tạo bản ghi rác trong tên miền đó.
 #>
 param(
   [Parameter(Mandatory = $true)][string]$AllOnline,
@@ -24,7 +25,7 @@ if (-not (Test-Path (Join-Path $StockVnDir 'package.json'))) { throw "Không th�
 # 1) Đăng nhập Cloudflare (tạo ~/.cloudflared/cert.pem)
 $cfHome = Join-Path $env:USERPROFILE '.cloudflared'
 if (-not (Test-Path (Join-Path $cfHome 'cert.pem'))) {
-  Write-Host '>> Mở trình duyệt để đăng nhập Cloudflare...'
+  Write-Host '>> Mở trình duyệt để đăng nhập Cloudflare... Khi được hỏi, chọn ĐÚNG tên miền của app.'
   & $cf tunnel login
   if ($LASTEXITCODE -ne 0) { throw 'Đăng nhập Cloudflare thất bại.' }
 }
