@@ -325,7 +325,7 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .chat-close { min-height: 28px !important; padding: 2px 8px !important; }
 
 .orb-root { --R: 86px; --S: 66px; position: absolute; right: 22px; bottom: 22px; width: var(--S); height: var(--S); z-index: 20000004; }
-.orb { position: absolute; inset: 0; border: 0; padding: 0; border-radius: 50%; cursor: pointer; background: none; animation: orb-breathe 4s ease-in-out infinite; }
+.orb { position: absolute; inset: 0; border: 0; padding: 0; border-radius: 50%; cursor: pointer; background: none; animation: orb-breathe 4s ease-in-out infinite; touch-action: none; user-select: none; -webkit-user-select: none; }
 .orb-core { position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center;
   background: radial-gradient(circle at 34% 28%, #ffffff 0%, #b8fbff 10%, #3df5ff 26%, #6a3dff 58%, #22094d 82%, #0b0320 100%);
   box-shadow: 0 0 18px 4px rgb(61 245 255 / 0.55), 0 0 42px 10px rgb(139 92 255 / 0.4), inset -8px -10px 18px rgb(10 0 40 / 0.7); }
@@ -362,5 +362,7 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
   .orb-ico { font-size: 19px; }
   .side-panel { bottom: 86px; }
   .orb-settings { right: 12px; left: 12px; width: auto; bottom: 90px; }
+  /* orb at its default corner: keep the chat "Gửi" button clear of it */
+  .room-root:has(.orb-root:not(.moved)) .chat-box { width: calc(100% - 76px); }
 }
 @media (prefers-reduced-motion: reduce) { .orb, .orb-ring, .orb-eye, .orb-antenna::after { animation: none; } }

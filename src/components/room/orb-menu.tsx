@@ -20,11 +20,77 @@ export interface OrbItem {
  * The alien orb: one floating sphere that holds every room function. Closed, it is the only
  * control over the 3D view; open, the functions fan out around it on two arcs, and 😊 opens a
  * third arc of reactions. M / Esc toggles it from the keyboard.
+ *
+ * Drag it anywhere (mouse or finger): the spot is remembered on this device, and the arcs always
+ * fan out toward the middle of the screen. A short tap still opens / closes it.
  */
+const POS_KEY = "ao-orb-pos";
+/** Pointer travel (px) before a press becomes a drag instead of a tap. */
+const DRAG_PX = 8;
+
+type Pos = { x: number; y: number }; // orb centre, fractions of the room area (survives rotation / resize)
+
+function readPos(): Pos | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(POS_KEY) ?? "null");
+    return v && typeof v.x === "number" && typeof v.y === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
 export function AlienOrb({ items, onReact, badge }: { items: OrbItem[]; onReact?: (e: Reaction) => void; badge?: number }) {
   const [open, setOpen] = useState(false);
   const [reacts, setReacts] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<Pos | null>(null);
+  const [, setTick] = useState(0); // re-layout on resize
+  const drag = useRef<{ id: number; sx: number; sy: number; moved: boolean } | null>(null);
+  const justDragged = useRef(false);
+  useEffect(() => {
+    setPos(readPos());
+    const r = () => setTick((t) => t + 1);
+    window.addEventListener("resize", r);
+    return () => window.removeEventListener("resize", r);
+  }, []);
+  const area = () => (root.current?.offsetParent as HTMLElement | null)?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+  /** Keep the orb fully on screen (margin = half its size + a little). */
+  const clampPx = (x: number, y: number, a: DOMRect) => {
+    const m = (root.current?.offsetWidth ?? 66) / 2 + 10;
+    return { x: Math.min(a.width - m, Math.max(m, x)), y: Math.min(a.height - m, Math.max(m + 14, y)) };
+  };
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    drag.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false };
+    // capture now: a fast mouse leaves the orb before the drag threshold is reached
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    if (!d.moved) {
+      if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < DRAG_PX) return;
+      d.moved = true;
+      setOpen(false);
+    }
+    const a = area();
+    const c = clampPx(e.clientX - a.left, e.clientY - a.top, a);
+    setPos({ x: c.x / a.width, y: c.y / a.height });
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d || d.id !== e.pointerId || !d.moved) return;
+    justDragged.current = true; // the click that follows a drag must not toggle the menu
+    setTimeout(() => (justDragged.current = false), 50);
+    setPos((p) => {
+      try {
+        if (p) localStorage.setItem(POS_KEY, JSON.stringify(p));
+      } catch {}
+      return p;
+    });
+  };
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -51,6 +117,18 @@ export function AlienOrb({ items, onReact, badge }: { items: OrbItem[]; onReact?
   // reaction toggle takes the last place of the last arc, reactions get an arc of their own.
   // A 4th arc only when there are more functions (owner attending as a participant).
   const all = onReact ? [...items, null] : items;
+  // Arcs open toward the middle of the screen: mirrored when the orb sits on the left / top half.
+  let style: React.CSSProperties | undefined;
+  let fx = 1;
+  let fy = 1;
+  if (pos && root.current) {
+    const a = area();
+    const c = clampPx(pos.x * a.width, pos.y * a.height, a);
+    const half = (root.current.offsetWidth || 66) / 2;
+    style = { left: c.x - half, top: c.y - half, right: "auto", bottom: "auto" };
+    fx = c.x < a.width / 2 ? -1 : 1;
+    fy = c.y < a.height / 2 ? -1 : 1;
+  }
   const RINGS = [
     { n: 3, r: 1.25 },
     { n: 4, r: 2.1 },
@@ -70,10 +148,10 @@ export function AlienOrb({ items, onReact, badge }: { items: OrbItem[]; onReact?
     const a1 = Math.PI * 1.5;
     const a = n === 1 ? (a0 + a1) / 2 : a0 + ((a1 - a0) * i) / (n - 1);
     // unit offsets × ring factor; the CSS multiplies by --R (smaller on phones)
-    return { "--cx": (Math.cos(a) * ring).toFixed(3), "--cy": (Math.sin(a) * ring).toFixed(3), "--d": `${(i + k) * 18}ms` } as React.CSSProperties;
+    return { "--cx": (Math.cos(a) * ring * fx).toFixed(3), "--cy": (Math.sin(a) * ring * fy).toFixed(3), "--d": `${(i + k) * 18}ms` } as React.CSSProperties;
   }
   return (
-    <div className={`orb-root ${open ? "open" : ""}`} ref={root}>
+    <div className={`orb-root ${open ? "open" : ""} ${pos ? "moved" : ""}`} ref={root} style={style}>
       {slots.map(({ item: it, style }) =>
         it ? (
           <button
@@ -124,7 +202,16 @@ export function AlienOrb({ items, onReact, badge }: { items: OrbItem[]; onReact?
             </span>
           </button>
         ))}
-      <button type="button" className="orb" aria-expanded={open} aria-label={open ? "Đóng menu" : "Mở menu (phím M)"} title={open ? "Đóng (Esc)" : "Menu (phím M)"} onClick={() => setOpen(!open)}>
+      <button type="button" className="orb" aria-expanded={open} aria-label={open ? "Đóng menu" : "Mở menu (phím M)"}
+        title={open ? "Đóng (Esc)" : "Menu (phím M) · giữ và kéo để di chuyển"}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => (drag.current = null)}
+        onClick={() => {
+          if (!justDragged.current) setOpen(!open);
+        }}
+      >
         <span className="orb-ring r1" aria-hidden />
         <span className="orb-ring r2" aria-hidden />
         <span className="orb-core" aria-hidden>
