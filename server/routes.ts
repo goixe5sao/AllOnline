@@ -353,6 +353,15 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { videoId: id, title: info?.title ?? null, durationSec: info?.durationSec ?? null };
   });
 
+  /** Page closed / reloaded (navigator.sendBeacon): keep the place only briefly. */
+  route("POST", "/api/rooms/:id/bye", async (ctx) => {
+    const u = needAttendee(ctx); // guests too: most viewers have no account
+    const id = ctx.params[0];
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new AppError("INVALID", "Mã phòng không hợp lệ.");
+    hub.bye(u.id, id);
+    return { ok: true };
+  });
+
   route("POST", "/api/rooms/:id/stage-style", async (ctx) => {
     const { u, room } = await moderatedRoom(ctx, ctx.params[0]);
     const b = z.object({ style: z.enum(["glam", "plain"]) }).parse(await readJson(ctx.req));

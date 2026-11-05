@@ -13,6 +13,7 @@ const TYPE_VI: Record<string, string> = {
   owner_changed: "Đổi chủ phòng",
   joined: "Vào phòng",
   reconnected: "Kết nối lại",
+  disconnected: "Mất kết nối",
   left: "Rời phòng",
   switched_room: "Chuyển sang phòng khác",
   grace_expired: "Mất kết nối quá hạn — giải phóng chỗ",
@@ -36,6 +37,27 @@ const TYPE_VI: Record<string, string> = {
   poll_result: "Kết quả bình chọn",
   file_uploaded: "Tải tệp lên",
 };
+
+/** Why a connection went away (disconnected / reconnected / grace_expired events). */
+const REASON_VI: Record<string, string> = {
+  closed_tab: "đóng tab / tải lại trang",
+  no_response: "máy không phản hồi (tắt màn hình, chuyển app, sóng yếu)",
+  network: "rớt mạng / đổi mạng",
+  replaced: "mở phòng ở tab hoặc máy khác",
+};
+const AFTER_VI: Record<string, string> = {
+  server_restart: "sau khi máy chủ khởi động lại",
+  hold_expired: "quay lại sau khi đã hết giữ chỗ",
+};
+/** Plain-language summary of the connection events; other events show their raw data. */
+function detail(type: string, d: Record<string, unknown>): string | null {
+  const why = typeof d.reason === "string" ? REASON_VI[d.reason] : undefined;
+  if (type === "disconnected") return `Lý do: ${why ?? "không rõ"} · giữ chỗ ${d.holdSec ?? "?"} giây`;
+  if (type === "reconnected") return `Vắng ${d.awaySec ?? "?"} giây${why ? ` · trước đó: ${why}` : ""}`;
+  if (type === "grace_expired") return `Không quay lại kịp${why ? ` · lý do: ${why}` : ""} → ghế được trả lại`;
+  if (type === "joined" && typeof d.after === "string") return `Vào lại ${AFTER_VI[d.after] ?? d.after}`;
+  return null;
+}
 
 export default function RoomLogsPage() {
   const { id } = useParams<{ id: string }>();
@@ -90,7 +112,7 @@ export default function RoomLogsPage() {
                         <td>{TYPE_VI[e.type] ?? e.type}</td>
                         <td>{e.actor_name ?? "Hệ thống"}</td>
                         <td>
-                          <code style={{ fontSize: 12, wordBreak: "break-word" }}>{JSON.stringify(e.data)}</code>
+                          {detail(e.type, e.data) ?? <code style={{ fontSize: 12, wordBreak: "break-word" }}>{JSON.stringify(e.data)}</code>}
                         </td>
                       </tr>
                     ))}

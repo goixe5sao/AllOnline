@@ -102,6 +102,37 @@ const SHOULDER: Record<string, [number, number, number]> = { people: [0, 0.75, 0
 const HEAD_TOP: Record<string, number> = { people: 1.5, animals: 1.4, vehicles: 1.9 };
 const tmpA = new THREE.Vector3();
 
+/** Short drops (Wi-Fi hiccup, reload) are not shown; after this the avatar fades + countdown. */
+const OFF_SHOW_MS = 10_000;
+const GHOST = "ghostMat";
+/** Fade (or restore) every mesh of an avatar; materials are cloned so shared ones stay intact. */
+function ghost(root: THREE.Object3D | null, on: boolean) {
+  root?.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    type Mat = THREE.Material | THREE.Material[];
+    const ud = mesh.userData as { [GHOST]?: { orig: Mat; fake: Mat } };
+    const g = ud[GHOST];
+    // React may have swapped the material meanwhile: then the faded copy is no longer in use
+    if (g && mesh.material !== g.fake) {
+      (Array.isArray(g.fake) ? g.fake : [g.fake]).forEach((m) => m.dispose());
+      delete ud[GHOST];
+    }
+    if (on && !ud[GHOST]) {
+      const orig = mesh.material;
+      const fade = (m: THREE.Material) => Object.assign(m.clone(), { transparent: true, opacity: 0.32 * m.opacity, depthWrite: false });
+      const fake = Array.isArray(orig) ? orig.map(fade) : fade(orig);
+      ud[GHOST] = { orig, fake };
+      mesh.material = fake;
+    } else if (!on && ud[GHOST]) {
+      const { orig, fake } = ud[GHOST]!;
+      (Array.isArray(fake) ? fake : [fake]).forEach((m) => m.dispose());
+      mesh.material = orig;
+      delete ud[GHOST];
+    }
+  });
+}
+
 const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, portal, hand }: { id: string; store: MemberStore; layout: Layout; lite: boolean; bubbleTick: number; portal: React.RefObject<HTMLElement | null>; hand: boolean }) {
   const g = useRef<THREE.Group>(null);
   const detailed = useRef<THREE.Group>(null);
@@ -109,6 +140,14 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
   const tag = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
   const popAt = useRef(0);
+  const offTag = useRef<HTMLSpanElement>(null);
+  const offShown = useRef(false);
+  const offText = useRef("");
+  useEffect(() => {
+    const d = detailed.current;
+    const sm = simple.current;
+    return () => (ghost(d, false), ghost(sm, false));
+  }, []);
   const m = store.map.get(id);
   const seat = m?.seatId ? layout.seats.find((s) => s.id === m.seatId) : undefined;
   const { camera } = useThree();
@@ -151,6 +190,25 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
         if (tmpV.x > Math.min(ax, b.x) && tmpV.x < Math.max(ax, b.x) && tmpV.y > Math.min(ay, b.y) && tmpV.y < Math.max(ay, b.y)) show = false;
       }
       tag.current.style.display = show ? "block" : "none";
+    }
+    // Disconnected for a while: faded avatar + "reconnecting · place kept N s" on the tag.
+    const now = Date.now();
+    const off = !cur.connected && cur.offAt !== undefined && now - cur.offAt >= OFF_SHOW_MS;
+    if (off || off !== offShown.current) {
+      // re-applied while off (cheap, idempotent) so meshes React re-creates fade too
+      ghost(detailed.current, off);
+      ghost(simple.current, off);
+      if (off !== offShown.current) tag.current?.classList.toggle("off", off);
+      offShown.current = off;
+    }
+    if (offTag.current) {
+      const left = off && cur.holdUntil !== undefined ? Math.max(0, Math.ceil((cur.holdUntil - now) / 1000)) : 0;
+      const text = off ? `⟳ đang kết nối lại${left ? ` · giữ chỗ ${left}s` : ""}` : "";
+      if (text !== offText.current) {
+        offText.current = text;
+        offTag.current.textContent = text;
+        offTag.current.style.display = text ? "block" : "none";
+      }
     }
     // Reaction pop above the head (2.5 s), restarted on every new reaction.
     const r = store.reacts.get(id);
@@ -197,9 +255,9 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
       </Html>
       {/* Name on the shoulder: readable from behind without covering the head or the screen. */}
       <Html position={[0, tagY, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
-        <div ref={tag} className="nametag" style={{ opacity: m.connected ? 1 : 0.5 }}>
+        <div ref={tag} className="nametag">
           {m.name}
-          {!m.connected && " (mất kết nối)"}
+          <span ref={offTag} className="nametag-off" style={{ display: "none" }} />
         </div>
       </Html>
     </group>

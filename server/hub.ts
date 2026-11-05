@@ -16,6 +16,9 @@ import type { AppUser } from "./services/users";
 import { askQuestion, getQuestion, listModerators, listQuestions, myQuestionVotes, setQuestionStatus, toggleVote } from "./services/qa";
 import type { MarketService } from "./market/service";
 
+/** Place kept after the page was closed / reloaded on purpose (a reload comes back within it). */
+const CLOSED_TAB_HOLD_MS = 15_000;
+
 interface Client {
   id: string;
   ws: WebSocket;
@@ -23,6 +26,12 @@ interface Client {
   roomId: string | null;
   role: RoomRole | null;
   alive: boolean;
+  /** The page said goodbye before closing (tab closed / reloaded). */
+  bye?: boolean;
+  /** Cut by the heartbeat: the device stopped answering. */
+  timedOut?: boolean;
+  /** Superseded by a newer connection of the same account. */
+  replaced?: boolean;
   lastObserveAt: number;
   msgCount: number;
   msgWindowStart: number;
@@ -52,8 +61,9 @@ interface LiveRoom {
 
 const num = z.number().finite();
 const msgSchema = z.union([
-  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), avatar: z.object({ group: z.string(), model: z.string(), color: z.string().max(16).optional() }).optional(), asParticipant: z.boolean().optional() }),
+  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), resume: z.boolean().optional(), avatar: z.object({ group: z.string(), model: z.string(), color: z.string().max(16).optional() }).optional(), asParticipant: z.boolean().optional() }),
   z.object({ t: z.literal("leave") }),
+  z.object({ t: z.literal("bye") }),
   z.object({ t: z.literal("move"), x: num, z: num, rotY: num }),
   z.object({ t: z.literal("claim"), seatId: z.string().max(10) }),
   z.object({ t: z.literal("change_seat"), seatId: z.string().max(10) }),
@@ -118,6 +128,7 @@ export class Hub {
       setInterval(() => {
         for (const c of this.clients) {
           if (!c.alive) {
+            c.timedOut = true;
             c.ws.terminate();
             continue;
           }
@@ -166,6 +177,7 @@ export class Hub {
     const prev = this.byUser.get(user.id);
     if (prev) {
       this.send(prev, { t: "session_replaced" });
+      prev.replaced = true;
       this.detach(prev, false);
       prev.ws.close(4001, "session_replaced");
     }
@@ -205,6 +217,22 @@ export class Hub {
     });
   }
 
+  /**
+   * Goodbye beacon (HTTP, sent by the page while it is being closed — a socket message may not
+   * get out when a tab is closed). Socket still here → mark it; already gone → shorten the hold.
+   */
+  bye(userId: string, roomId: string) {
+    const c = this.byUser.get(userId);
+    if (c && c.roomId === roomId) {
+      c.bye = true;
+      return;
+    }
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    room.engine.markClosed(userId, Date.now(), CLOSED_TAB_HOLD_MS);
+    this.flush(room);
+  }
+
   /** Socket gone: participants keep their place for the reconnect grace period. */
   private detach(client: Client, leave: boolean) {
     const room = client.roomId ? this.rooms.get(client.roomId) : null;
@@ -213,7 +241,11 @@ export class Hub {
       if (leave && room.hands.delete(client.user.id)) this.sendHands(room);
       if (client.role === "participant") {
         if (leave) room.engine.leave(client.user.id, Date.now(), "left");
-        else room.engine.disconnect(client.user.id, Date.now());
+        else {
+          // closed tab / reload: keep the place only briefly; otherwise the full grace period
+          const reason = client.replaced ? "replaced" : client.bye ? "closed_tab" : client.timedOut ? "no_response" : "network";
+          room.engine.disconnect(client.user.id, Date.now(), reason, client.bye ? CLOSED_TAB_HOLD_MS : undefined);
+        }
       } else room.engine.removeObserver(client.user.id);
       this.flush(room);
     }
@@ -436,7 +468,16 @@ export class Hub {
   // ---------- message handling ----------
 
   private async handle(c: Client, m: ClientMsg) {
-    if (m.t === "ping") return this.send(c, { t: "pong", c: m.c, s: Date.now() });
+    if (m.t === "bye") {
+      c.bye = true;
+      return;
+    }
+    if (m.t === "ping") {
+      // The page's 10 s ping after a goodbye means it is still alive (a phone fired pagehide
+      // but kept the page): not a closed tab. (Other messages may still trail the goodbye.)
+      c.bye = false;
+      return this.send(c, { t: "pong", c: m.c, s: Date.now() });
+    }
     if (m.t === "join") return this.join(c, m);
     const room = c.roomId ? this.rooms.get(c.roomId) : null;
     if (!room) return this.error(c, "ROOM_NOT_OPEN", "Bạn chưa ở trong phòng.");
@@ -651,7 +692,7 @@ export class Hub {
       const cap = this.settings.ip_max_participants;
       if (cap > 0 && sameIp >= cap) return this.error(c, "IP_LIMIT_PARTICIPANT", ERROR_TEXT.IP_LIMIT_PARTICIPANT);
       this.participantIp.set(uid, { ip: c.ipHash, device: c.deviceId });
-      const r = room.engine.join(uid, c.user.display_name, { group: m.avatar.group as AvatarGroup, model: m.avatar.model, color: validAvatarColor(m.avatar.group, m.avatar.color) }, Date.now());
+      const r = room.engine.join(uid, c.user.display_name, { group: m.avatar.group as AvatarGroup, model: m.avatar.model, color: validAvatarColor(m.avatar.group, m.avatar.color) }, Date.now(), m.resume ? { after: process.uptime() < 300 ? "server_restart" : "hold_expired" } : undefined);
       if (!r.ok) {
         this.participantIp.delete(uid);
         this.flush(room);

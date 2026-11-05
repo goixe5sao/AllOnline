@@ -181,6 +181,8 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .minimap .seat { cursor: pointer; }
 .bubble { background: #fff; color: #111; padding: 4px 8px; border-radius: 10px; font-size: 13px; width: max-content; max-width: 220px; white-space: normal; text-align: center; box-shadow: 0 2px 6px rgb(0 0 0 / 0.3); pointer-events: none; transform: translate(-50%, -100%); }
 .nametag { color: #fff; font-size: 11px; text-shadow: 0 1px 2px #000, 0 0 3px #000; white-space: nowrap; transform: translate(-50%, -50%); pointer-events: none; }
+.nametag.off { opacity: 0.75; }
+.nametag-off { font-size: 10px; color: #f0b860; text-align: center; margin-top: 1px; }
 
 /* ---------- stage screen DOM ---------- */
 .screen-surface { width: 960px; height: 540px; background: #05080a; color: #f4f4f0; position: relative; overflow: hidden; font-size: 34px; display: grid; place-items: center; }

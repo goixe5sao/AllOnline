@@ -57,8 +57,10 @@ export interface RoomInfoDto {
 }
 
 export type ClientMsg =
-  | { t: "join"; roomId: string; pass?: string; avatar?: { group: AvatarGroup; model: string; color?: string }; asParticipant?: boolean }
+  | { t: "join"; roomId: string; pass?: string; /** reconnect after a drop (not the first join of this page) */ resume?: boolean; avatar?: { group: AvatarGroup; model: string; color?: string }; asParticipant?: boolean }
   | { t: "leave" }
+  /** Sent when the page is being closed / reloaded: the server keeps the place only briefly. */
+  | { t: "bye" }
   | { t: "move"; x: number; z: number; rotY: number }
   | { t: "claim"; seatId: string }
   | { t: "change_seat"; seatId: string }

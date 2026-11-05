@@ -162,6 +162,38 @@ describe("disconnect and reconnect", () => {
     expect(e.members.get("b")!.status).toBe("invited");
   });
 
+  it("closed tab: the place is kept only for the short hold; a reload inside it resumes", () => {
+    const e = engine("auto_assign", 2, 0);
+    e.join("a", "A", person, 0);
+    e.disconnect("a", 1000, "closed_tab", 15_000);
+    const pub = e.publicMember(e.members.get("a")!);
+    expect(pub).toMatchObject({ connected: false, offAt: 1000, holdUntil: 16_000, offReason: "closed_tab" });
+    e.tick(10_000);
+    const r = e.join("a", "A", person, 12_000); // reload
+    expect(r.ok && r.resumed && r.member.seatId).toBe("S1");
+    expect(e.publicMember(e.members.get("a")!).offAt).toBeUndefined();
+    const logs = e.drain().logs;
+    expect(logs.find((l) => l.type === "disconnected")?.data).toMatchObject({ reason: "closed_tab", holdSec: 15 });
+    expect(logs.find((l) => l.type === "reconnected")?.data).toMatchObject({ awaySec: 11, reason: "closed_tab" });
+
+    e.disconnect("a", 20_000, "closed_tab", 15_000);
+    e.tick(35_000);
+    expect(e.members.has("a")).toBe(false);
+    expect(e.drain().logs.find((l) => l.type === "grace_expired")?.data).toMatchObject({ reason: "closed_tab" });
+  });
+
+  it("a phone that stopped answering keeps the full grace; the hold never exceeds it", () => {
+    const e = engine("auto_assign", 2, 0);
+    e.join("a", "A", person, 0);
+    e.disconnect("a", 0, "no_response");
+    e.tick(60_000);
+    expect(e.members.has("a")).toBe(true);
+    expect(e.publicMember(e.members.get("a")!).holdUntil).toBe(90_000);
+    e.join("a", "A", person, 61_000);
+    e.disconnect("a", 70_000, "network", 999_999);
+    expect(e.publicMember(e.members.get("a")!).holdUntil).toBe(160_000);
+  });
+
   it("kicked users cannot rejoin", () => {
     const e = engine("auto_assign", 2, 0);
     e.join("a", "A", person, 0);

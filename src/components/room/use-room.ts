@@ -96,6 +96,15 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
       setTimeout(() => setS((p) => (p.toast === text ? { ...p, toast: null } : p)), 4000);
     };
 
+    /** Disconnect times arrive in server ms; members keep them in this device's clock. */
+    const local = (u: PublicMember): PublicMember =>
+      u.offAt === undefined ? u : { ...u, offAt: u.offAt - offsetRef.current, holdUntil: u.holdUntil === undefined ? undefined : u.holdUntil - offsetRef.current };
+    /** Joined once already on this page: later joins are reconnects. */
+    let joinedOnce = false;
+    let hiddenAt = 0;
+    /** A ticket request is in flight (avoid two sockets when several triggers fire at once). */
+    let pending = false;
+
     const end = (reason: string) => {
       endedRef.current = true;
       setS((p) => ({ ...p, conn: "ended", endReason: reason }));
@@ -107,7 +116,8 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
         case "welcome":
           offsetRef.current = m.serverNow - Date.now();
           retryRef.current = 0;
-          store.map = new Map(m.members.map((x) => [x.userId, x]));
+          joinedOnce = true;
+          store.map = new Map(m.members.map((x) => [x.userId, local(x)]));
           setS((p) => ({
             ...p,
             conn: "open",
@@ -161,7 +171,7 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
           for (const u of m.upsert) {
             const prev = store.map.get(u.userId);
             if (!prev || prev.status !== u.status || prev.seatId !== u.seatId || prev.connected !== u.connected) structural = true;
-            store.map.set(u.userId, u);
+            store.map.set(u.userId, local(u));
           }
           if (structural) setS((p) => ({ ...p, version: p.version + 1 }));
           return;
@@ -219,15 +229,18 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
 
     const connect = async () => {
       if (disposed || endedRef.current) return;
+      const st = wsRef.current?.readyState;
+      if (pending || st === WebSocket.OPEN || st === WebSocket.CONNECTING) return;
+      pending = true;
       try {
-        const { ticket } = await api<{ ticket: string }>("/api/ws-ticket");
+        const { ticket } = await api<{ ticket: string }>("/api/ws-ticket").finally(() => (pending = false));
         // The effect may have been disposed while the ticket was loading (unmount / StrictMode).
         if (disposed || endedRef.current) return;
         const proto = location.protocol === "https:" ? "wss" : "ws";
         const ws = new WebSocket(`${proto}://${location.host}/ws?ticket=${encodeURIComponent(ticket)}`);
         wsRef.current = ws;
         ws.onopen = () => {
-          ws.send(JSON.stringify({ t: "join", roomId, pass: opts.pass ?? undefined, avatar: opts.avatar ?? undefined, asParticipant: opts.asParticipant || undefined } satisfies ClientMsg));
+          ws.send(JSON.stringify({ t: "join", roomId, pass: opts.pass ?? undefined, resume: joinedOnce || undefined, avatar: opts.avatar ?? undefined, asParticipant: opts.asParticipant || undefined } satisfies ClientMsg));
           pingTimer = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: "ping", c: Date.now() })), 10_000);
         };
         ws.onmessage = (e) => {
@@ -260,11 +273,47 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
       }
     };
     window.addEventListener("online", online);
+    // Page closed / reloaded: say goodbye so the place is kept only briefly (not the full grace).
+    // Not on a back/forward-cache freeze (persisted): that page may come back as it was.
+    const pagehide = (e: PageTransitionEvent) => {
+      if (e.persisted || endedRef.current) return;
+      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ t: "bye" } satisfies ClientMsg));
+      // a socket message may not get out when the tab is closed; a beacon is delivered anyway
+      try {
+        navigator.sendBeacon?.(`/api/rooms/${roomId}/bye`);
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("pagehide", pagehide);
+    // Back to the tab / app (phones freeze background pages): reconnect now, not after the back-off.
+    const visibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (endedRef.current) return;
+      const away = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN && away > 25_000) {
+        // the server has most likely cut a socket that slept this long: start a fresh one
+        retryRef.current = 0;
+        ws.close();
+      } else if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        retryRef.current = 0;
+        clearTimeout(timer);
+        void connect();
+      }
+    };
+    document.addEventListener("visibilitychange", visibility);
     return () => {
       disposed = true;
       clearTimeout(timer);
       clearInterval(pingTimer);
       window.removeEventListener("online", online);
+      window.removeEventListener("pagehide", pagehide);
+      document.removeEventListener("visibilitychange", visibility);
       wsRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
