@@ -22,6 +22,11 @@ switch ($Service) {
       PUBLIC_ORIGIN = "https://$($site.allonlineHosts[0])"
       STOCKVN_URL = 'http://127.0.0.1:3200'; STOCKVN_API_TOKEN = $site.stockvnApiToken
     }
+    # Live camera (Cloudflare Realtime): keys pasted into site.local.json by the owner
+    foreach ($k in @(@('realtimeAppId', 'REALTIME_APP_ID'), @('realtimeAppSecret', 'REALTIME_APP_SECRET'), @('turnKeyId', 'REALTIME_TURN_KEY_ID'), @('turnKeyToken', 'REALTIME_TURN_KEY_TOKEN'))) {
+      $v = $site.($k[0])
+      if ($v -and -not "$v".StartsWith('DÁN_')) { $envs[$k[1]] = "$v" }
+    }
   }
   'stockvn' {
     $dir = $site.stockvnDir

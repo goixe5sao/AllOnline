@@ -45,6 +45,11 @@ export interface Config {
   dataDir: string;
   /** Zalo Login (Zalo for Developers app). */
   zaloAppId?: string;
+  /** Cloudflare Realtime (live camera): SFU app id + secret, TURN key id + API token. */
+  realtimeAppId?: string;
+  realtimeAppSecret?: string;
+  turnKeyId?: string;
+  turnKeyToken?: string;
   zaloAppSecret?: string;
   /** Zalo Official Account bot: OA id (for the zalo.me link) and OA secret key (webhook signature). */
   zaloOaId?: string;
@@ -97,6 +102,10 @@ export function readConfig(): Config {
     host: env("HOST"),
     dataDir: env("DEMO_DATA_DIR") ?? path.join(process.cwd(), ".data"),
     zaloAppId: env("ZALO_APP_ID"),
+    realtimeAppId: env("REALTIME_APP_ID"),
+    realtimeAppSecret: env("REALTIME_APP_SECRET"),
+    turnKeyId: env("REALTIME_TURN_KEY_ID"),
+    turnKeyToken: env("REALTIME_TURN_KEY_TOKEN"),
     zaloAppSecret: env("ZALO_APP_SECRET"),
     zaloOaId: env("ZALO_OA_ID"),
     zaloOaSecret: env("ZALO_OA_SECRET"),

@@ -253,7 +253,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
         {busy ? "Đang vào…" : data.isOwner ? "Vào như người tham dự" : "Vào phòng"}
       </button>
       <small>
-        {!isAccount && "Không cần tài khoản. "}Phòng không có voice/webcam; chat chỉ đến người ở gần bạn và không được lưu lại.
+        {!isAccount && "Không cần tài khoản. "}Chat chỉ đến người ở gần bạn và không được lưu lại. Camera của bạn không bao giờ tự bật: chỉ người được chủ phòng cho phép mới live hình + tiếng lên màn hình, và không ghi lại.
         {!isAccount && (
           <>
             {" "}

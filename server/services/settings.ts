@@ -41,6 +41,8 @@ export interface Settings {
   open_ended_deposit_vnd: number;
   receipt_auto_approve_max_vnd: number;
   reminder_minutes_before: number;
+  /** Monthly cap on estimated live-camera traffic (GB); 0 = live off. */
+  live_monthly_cap_gb: number;
   updated_at: Date;
 }
 
@@ -51,7 +53,7 @@ const SELECT_SETTINGS = `select total_slot_budget, max_room_capacity, waiting_ra
   trial_rooms_per_account, trial_max_hours, trial_max_capacity, extension_enabled, qr_bank_bin, qr_account_no,
   qr_account_name, upload_max_mb, upload_retention_days, enabled_maps, enabled_avatar_groups, guest_join_enabled, stage_ad_enabled, stage_ad_text, stage_ad_url, device_limit_room_creator, ip_max_participants,
   open_ended_enabled, open_ended_deposit_vnd::float8 as open_ended_deposit_vnd,
-  receipt_auto_approve_max_vnd::float8 as receipt_auto_approve_max_vnd, reminder_minutes_before, updated_at
+  receipt_auto_approve_max_vnd::float8 as receipt_auto_approve_max_vnd, reminder_minutes_before, live_monthly_cap_gb, updated_at
   from app.settings where id = 1`;
 
 export async function getSettings(q: Queryable): Promise<Settings> {
@@ -118,6 +120,7 @@ export const settingsPatchSchema = z
     open_ended_deposit_vnd: z.number().int().min(0).max(1_000_000_000),
     receipt_auto_approve_max_vnd: z.number().int().min(0).max(100_000_000),
     reminder_minutes_before: z.number().int().min(5).max(1440),
+    live_monthly_cap_gb: z.number().int().min(0).max(100000),
     stage_ad_text: z.string().trim().min(1).max(120),
     stage_ad_url: z.string().trim().max(500).url().refine((u) => u.startsWith("https://"), "Liên kết phải bắt đầu bằng https://"),
   })

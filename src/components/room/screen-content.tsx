@@ -1,5 +1,6 @@
 "use client";
 
+import { LiveVideo } from "./live";
 import { useEffect, useRef, useState } from "react";
 import { currentPosition, type ScreenState } from "@/core/screen";
 import type { PollViewDto, StageAd } from "@/core/protocol";
@@ -21,6 +22,8 @@ export interface ScreenProps {
   ad?: StageAd | null;
   /** The video player reached the end (fallback signal for loop / next, see server hub). */
   onEnded?: (rev: number) => void;
+  /** Live camera on air: shown instead of the content (sound plays elsewhere). */
+  live?: { stream: MediaStream; name: string; mirror?: boolean } | null;
 }
 
 // ---------- YouTube (official IFrame Player API) ----------
@@ -277,6 +280,7 @@ export function ScreenContent(p: ScreenProps) {
       );
       break;
   }
+  if (p.live) body = <LiveVideo stream={p.live.stream} name={p.live.name} mirror={p.live.mirror} />;
   return (
     <div className={`screen-surface ${p.fullscreen ? "fullscreen" : ""} ${p.reduceMotion ? "reduce-motion" : ""}`}>
       {body}

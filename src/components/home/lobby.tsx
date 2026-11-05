@@ -6,9 +6,9 @@ import { JoinCode } from "./join-code";
 const SIGNUP = "/login?mode=signup&next=%2Frooms%2Fnew";
 
 export const FEATURES: { icon: string; title: string; text: string }[] = [
-  { icon: "🛸", title: "Một màn hình cho mọi người", text: "YouTube, biểu đồ chứng khoán VN từng phút, hình ảnh, văn bản — đồng bộ theo giờ máy chủ." },
+  { icon: "🛸", title: "Một màn hình cho mọi người", text: "YouTube, live camera (chủ phòng duyệt), biểu đồ chứng khoán VN từng phút, hình ảnh — đồng bộ theo giờ máy chủ." },
   { icon: "🤖", title: "Nhân vật đại diện", text: "Người, động vật hay xe; ngồi ghế, quay nhìn quanh, xem từ phía sau 2 hàng." },
-  { icon: "👽", title: "Chat với người ngồi gần", text: "Chỉ người ở gần nhận được, như thì thầm trong rạp. Không lưu, không voice/webcam." },
+  { icon: "👽", title: "Chat với người ngồi gần", text: "Chỉ người ở gần nhận được, như thì thầm trong rạp. Không lưu lại." },
   { icon: "🗳️", title: "Bình chọn trực tiếp", text: "Kết quả hiện ngay trên sân khấu; có thể chỉ cho tài khoản đã đăng ký." },
   { icon: "📱", title: "Mọi thiết bị", text: "Máy tính, máy tính bảng, điện thoại — chạy trên trình duyệt, không cài đặt." },
   { icon: "∞", title: "Theo giờ hoặc vô thời hạn", text: "Dùng thử, gói giờ, hoặc mở đến khi tắt: cọc trước, tính đúng giờ đã dùng." },

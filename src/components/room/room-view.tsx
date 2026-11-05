@@ -12,6 +12,7 @@ import { OwnerPanel } from "./owner-panel";
 import { QaPanel, ReactionStream } from "./engage";
 import { AlienOrb } from "./orb-menu";
 import { useRoom } from "./use-room";
+import { LiveAudio, LivePanel, useLivePublisher, useLiveViewer } from "./live";
 
 function readSession<T>(key: string): T | null {
   try {
@@ -138,11 +139,22 @@ export function RoomView({ roomId }: { roomId: string }) {
     asParticipant: typeof window !== "undefined" && sessionStorage.getItem(`ao-mode-${roomId}`) === "participant",
   }));
   const { session: s, store, send, serverNow, leave } = useRoom(roomId, boot);
+  // Live camera: watching whoever is on air, and this device's own camera when broadcasting.
+  const selfId = s.you?.userId ?? "";
+  const liveView = useLiveViewer(roomId, s.live, selfId);
+  const pub = useLivePublisher(roomId, send);
+  const onAirSelf = !!s.live?.onAir && s.live.onAir.userId === selfId;
+  // Cut by a moderator / replaced / live switched off: stop the camera here too.
+  const pubLive = pub.state === "live";
+  const pubStop = pub.stop;
+  useEffect(() => {
+    if (pubLive && s.live && !onAirSelf) pubStop(false);
+  }, [pubLive, onAirSelf, s.live, pubStop]);
   const controls = useRef<Controls>({ yaw: 0, pitch: 0, fov: 60, keys: new Set(), joy: { x: 0, y: 0 } });
   const [wrap, setWrap] = useState<HTMLDivElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [fullView, setFullView] = useState(false);
-  const [panel, setPanel] = useState<"owner" | "seats" | "qa" | null>(null);
+  const [panel, setPanel] = useState<"owner" | "seats" | "qa" | "live" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [gfx, setGfx] = useState<"lite" | "full" | "ultra">("full");
@@ -408,6 +420,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     reduceMotion,
     ad: s.ad,
     onEnded: (rev: number) => send({ t: "screen_ended", rev }),
+    live: s.live?.onAir ? (onAirSelf ? (pub.preview ? { stream: pub.preview, name: s.live.onAir.name, mirror: true } : null) : liveView.stream ? { stream: liveView.stream, name: s.live.onAir.name } : null) : null,
   };
   const p = s.personal;
   const remaining = s.room.openEnded ? Infinity : s.room.expiresAt - (now + (serverNow() - Date.now()));
@@ -651,6 +664,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             ...(isParticipant ? [{ id: "view", icon: behind ? "👁" : "🎥", label: behind ? "Góc của tôi" : "Xem từ sau", onClick: () => setBehind(!behind), active: !behind, stay: true }] : []),
             { id: "sound", icon: muted ? "🔇" : "🔊", label: muted ? "Bật tiếng" : "Tắt tiếng", onClick: () => setMuted(!muted), active: !muted, stay: true },
             ...(canModerate ? [{ id: "lights", icon: s.room.stageLights ? "💡" : "🌑", label: s.room.stageLights ? "Tắt đèn sân khấu" : "Bật đèn sân khấu", onClick: () => send({ t: "stage_lights", on: !s.room!.stageLights }), active: s.room.stageLights, stay: true }] : []),
+            ...(s.live && (s.live.mode !== "off" || canModerate) && (isParticipant || canModerate) ? [{ id: "live", icon: onAirSelf ? "🔴" : "🎥", label: onAirSelf ? "Đang live" : "Live camera", onClick: () => setPanel(panel === "live" ? null : "live"), active: panel === "live" || onAirSelf }] : []),
             ...(canModerate ? [{ id: "control", icon: "🎬", label: "Điều khiển", onClick: () => setPanel(panel === "owner" ? null : "owner"), active: panel === "owner", badge: s.hands.length }] : []),
             ...(isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" ? [{ id: "seats", icon: "💺", label: "Đổi chỗ", onClick: () => setPanel(panel === "seats" ? null : "seats"), active: panel === "seats" }] : []),
             { id: "settings", icon: "⚙️", label: "Cài đặt", onClick: () => setMoreOpen(!moreOpen), active: moreOpen },
@@ -714,8 +728,12 @@ export function RoomView({ roomId }: { roomId: string }) {
           isOwner={s.you.isRoomOwner}
           selfId={s.you.userId}
           onClose={() => setPanel(null)}
+          live={s.live}
+          onOpenCamera={() => setPanel("live")}
         />
       )}
+      {panel === "live" && s.live && <LivePanel live={s.live} selfId={s.you.userId} isMod={canModerate} send={send} pub={pub} onClose={() => setPanel(null)} />}
+      <LiveAudio stream={onAirSelf ? null : liveView.stream} volume={volume} muted={muted} />
       {panel === "qa" && (
         <QaPanel
           questions={s.questions}

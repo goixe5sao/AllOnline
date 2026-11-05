@@ -192,6 +192,7 @@ function SettingsForm({ data, reload, msg, setMsg }: { data: { settings: Setting
         open_ended_deposit_vnd: Math.max(0, Math.floor(Number(form.open_ended_deposit_vnd) || 0)),
         receipt_auto_approve_max_vnd: Math.max(0, Math.floor(Number(form.receipt_auto_approve_max_vnd) || 0)),
         reminder_minutes_before: Math.min(1440, Math.max(5, Math.floor(Number(form.reminder_minutes_before) || 60))),
+        live_monthly_cap_gb: Math.min(100000, Math.max(0, Math.floor(Number(form.live_monthly_cap_gb ?? 800) || 0))),
         guest_join_enabled: !!form.guest_join_enabled,
         stage_ad_enabled: !!form.stage_ad_enabled,
         device_limit_room_creator: !!form.device_limit_room_creator,
@@ -324,6 +325,7 @@ function SettingsForm({ data, reload, msg, setMsg }: { data: { settings: Setting
             <input type="number" min={5} max={1440} value={Number(form.reminder_minutes_before ?? 60)} onChange={(e) => set("reminder_minutes_before", Number(e.target.value))} />
           </label>
         </div>
+        <LiveUsageCard cap={Number(form.live_monthly_cap_gb ?? 800)} onCap={(v) => set("live_monthly_cap_gb", v)} />
         <div className="card stack">
           <h2>Nhận thanh toán QR (VietQR)</h2>
           <label className="field">
@@ -766,3 +768,30 @@ export default function AdminPage() {
     </AppShell>
   );
 }
+
+/** Live camera: traffic used this month vs the cap (Cloudflare Realtime: first 1000 GB/month free). */
+function LiveUsageCard({ cap, onCap }: { cap: number; onCap: (v: number) => void }) {
+  const { data } = useApi<{ month: string; usedGb: number; capGb: number; configured: boolean }>("/api/admin/live-usage");
+  const used = data?.usedGb ?? 0;
+  const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : 100;
+  return (
+    <div className="card stack">
+      <h2>🔴 Live camera lên màn hình</h2>
+      {data && !data.configured && <p className="notice warn">Máy chủ chưa có mã Cloudflare Realtime — chưa ai live được. Dán mã vào deploy/windows/site.local.json rồi khởi động lại.</p>}
+      <div>
+        Tháng {data?.month ?? "…"}: đã dùng khoảng <b>{used.toFixed(1)} GB</b> / trần {cap} GB
+        <div className="live-meter" aria-hidden>
+          <span style={{ width: `${pct}%`, background: pct >= 90 ? "var(--danger, #e5484d)" : undefined }} />
+        </div>
+      </div>
+      <label className="field">
+        Trần live mỗi tháng (GB; 0 = tắt live toàn hệ thống)
+        <input type="number" min={0} max={100000} value={cap} onChange={(e) => onCap(Number(e.target.value))} />
+      </label>
+      <small>
+        Cloudflare miễn phí 1.000 GB mỗi tháng, vượt mức khoảng 0,05 USD/GB. Khi chạm trần, không mở được lượt live mới (lượt đang phát vẫn tiếp tục). Ước tính: 1 người xem × 1 giờ ≈ 0,8 GB.
+      </small>
+    </div>
+  );
+}
+

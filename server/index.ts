@@ -6,6 +6,7 @@
  *   - background sweepers (room expiry, payment holds, upload retention)
  * so expiry works even when no browser is open.
  */
+import { LiveMeter, RealtimeClient } from "./live";
 import { createServer } from "node:http";
 import next from "next";
 import { WebSocketServer } from "ws";
@@ -41,6 +42,9 @@ async function main() {
   // Market data scheduler: 1-minute bars + daily bars every minute during the VN session.
   const market = new MarketService(db);
   hub.setMarket(market);
+  const rtc = new RealtimeClient(cfg);
+  hub.setLive(rtc, new LiveMeter(db));
+  if (rtc.configured) console.log("> Live camera: Cloudflare Realtime on" + (cfg.turnKeyId ? " (+TURN)" : ""));
   if (process.env.MARKET_DATA !== "off") market.start();
   // Technical analysis is provided by the StockVN service (trendlines, channels, S/R, patterns…).
   const analysis = new StockVnAnalysis(cfg.stockvnUrl, undefined, undefined, cfg.stockvnToken);
@@ -59,7 +63,7 @@ async function main() {
     },
   });
   setInterval(() => void bot.tick().catch((e) => console.error("[zalo] tick", e)), 60_000);
-  const api = createApi({ cfg, db, auth, hub, storage, market, analysis, bot });
+  const api = createApi({ cfg, db, auth, hub, storage, market, analysis, bot, rtc });
   // Data for the server-rendered home page (same process as Next.js).
   registerHomeData(async () => {
     const [rows, s, tiers] = await Promise.all([listPublicRooms(db), getSettings(db), getPriceTiers(db)]);

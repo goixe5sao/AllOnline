@@ -1,4 +1,5 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import type { RealtimeClient } from "./live";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import type { Config } from "./config";
@@ -58,8 +59,8 @@ interface Ctx {
 
 type Handler = (ctx: Ctx) => Promise<unknown>;
 
-export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService; analysis: StockVnAnalysis; bot: ZaloBot }) {
-  const { cfg, db, auth, hub, storage, market, analysis, bot } = deps;
+export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService; analysis: StockVnAnalysis; bot: ZaloBot; rtc: RealtimeClient }) {
+  const { cfg, db, auth, hub, storage, market, analysis, bot, rtc } = deps;
   const routes: { method: string; re: RegExp; handler: Handler; public?: boolean }[] = [];
   const route = (method: string, pattern: string, handler: Handler, opts: { public?: boolean } = {}) =>
     routes.push({ method, re: new RegExp("^" + pattern.replace(/:\w+/g, "([^/]+)") + "$"), handler, public: opts.public });
@@ -351,6 +352,65 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     if (!/^[A-Za-z0-9_-]{11}$/.test(id)) throw new AppError("INVALID", "Mã video không hợp lệ.");
     const info = await getVideoInfo(id);
     return { videoId: id, title: info?.title ?? null, durationSec: info?.durationSec ?? null };
+  });
+
+  // ----- live camera (Cloudflare Realtime): this server only checks who may publish / watch -----
+  const sdpSchema = z.object({ type: z.enum(["offer", "answer"]), sdp: z.string().min(10).max(200_000) });
+  const roomIdOf = (ctx: Ctx) => {
+    const id = ctx.params[0];
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new AppError("INVALID", "Mã phòng không hợp lệ.");
+    return id;
+  };
+
+  /** STUN / TURN servers for the browser's RTCPeerConnection. */
+  route("GET", "/api/live/ice", async (ctx) => {
+    needAttendee(ctx);
+    return { iceServers: await rtc.iceServers() };
+  });
+
+  /** Broadcaster: offer with their camera / mic tracks → SFU answer; then they are on air. */
+  route("POST", "/api/live/:id/publish", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ offer: sdpSchema, tracks: z.array(z.object({ mid: z.string().max(10), kind: z.enum(["audio", "video"]) })).min(1).max(2) }).parse(await readJson(ctx.req, 300_000));
+    const { name } = hub.liveCanPublish(u.id, roomId);
+    const sessionId = await rtc.newSession();
+    const nonce = randomUUID().slice(0, 8);
+    const tracks = b.tracks.map((t) => ({ mid: t.mid, trackName: `${t.kind}-${nonce}`, kind: t.kind }));
+    const r = await rtc.publish(sessionId, b.offer, tracks.map(({ mid, trackName }) => ({ mid, trackName })));
+    if (!r.sessionDescription) throw new AppError("LIVE_SFU", "Máy chủ video không trả lời.", 502);
+    hub.liveStarted(roomId, u.id, name, sessionId, { audio: tracks.find((t) => t.kind === "audio")?.trackName, video: tracks.find((t) => t.kind === "video")?.trackName });
+    return { sessionId, answer: r.sessionDescription };
+  });
+
+  /** Viewer: a new SFU session pulling the on-air tracks → the SFU's offer (answered below). */
+  route("POST", "/api/live/:id/pull", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const on = hub.liveForViewer(u.id, roomId);
+    const remote = [on.tracks.audio, on.tracks.video].filter((t): t is string => !!t).map((trackName) => ({ sessionId: on.sessionId, trackName }));
+    const sessionId = await rtc.newSession();
+    hub.livePullOpened(sessionId, u.id, roomId);
+    const r = await rtc.pull(sessionId, remote);
+    if (!r.sessionDescription) throw new AppError("LIVE_SFU", "Máy chủ video không trả lời.", 502);
+    return { sessionId, offer: r.sessionDescription, broadcaster: on.sessionId, tracks: (r.tracks ?? []).map((t) => ({ mid: t.mid, trackName: t.trackName })) };
+  });
+
+  route("POST", "/api/live/:id/answer", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ sessionId: z.string().min(8).max(100), answer: sdpSchema }).parse(await readJson(ctx.req, 300_000));
+    const owner = hub.livePullOwner(b.sessionId);
+    if (!owner || owner.userId !== u.id || owner.roomId !== roomId) throw new AppError("FORBIDDEN", "Phiên xem không hợp lệ.", 403);
+    await rtc.renegotiate(b.sessionId, b.answer);
+    return { ok: true };
+  });
+
+  /** App owner: estimated live traffic this month vs the cap. */
+  route("GET", "/api/admin/live-usage", async (ctx) => {
+    const u = needUser(ctx);
+    if (u.role !== "app_owner") throw new AppError("FORBIDDEN", "Chỉ chủ ứng dụng.", 403);
+    return hub.liveUsage();
   });
 
   /** Page closed / reloaded (navigator.sendBeacon): keep the place only briefly. */

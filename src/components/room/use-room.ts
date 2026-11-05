@@ -6,6 +6,7 @@ import { publishLiveBars } from "./market-live";
 import { ERROR_TEXT, type StageAd, type ClientMsg, type PollViewDto, type QuestionDto, type Reaction, type RoomInfoDto, type RoomRole, type ServerMsg } from "@/core/protocol";
 import type { PersonalState, PublicMember } from "@/core/room-engine";
 import { BLANK_SCREEN, type ScreenState } from "@/core/screen";
+import type { LiveDto } from "@/core/live";
 import type { AvatarGroup } from "@/core/maps";
 
 export interface ChatLine {
@@ -26,6 +27,8 @@ export interface RoomSession {
   hands: { userId: string; name: string; at: number }[];
   questions: QuestionDto[];
   myQuestionVotes: string[];
+  /** Live camera on the stage: mode, requests, who is on air, monthly quota. */
+  live: LiveDto | null;
   room: RoomInfoDto | null;
   screen: ScreenState;
   polls: PollViewDto[];
@@ -72,6 +75,7 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
     hands: [],
     questions: [],
     myQuestionVotes: [],
+    live: null,
   });
   const wsRef = useRef<WebSocket | null>(null);
   const offsetRef = useRef(0);
@@ -133,6 +137,7 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
             hands: m.hands,
             questions: m.questions,
             myQuestionVotes: m.myQuestionVotes,
+            live: m.live,
             version: p.version + 1,
           }));
           return;
@@ -157,6 +162,9 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
           return;
         case "stage_style":
           setS((p) => (p.room ? { ...p, room: { ...p.room, stageStyle: m.style } } : p));
+          return;
+        case "live":
+          setS((p) => ({ ...p, live: m.live }));
           return;
         case "stage_lights":
           setS((p) => (p.room ? { ...p, room: { ...p.room, stageLights: m.on } } : p));

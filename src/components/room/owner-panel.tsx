@@ -1,5 +1,7 @@
 "use client";
 
+import type { LiveDto } from "@/core/live";
+import { LiveModeration } from "./live";
 import { useState } from "react";
 import Link from "next/link";
 import { api, ApiError, fmtDuration, fmtTime, useApi } from "@/lib/api";
@@ -438,10 +440,15 @@ export function OwnerPanel(p: {
   isOwner: boolean;
   selfId: string;
   onClose: () => void;
+  live: LiveDto | null;
+  /** Open the camera panel (the owner goes live themself). */
+  onOpenCamera: () => void;
 }) {
-  const [tab, setTab] = useState<"screen" | "polls" | "people" | "chat" | "stats" | "room">("screen");
+  const [tab, setTab] = useState<"screen" | "live" | "polls" | "people" | "chat" | "stats" | "room">("screen");
+  const liveReq = p.live?.requests.length ?? 0;
   const tabs: [typeof tab, string][] = [
     ["screen", "Màn hình"],
+    ["live", p.live?.onAir ? "🔴 Live" : liveReq ? `Live · 🙋${liveReq}` : "Live"],
     ["polls", "Bình chọn"],
     ["people", p.hands.length ? `Người tham dự · ✋${p.hands.length}` : "Người tham dự"],
     ["chat", "Chat"],
@@ -469,6 +476,7 @@ export function OwnerPanel(p: {
           <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} />
         </>
       )}
+      {tab === "live" && <LiveModeration live={p.live} send={p.send} selfId={p.selfId} onOpenCamera={p.onOpenCamera} />}
       {tab === "polls" && <PollsTab send={p.send} polls={p.polls} />}
       {tab === "people" && <PeopleTab members={p.members} send={p.send} hands={p.hands} isOwner={p.isOwner} selfId={p.selfId} roomId={p.room.id} />}
       {tab === "stats" && <StatsTab roomId={p.room.id} />}

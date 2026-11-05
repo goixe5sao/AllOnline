@@ -2,6 +2,7 @@ import type { AvatarGroup, EntryMode, MapCode } from "./maps";
 import type { PersonalState, PublicMember } from "./room-engine";
 import type { ScreenAction, ScreenState } from "./screen";
 import type { Candle } from "./market";
+import type { LiveDto, LiveMode } from "./live";
 
 /** Persistent promo strip shown at the bottom of every stage screen. */
 export interface StageAd {
@@ -79,6 +80,12 @@ export type ClientMsg =
   | { t: "q_set"; id: string; status: "open" | "answered" | "hidden" }
   | { t: "q_show"; id: string }
   | { t: "stage_lights"; on: boolean }
+  /** Live camera: mode (moderators), ask to go live, approve / refuse, stop (self or cut). */
+  | { t: "live_mode"; mode: LiveMode }
+  | { t: "live_ask" }
+  | { t: "live_grant"; userId: string }
+  | { t: "live_deny"; userId: string }
+  | { t: "live_stop"; userId?: string }
   | { t: "observe"; x: number; z: number }
   | ({ t: "screen" } & ScreenAction)
   | { t: "promote_chat"; id: string }
@@ -105,6 +112,7 @@ export type ServerMsg =
       hands: { userId: string; name: string; at: number }[];
       questions: QuestionDto[];
       myQuestionVotes: string[];
+      live: LiveDto;
     }
   | { t: "members"; upsert: PublicMember[]; remove: { userId: string; reason: string }[] }
   | { t: "you"; personal: PersonalState | null }
@@ -128,6 +136,7 @@ export type ServerMsg =
   | { t: "mod"; isModerator: boolean }
   | { t: "stage_style"; style: "glam" | "plain" }
   | { t: "stage_lights"; on: boolean }
+  | { t: "live"; live: LiveDto }
   /** Latest 1-minute bars incl. the forming one, pushed ~every second during the session. */
   | { t: "market"; symbol: string; bars: Candle[] };
 

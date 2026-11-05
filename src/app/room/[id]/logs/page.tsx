@@ -1,5 +1,6 @@
 "use client";
 
+import { LIVE_MODE_LABEL, type LiveMode } from "@/core/live";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { fmtTime, useApi } from "@/lib/api";
@@ -14,6 +15,12 @@ const TYPE_VI: Record<string, string> = {
   joined: "Vào phòng",
   reconnected: "Kết nối lại",
   disconnected: "Mất kết nối",
+  live_mode: "Đổi quyền live camera",
+  live_request: "Xin lên sóng",
+  live_granted: "Được duyệt lên sóng",
+  live_denied: "Từ chối / thu hồi lên sóng",
+  live_started: "Bắt đầu live",
+  live_ended: "Kết thúc live",
   left: "Rời phòng",
   switched_room: "Chuyển sang phòng khác",
   grace_expired: "Mất kết nối quá hạn — giải phóng chỗ",
@@ -38,6 +45,14 @@ const TYPE_VI: Record<string, string> = {
   file_uploaded: "Tải tệp lên",
 };
 
+const LIVE_END_VI: Record<string, string> = {
+  stopped: "người live tự kết thúc",
+  cut: "chủ phòng / trợ lý cắt sóng",
+  replaced: "người khác lên sóng thay",
+  mode_off: "chủ phòng tắt live",
+  broadcaster_left: "người live rời phòng / mất kết nối",
+};
+
 /** Why a connection went away (disconnected / reconnected / grace_expired events). */
 const REASON_VI: Record<string, string> = {
   closed_tab: "đóng tab / tải lại trang",
@@ -55,6 +70,9 @@ function detail(type: string, d: Record<string, unknown>): string | null {
   if (type === "disconnected") return `Lý do: ${why ?? "không rõ"} · giữ chỗ ${d.holdSec ?? "?"} giây`;
   if (type === "reconnected") return `Vắng ${d.awaySec ?? "?"} giây${why ? ` · trước đó: ${why}` : ""}`;
   if (type === "grace_expired") return `Không quay lại kịp${why ? ` · lý do: ${why}` : ""} → ghế được trả lại`;
+  if (type === "live_mode" && typeof d.mode === "string") return LIVE_MODE_LABEL[d.mode as LiveMode] ?? d.mode;
+  if (type === "live_ended") return `${d.name ?? ""} · ${Math.round(Number(d.durationSec ?? 0) / 60)} phút · ${LIVE_END_VI[String(d.reason)] ?? d.reason}`;
+  if (type === "live_granted" && d.auto) return "Tự duyệt (phòng cho khán giả tự lên sóng)";
   if (type === "joined" && typeof d.after === "string") return `Vào lại ${AFTER_VI[d.after] ?? d.after}`;
   return null;
 }

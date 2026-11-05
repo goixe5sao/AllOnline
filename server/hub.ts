@@ -15,6 +15,8 @@ import { castVote, createPoll, listPolls, myVotes, pollCreateSchema, pollView, s
 import type { AppUser } from "./services/users";
 import { askQuestion, getQuestion, listModerators, listQuestions, myQuestionVotes, setQuestionStatus, toggleVote } from "./services/qa";
 import type { MarketService } from "./market/service";
+import { askLive, denyLive, goOnAir, grantLive, initialLive, LIVE_MODES, mayPublish, setLiveMode, stopLive, type LiveDto, type LiveState } from "@/core/live";
+import type { LiveMeter, RealtimeClient } from "./live";
 
 /** Place kept after the page was closed / reloaded on purpose (a reload comes back within it). */
 const CLOSED_TAB_HOLD_MS = 15_000;
@@ -57,6 +59,10 @@ interface LiveRoom {
   counters: { reactions: number; chats: number };
   /** Stage lights (owner / co-host switch, everyone sees it). Live state only: a new session starts lit. */
   lights: boolean;
+  /** Live camera: mode, requests, who is on air. */
+  live: LiveState;
+  /** Broadcaster's socket gone since (ms) — taken off air if they do not come back. */
+  liveGoneAt?: number;
 }
 
 const num = z.number().finite();
@@ -92,6 +98,11 @@ const msgSchema = z.union([
   z.object({ t: z.literal("q_set"), id: z.string().uuid(), status: z.enum(["open", "answered", "hidden"]) }),
   z.object({ t: z.literal("q_show"), id: z.string().uuid() }),
   z.object({ t: z.literal("stage_lights"), on: z.boolean() }),
+  z.object({ t: z.literal("live_mode"), mode: z.enum(LIVE_MODES) }),
+  z.object({ t: z.literal("live_ask") }),
+  z.object({ t: z.literal("live_grant"), userId: z.string().uuid() }),
+  z.object({ t: z.literal("live_deny"), userId: z.string().uuid() }),
+  z.object({ t: z.literal("live_stop"), userId: z.string().uuid().optional() }),
 ] as const) as unknown as z.ZodType<ClientMsg>;
 
 export class Hub {
@@ -113,6 +124,19 @@ export class Hub {
   ) {}
 
   private market: MarketService | null = null;
+  private rtc: RealtimeClient | null = null;
+  private meter: LiveMeter | null = null;
+  /** Estimated live traffic this month (GB), refreshed by the tick. */
+  private liveUsedGb = 0;
+  /** Viewer SFU sessions → who opened them (only they may answer the SFU's offer). */
+  private livePulls = new Map<string, { userId: string; roomId: string; at: number }>();
+
+  /** Live camera: Cloudflare Realtime client + monthly traffic meter. */
+  setLive(rtc: RealtimeClient, meter: LiveMeter) {
+    this.rtc = rtc;
+    this.meter = meter;
+    void meter.usedGb().then((g) => (this.liveUsedGb = g));
+  }
 
   /** Live market bars are pushed to rooms whose stage shows a chart. */
   setMarket(m: MarketService) {
@@ -282,7 +306,7 @@ export class Hub {
       );
       const screen = (row.screen_state as ScreenState)?.content ? (row.screen_state as ScreenState) : BLANK_SCREEN;
       const mods = new Set((await listModerators(this.db, roomId)).map((m) => m.userId));
-      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 }, lights: true };
+      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 }, lights: true, live: initialLive(row.live_mode ?? "approve") };
       this.rooms.set(roomId, r);
       return r;
     })().finally(() => this.loading.delete(roomId));
@@ -307,6 +331,106 @@ export class Hub {
       stageStyle: row.stage_style ?? "plain",
       stageLights: lights,
     };
+  }
+
+  // ---------- live camera ----------
+
+  private liveQuota() {
+    const capGb = this.settings.live_monthly_cap_gb ?? 800;
+    const usedGb = Math.round(this.liveUsedGb * 10) / 10;
+    return { usedGb, capGb, blocked: capGb <= 0 || usedGb >= capGb };
+  }
+
+  private liveDto(room: LiveRoom): LiveDto {
+    return { ...room.live, quota: this.liveQuota(), configured: !!this.rtc?.configured };
+  }
+
+  private broadcastLive(room: LiveRoom) {
+    this.broadcast(room, { t: "live", live: this.liveDto(room) });
+  }
+
+  private liveEnded(room: LiveRoom, was: NonNullable<LiveState["onAir"]>, actorId: string | null, reason: string) {
+    logRoomEvent(this.db, room.row.id, actorId, "live_ended", { userId: was.userId, name: was.name, reason, durationSec: Math.round((Date.now() - was.startedAt) / 1000) }).catch((e) => console.error("[hub] log", e));
+  }
+
+  /** Every second: meter traffic, drop a broadcaster who left, forget old viewer sessions. */
+  private liveTick(now: number) {
+    let viewers = 0;
+    for (const room of this.rooms.values()) {
+      const on = room.live.onAir;
+      if (!on) continue;
+      const here = [...room.clients].some((c) => c.user.id === on.userId);
+      if (here) room.liveGoneAt = undefined;
+      else if (!room.liveGoneAt) room.liveGoneAt = now;
+      else if (now - room.liveGoneAt > 30_000) {
+        room.live = stopLive(room.live, on.userId);
+        room.liveGoneAt = undefined;
+        this.liveEnded(room, on, null, "broadcaster_left");
+        this.broadcastLive(room);
+        continue;
+      }
+      viewers += [...room.clients].filter((c) => c.user.id !== on.userId).length;
+    }
+    if (this.meter && viewers > 0) {
+      const before = this.liveQuota().blocked;
+      const meter = this.meter;
+      void meter
+        .add(viewers, 1, now)
+        .then(async () => {
+          this.liveUsedGb = await meter.usedGb(now);
+          // tell rooms when the cap is reached (no new broadcast from now on)
+          if (!before && this.liveQuota().blocked) for (const r of this.rooms.values()) this.broadcastLive(r);
+        })
+        .catch((e) => console.error("[live] meter", e));
+    }
+    if (this.meter && now % 60_000 < 1000) void this.meter.save().catch((e) => console.error("[live] meter", e));
+    for (const [id, p] of this.livePulls) if (now - p.at > 6 * 3600_000) this.livePulls.delete(id);
+  }
+
+  /** Broadcaster wants to publish: checks permission + monthly cap. */
+  liveCanPublish(userId: string, roomId: string) {
+    const room = this.rooms.get(roomId);
+    const c = this.byUser.get(userId);
+    if (!room || !c || c.roomId !== roomId) throw new AppError("NOT_IN_ROOM", "Bạn chưa ở trong phòng.", 403);
+    if (!mayPublish(room.live, userId, this.isMod(room, userId))) throw new AppError("LIVE_NOT_ALLOWED", "Bạn chưa được chủ phòng cho lên sóng.", 403);
+    if (this.liveQuota().blocked) throw new AppError("LIVE_QUOTA", "Đã hết hạn mức live của tháng này. Liên hệ quản trị để nâng trần.", 403);
+    return { room, name: c.user.display_name };
+  }
+
+  /** Media is up on the SFU: put them on air (replacing whoever was on). */
+  liveStarted(roomId: string, userId: string, name: string, sessionId: string, tracks: { audio?: string; video?: string }) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    const prev = room.live.onAir;
+    const r = goOnAir(room.live, { userId, name, sessionId, tracks, startedAt: Date.now() });
+    room.live = r.state;
+    room.liveGoneAt = undefined;
+    if (prev && r.replaced) this.liveEnded(room, prev, userId, "replaced");
+    logRoomEvent(this.db, room.row.id, userId, "live_started", { audio: !!tracks.audio, video: !!tracks.video }).catch((e) => console.error("[hub] log", e));
+    this.broadcastLive(room);
+  }
+
+  /** A viewer may pull the on-air tracks if they are in the room. */
+  liveForViewer(userId: string, roomId: string) {
+    const room = this.rooms.get(roomId);
+    const c = this.byUser.get(userId);
+    if (!room || !c || c.roomId !== roomId) throw new AppError("NOT_IN_ROOM", "Bạn chưa ở trong phòng.", 403);
+    if (!room.live.onAir) throw new AppError("LIVE_NOT_ON_AIR", "Hiện không có ai đang live.", 404);
+    return room.live.onAir;
+  }
+
+  livePullOpened(sessionId: string, userId: string, roomId: string) {
+    this.livePulls.set(sessionId, { userId, roomId, at: Date.now() });
+  }
+
+  livePullOwner(sessionId: string) {
+    return this.livePulls.get(sessionId) ?? null;
+  }
+
+  async liveUsage() {
+    const used = this.meter ? await this.meter.usedGb() : 0;
+    this.liveUsedGb = used;
+    return { month: this.meter?.monthKey ?? "", usedGb: Math.round(used * 10) / 10, capGb: this.settings.live_monthly_cap_gb ?? 800, configured: !!this.rtc?.configured };
   }
 
   /** Called by the sweeper / owner / admin after the DB marked the room closed. */
@@ -431,6 +555,7 @@ export class Hub {
 
   private tick() {
     const now = Date.now();
+    this.liveTick(now);
     for (const room of this.rooms.values()) {
       room.engine.tick(now);
       this.autoAdvanceVideo(room, now);
@@ -638,6 +763,45 @@ export class Hub {
         this.broadcast(room, { t: "screen", state: room.screen });
         return;
       }
+      case "live_mode": {
+        requireOwner();
+        if (room.live.mode === m.mode) return;
+        const was = room.live.onAir;
+        room.live = setLiveMode(room.live, m.mode);
+        room.row.live_mode = m.mode;
+        await this.db.query("update app.rooms set live_mode = $2 where id = $1", [room.row.id, m.mode]);
+        await logRoomEvent(this.db, room.row.id, uid, "live_mode", { mode: m.mode });
+        if (was && !room.live.onAir) this.liveEnded(room, was, uid, "mode_off");
+        this.broadcastLive(room);
+        return;
+      }
+      case "live_ask": {
+        const r = askLive(room.live, { id: uid, name: c.user.display_name }, isMod, now);
+        if (!r.ok) return this.send(c, { t: "error", code: r.code, message: r.message });
+        if (r.state !== room.live) {
+          room.live = r.state;
+          await logRoomEvent(this.db, room.row.id, uid, r.granted ? "live_granted" : "live_request", { auto: r.granted });
+          this.broadcastLive(room);
+        }
+        return;
+      }
+      case "live_grant":
+      case "live_deny": {
+        requireOwner();
+        room.live = m.t === "live_grant" ? grantLive(room.live, m.userId) : denyLive(room.live, m.userId);
+        await logRoomEvent(this.db, room.row.id, uid, m.t === "live_grant" ? "live_granted" : "live_denied", { userId: m.userId });
+        this.broadcastLive(room);
+        return;
+      }
+      case "live_stop": {
+        const target = m.userId ?? uid;
+        if (target !== uid) requireOwner();
+        const was = room.live.onAir;
+        room.live = stopLive(room.live, target);
+        if (was?.userId === target) this.liveEnded(room, was, uid, target === uid ? "stopped" : "cut");
+        this.broadcastLive(room);
+        return;
+      }
       case "stage_lights": {
         requireOwner();
         if (room.lights === m.on) return;
@@ -713,6 +877,7 @@ export class Hub {
       role,
       you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner, isModerator: room.mods.has(uid) },
       room: this.roomInfo(room.row, room.lights),
+      live: this.liveDto(room),
       members: room.engine.publicMembers(),
       screen: room.screen,
       polls: await listPolls(this.db, room.row.id),
