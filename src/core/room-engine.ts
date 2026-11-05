@@ -37,7 +37,8 @@ export interface RoomEngineConfig {
 export interface Member {
   userId: string;
   name: string;
-  avatar: { group: AvatarGroup; model: string };
+  /** color: car paint chosen from CAR_COLORS (cars only; others use the model's colour). */
+  avatar: { group: AvatarGroup; model: string; color?: string };
   status: MemberStatus;
   seatId: string | null;
   x: number;

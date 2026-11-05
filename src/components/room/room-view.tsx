@@ -133,7 +133,7 @@ function ParticipantPoll({ poll, myVote, onVote, isGuest }: { poll: PollViewDto;
 export function RoomView({ roomId }: { roomId: string }) {
   const [boot] = useState(() => ({
     pass: typeof window === "undefined" ? null : sessionStorage.getItem(`ao-pass-${roomId}`),
-    avatar: typeof window === "undefined" ? null : readSession<{ group: AvatarGroup; model: string }>(`ao-avatar-${roomId}`),
+    avatar: typeof window === "undefined" ? null : readSession<{ group: AvatarGroup; model: string; color?: string }>(`ao-avatar-${roomId}`),
     // The room owner chose "attend as a participant" on the invite page.
     asParticipant: typeof window !== "undefined" && sessionStorage.getItem(`ao-mode-${roomId}`) === "participant",
   }));

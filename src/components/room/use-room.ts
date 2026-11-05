@@ -52,7 +52,7 @@ export class MemberStore {
   correction: { x: number; z: number } | null = null;
 }
 
-export function useRoom(roomId: string, opts: { pass: string | null; avatar: { group: AvatarGroup; model: string } | null; asParticipant?: boolean }) {
+export function useRoom(roomId: string, opts: { pass: string | null; avatar: { group: AvatarGroup; model: string; color?: string } | null; asParticipant?: boolean }) {
   const store = useRef(new MemberStore()).current;
   const [s, setS] = useState<RoomSession>({
     conn: "connecting",

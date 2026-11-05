@@ -88,13 +88,39 @@ export const AVATARS: Record<AvatarGroup, { label: string; models: AvatarModel[]
   vehicles: {
     label: "Xe",
     models: [
-      { id: "sedan", label: "Sedan", color: "#3a86ff" },
-      { id: "suv", label: "SUV", color: "#2b2d42" },
-      { id: "pickup", label: "Bán tải", color: "#d62828" },
-      { id: "mini", label: "Xe nhỏ", color: "#ffbe0b" },
+      // Ids kept from the first version (saved choices stay valid); drawn after VinFast models.
+      { id: "mini", label: "VF 3", color: "#f2c230" },
+      { id: "suv", label: "VF 7", color: "#1d4f91" },
+      { id: "sedan", label: "Limo Green", color: "#1f8f7a" },
+      { id: "pickup", label: "VF Wild (bán tải)", color: "#6b7078" },
     ],
   },
 };
+
+/** Paint colours a driver may pick for the car (any car model). */
+export const CAR_COLORS: { hex: string; label: string }[] = [
+  { hex: "#f2f2ee", label: "Trắng" },
+  { hex: "#b8bcc2", label: "Bạc" },
+  { hex: "#6b7078", label: "Xám" },
+  { hex: "#16181c", label: "Đen" },
+  { hex: "#c8102e", label: "Đỏ" },
+  { hex: "#e8702a", label: "Cam" },
+  { hex: "#f2c230", label: "Vàng" },
+  { hex: "#8cc63f", label: "Xanh cốm" },
+  { hex: "#1f8f7a", label: "Xanh ngọc" },
+  { hex: "#5bc0de", label: "Xanh da trời" },
+  { hex: "#1d4f91", label: "Xanh dương" },
+  { hex: "#6a4c93", label: "Tím" },
+  { hex: "#e98aa6", label: "Hồng" },
+  { hex: "#7a1f2b", label: "Đỏ đô" },
+];
+
+/** A colour from the palette (lower-case hex) or undefined; only cars may be repainted. */
+export function validAvatarColor(group: string, color: unknown): string | undefined {
+  if (group !== "vehicles" || typeof color !== "string") return undefined;
+  const c = color.toLowerCase();
+  return CAR_COLORS.some((x) => x.hex === c) ? c : undefined;
+}
 
 export function isValidAvatar(group: string, model: string): group is AvatarGroup {
   const g = AVATARS[group as AvatarGroup];

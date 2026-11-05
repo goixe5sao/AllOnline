@@ -3,7 +3,7 @@ import type { WebSocket } from "ws";
 import { z } from "zod";
 import type { Db } from "./db";
 import type { Auth } from "./auth";
-import { buildLayout, isValidAvatar, type AvatarGroup } from "@/core/maps";
+import { buildLayout, isValidAvatar, validAvatarColor, type AvatarGroup } from "@/core/maps";
 import { RoomEngine } from "@/core/room-engine";
 import { advanceVideo, applyScreenAction, BLANK_SCREEN, currentPosition, PLAYLIST_MAX, screenContentSchema, YOUTUBE_END_MODES, type ScreenState } from "@/core/screen";
 import { knownDuration } from "./youtube";
@@ -52,7 +52,7 @@ interface LiveRoom {
 
 const num = z.number().finite();
 const msgSchema = z.union([
-  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), avatar: z.object({ group: z.string(), model: z.string() }).optional(), asParticipant: z.boolean().optional() }),
+  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), avatar: z.object({ group: z.string(), model: z.string(), color: z.string().max(16).optional() }).optional(), asParticipant: z.boolean().optional() }),
   z.object({ t: z.literal("leave") }),
   z.object({ t: z.literal("move"), x: num, z: num, rotY: num }),
   z.object({ t: z.literal("claim"), seatId: z.string().max(10) }),
@@ -651,7 +651,7 @@ export class Hub {
       const cap = this.settings.ip_max_participants;
       if (cap > 0 && sameIp >= cap) return this.error(c, "IP_LIMIT_PARTICIPANT", ERROR_TEXT.IP_LIMIT_PARTICIPANT);
       this.participantIp.set(uid, { ip: c.ipHash, device: c.deviceId });
-      const r = room.engine.join(uid, c.user.display_name, { group: m.avatar.group as AvatarGroup, model: m.avatar.model }, Date.now());
+      const r = room.engine.join(uid, c.user.display_name, { group: m.avatar.group as AvatarGroup, model: m.avatar.model, color: validAvatarColor(m.avatar.group, m.avatar.color) }, Date.now());
       if (!r.ok) {
         this.participantIp.delete(uid);
         this.flush(room);

@@ -15,6 +15,7 @@ import type { MemberStore } from "./use-room";
 import { HumanLod, HumanModel, POSE_HEIGHTS, type Pose } from "./people";
 import { GlamStage } from "./stage-fx";
 import { UltraFx } from "./ultra-fx";
+import { CarModel, carSize } from "./cars";
 
 /** Participants may only tilt the view a little (±12°) — they turn around themselves instead. */
 export const PITCH_RANGE = 0.21;
@@ -71,52 +72,20 @@ function AnimalModel({ model, color }: { model: string; color: string }) {
   );
 }
 
-const CAR_DIMS: Record<string, { w: number; h: number; l: number; cabin: [number, number, number, number]; bed?: boolean }> = {
-  sedan: { w: 1.8, h: 0.6, l: 4.4, cabin: [1.6, 0.5, 2.2, 0.1] },
-  suv: { w: 1.9, h: 0.85, l: 4.6, cabin: [1.75, 0.6, 2.8, 0.2] },
-  pickup: { w: 1.9, h: 0.8, l: 5.2, cabin: [1.75, 0.6, 1.8, -0.9], bed: true },
-  mini: { w: 1.6, h: 0.6, l: 3.4, cabin: [1.5, 0.55, 2.0, 0.1] },
-};
-
-function CarModel({ model, color }: { model: string; color: string }) {
-  const d = CAR_DIMS[model] ?? CAR_DIMS.sedan;
-  return (
-    <group>
-      <mesh position={[0, 0.35 + d.h / 2, 0]}>
-        <boxGeometry args={[d.w, d.h, d.l]} />
-        <meshStandardMaterial color={color} metalness={0.3} roughness={0.5} />
-      </mesh>
-      <mesh position={[0, 0.35 + d.h + d.cabin[1] / 2, d.cabin[3]]}>
-        <boxGeometry args={[d.cabin[0], d.cabin[1], d.cabin[2]]} />
-        <meshStandardMaterial color="#1b2a35" transparent opacity={0.75} />
-      </mesh>
-      {[
-        [-1, -1],
-        [1, -1],
-        [-1, 1],
-        [1, 1],
-      ].map(([sx, sz]) => (
-        <mesh key={`${sx}${sz}`} position={[(sx * d.w) / 2, 0.35, (sz * d.l) / 3]} rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.35, 0.35, 0.25, 12]} />
-          <meshStandardMaterial color="#111" />
-        </mesh>
-      ))}
-      {[-1, 1].map((s) => (
-        <mesh key={s} position={[(s * d.w) / 3, 0.35 + d.h * 0.6, -d.l / 2 - 0.01]}>
-          <boxGeometry args={[0.3, 0.12, 0.02]} />
-          <meshStandardMaterial color="#fff6d0" emissive="#ffe9a0" emissiveIntensity={0.6} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-function SimpleModel({ group, color }: { group: string; color: string }) {
+function SimpleModel({ group, model, color }: { group: string; model: string; color: string }) {
+  const car = carSize(model);
+  // far away: body + dark cabin, same size as the detailed car
   return group === "vehicles" ? (
-    <mesh position={[0, 0.8, 0]}>
-      <boxGeometry args={[1.8, 1.1, 4.2]} />
-      <meshBasicMaterial color={color} />
-    </mesh>
+    <group>
+      <mesh position={[0, 0.65, 0]}>
+        <boxGeometry args={[car.w, 0.7, car.l]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <mesh position={[0, 1.0 + (car.h - 1.0) / 2, model === "pickup" ? -0.4 : 0.15]}>
+        <boxGeometry args={[car.w * 0.84, car.h - 1.0, model === "pickup" ? 1.9 : car.l * 0.55]} />
+        <meshBasicMaterial color="#15202a" />
+      </mesh>
+    </group>
   ) : (
     <mesh position={[0, 0.65, 0]}>
       <boxGeometry args={[0.5, 1.3, 0.5]} />
@@ -200,7 +169,7 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
 
   if (!m) return null;
   const model = AVATARS[m.avatar.group].models.find((x) => x.id === m.avatar.model);
-  const color = model?.color ?? "#888";
+  const color = m.avatar.color ?? model?.color ?? "#888";
   const bubble = store.bubbles.get(id);
   const showBubble = bubble && Date.now() - bubble.at < 8000;
   void bubbleTick;
@@ -211,7 +180,7 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
         {isPerson ? <HumanModel color={color} gender={model?.gender ?? "male"} hair={model?.hair ?? "#2b1d16"} pose={pose} /> : m.avatar.group === "animals" ? <AnimalModel model={m.avatar.model} color={color} /> : <CarModel model={m.avatar.model} color={color} />}
       </group>
       <group ref={simple} visible={false}>
-        {isPerson ? <HumanLod color={color} gender={model?.gender ?? "male"} pose={pose} /> : <SimpleModel group={m.avatar.group} color={color} />}
+        {isPerson ? <HumanLod color={color} gender={model?.gender ?? "male"} pose={pose} /> : <SimpleModel group={m.avatar.group} model={m.avatar.model} color={color} />}
       </group>
       {showBubble && (
         <Html position={[0, headTop, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>

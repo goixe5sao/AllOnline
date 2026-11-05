@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { vnEventTime } from "@/lib/vn-time";
 import { AppShell } from "@/components/app-shell";
 import { api, ApiError, fmtTime, useApi, type Me } from "@/lib/api";
-import { AVATARS, MAP_INFO, type AvatarGroup, type MapCode } from "@/core/maps";
+import { AVATARS, CAR_COLORS, MAP_INFO, type AvatarGroup, type MapCode } from "@/core/maps";
 import dynamic from "next/dynamic";
 
 // 3D preview of the chosen boy / girl (client only: WebGL).
@@ -134,7 +134,9 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
   const isAccount = !!me && !me.isGuest;
   const [name, setName] = useState(me?.displayName ?? "");
   const [password, setPassword] = useState("");
-  const [avatar, setAvatar] = useState<{ group: AvatarGroup; model: string }>({ group: r.avatarGroups[0], model: AVATARS[r.avatarGroups[0]].models[0].id });
+  const [avatar, setAvatar] = useState<{ group: AvatarGroup; model: string; color?: string }>({ group: r.avatarGroups[0], model: AVATARS[r.avatarGroups[0]].models[0].id });
+  /** Car paint (only for cars); undefined = the model's own colour. */
+  const [paint, setPaint] = useState<string | undefined>(undefined);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -161,7 +163,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
           if (!isAccount) await api("/api/guest", { body: { displayName: name } });
           const j = await api<{ roomId: string; pass: string }>("/api/join", { body: { inviteCode: code, password } });
           sessionStorage.setItem(`ao-pass-${j.roomId}`, j.pass);
-          sessionStorage.setItem(`ao-avatar-${j.roomId}`, JSON.stringify(avatar));
+          sessionStorage.setItem(`ao-avatar-${j.roomId}`, JSON.stringify(avatar.group === "vehicles" && paint ? { ...avatar, color: paint } : avatar));
           if (data.isOwner) sessionStorage.setItem(`ao-mode-${j.roomId}`, "participant");
           router.push(`/room/${j.roomId}`);
         } catch (e) {
@@ -216,7 +218,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
             <div className="choice-grid">
               {AVATARS[g].models.map((m) => (
                 <button type="button" key={m.id} data-model={m.id} className="choice" aria-pressed={avatar.group === g && avatar.model === m.id} onClick={() => setAvatar({ group: g, model: m.id })}>
-                  <span className="swatch" style={{ background: m.color }} />
+                  <span className="swatch" style={{ background: g === "vehicles" && paint ? paint : m.color }} />
                   {m.gender && <span aria-hidden>{m.gender === "female" ? "👧 " : "👦 "}</span>}
                   {m.label}
                 </button>
@@ -225,6 +227,18 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
           </div>
         ))}
         {avatar.group === "people" && <AvatarPreview model={avatar.model} />}
+        {avatar.group === "vehicles" && (
+          <>
+            <small>Màu xe</small>
+            <div className="car-colors" role="radiogroup" aria-label="Màu xe">
+              {CAR_COLORS.map((c) => {
+                const on = (paint ?? AVATARS.vehicles.models.find((x) => x.id === avatar.model)?.color) === c.hex;
+                return <button type="button" key={c.hex} role="radio" aria-checked={on} aria-label={c.label} title={c.label} className={`car-color${on ? " on" : ""}`} style={{ background: c.hex }} onClick={() => setPaint(c.hex)} />;
+              })}
+            </div>
+            <AvatarPreview group="vehicles" model={avatar.model} color={paint} />
+          </>
+        )}
       </div>
 
       {r.hasPassword && !data.isOwner && (
