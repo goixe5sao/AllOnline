@@ -141,7 +141,10 @@ function SimpleModel({ group, color }: { group: string; color: string }) {
 
 const tmpV = new THREE.Vector3();
 /** Where the name tag sits on each kind of avatar (local coords; +x = the avatar's right side). */
-const SHOULDER: Record<string, [number, number, number]> = { people: [0.3, 0.95, 0], animals: [0.2, 0.75, 0], vehicles: [0, 1.5, 0] };
+/** Name tag at the centre of the body, on the vertical axis (stays centred whichever way the avatar turns). */
+const SHOULDER: Record<string, [number, number, number]> = { people: [0, 0.75, 0], animals: [0, 0.55, 0], vehicles: [0, 1.0, 0] };
+/** Just above the head: chat bubble and reaction pop. */
+const HEAD_TOP: Record<string, number> = { people: 1.5, animals: 1.4, vehicles: 1.9 };
 const tmpA = new THREE.Vector3();
 
 const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, portal, hand }: { id: string; store: MemberStore; layout: Layout; lite: boolean; bubbleTick: number; portal: React.RefObject<HTMLElement | null>; hand: boolean }) {
@@ -206,7 +209,6 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
 
   if (!m) return null;
   const color = AVATARS[m.avatar.group].models.find((x) => x.id === m.avatar.model)?.color ?? "#888";
-  const height = m.avatar.group === "vehicles" ? 2.2 : 1.6;
   const shoulder = SHOULDER[m.avatar.group];
   const bubble = store.bubbles.get(id);
   const showBubble = bubble && Date.now() - bubble.at < 8000;
@@ -221,11 +223,11 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
         <SimpleModel group={m.avatar.group} color={color} />
       </group>
       {showBubble && (
-        <Html position={[0, height + 0.15, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+        <Html position={[0, HEAD_TOP[m.avatar.group], 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
           <div className="bubble">{bubble!.text}</div>
         </Html>
       )}
-      <Html position={[0, height + 0.35, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+      <Html position={[0, HEAD_TOP[m.avatar.group], 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
         <div ref={pop} className="react-pop" style={{ display: "none" }} />
         {hand && (
           <div className="hand-pop" title="Đang giơ tay">
