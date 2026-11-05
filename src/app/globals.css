@@ -306,6 +306,9 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .hud-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 9px 10px; border-radius: 8px; border: 0; background: transparent; color: #eef3f1; font: inherit; text-align: left; cursor: pointer; }
 .hud-menu-row:hover { background: rgb(255 255 255 / 0.08); }
 .hud-menu-row input[type="range"] { width: 120px; }
+.gfx-seg { display: inline-flex; border: 1px solid rgb(255 255 255 / 0.2); border-radius: 8px; overflow: hidden; }
+.gfx-seg button { border: 0; background: transparent; color: #cfd8e3; font: inherit; font-size: 13px; padding: 5px 9px; cursor: pointer; }
+.gfx-seg button.on { background: linear-gradient(135deg, #3df5ff, #8b5cff); color: #08061a; font-weight: 600; }
 .hud-menu-note { opacity: 0.6; padding: 4px 10px 2px; font-size: 11px; }
 @media (max-width: 1080px) { .hud-top .lbl { display: none; } .hud-top .hud-btn { padding: 6px 10px; min-width: 40px; } }
 @media (max-width: 760px) { .hud-top { gap: 6px; padding: 6px 8px; } .hud-sub { display: none; } .hud-top .title { font-size: 14px; } }

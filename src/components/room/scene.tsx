@@ -14,6 +14,7 @@ import { REACTION_EMOJI, type ClientMsg, type RoomRole, type StageAd } from "@/c
 import type { MemberStore } from "./use-room";
 import { HumanLod, HumanModel, POSE_HEIGHTS, type Pose } from "./people";
 import { GlamStage } from "./stage-fx";
+import { UltraFx } from "./ultra-fx";
 
 /** Participants may only tilt the view a little (±12°) — they turn around themselves instead. */
 export const PITCH_RANGE = 0.21;
@@ -757,6 +758,9 @@ export interface SceneProps {
   send: (m: ClientMsg) => void;
   screen: ReactNode;
   lite: boolean;
+  /** "Siêu đẹp": bloom glow (viewer's choice, falls back on its own when the device is slow). */
+  ultra?: boolean;
+  onSlow?: () => void;
   paused: boolean;
   domElement: HTMLElement | null;
   portal: React.RefObject<HTMLElement | null>;
@@ -803,6 +807,7 @@ export function RoomScene(p: SceneProps) {
           <Avatar key={id} id={id} store={p.store} layout={p.layout} lite={p.lite} bubbleTick={p.bubbleTick} portal={p.portal} hand={!!p.hands?.has(id)} />
         ))}
       </World>
+      {p.ultra && !p.lite && <UltraFx onSlow={p.onSlow} />}
       <AdClickTarget layout={p.layout} ad={p.ad} domElement={p.domElement} />
       {p.role === "participant" && <SeatClickTarget layout={p.layout} domElement={p.domElement} occupied={occupied} onSeatClick={p.onSeatClick} onSeatDoubleClick={p.onSeatDoubleClick} />}
       {p.role === "participant" ? (

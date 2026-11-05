@@ -145,7 +145,14 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [panel, setPanel] = useState<"owner" | "seats" | "qa" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [lite, setLite] = useState(false);
+  const [gfx, setGfx] = useState<"lite" | "full" | "ultra">("full");
+  const lite = gfx === "lite";
+  const chooseGfx = (v: "lite" | "full" | "ultra") => {
+    setGfx(v);
+    try {
+      localStorage.setItem("ao-gfx", v);
+    } catch {}
+  };
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(true);
   const [chatText, setChatText] = useState("");
@@ -221,7 +228,9 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   useEffect(() => {
     try {
-      setLite(localStorage.getItem("ao-lite") === "1");
+      const g = localStorage.getItem("ao-gfx");
+      if (g === "lite" || g === "full" || g === "ultra") setGfx(g);
+      else if (localStorage.getItem("ao-lite") === "1") setGfx("lite"); // older setting
     } catch {}
     setTouch(window.matchMedia("(pointer: coarse)").matches);
     setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -418,6 +427,11 @@ export function RoomView({ roomId }: { roomId: string }) {
           controls={controls}
           send={send}
           lite={lite}
+          ultra={gfx === "ultra"}
+          onSlow={() => {
+            chooseGfx("full");
+            setNote("Máy hơi chậm với đồ hoạ Siêu đẹp — đã tự chuyển về Đầy đủ.");
+          }}
           paused={fullView}
           domElement={wrap}
           portal={wrapRef}
@@ -551,21 +565,22 @@ export function RoomView({ roomId }: { roomId: string }) {
             <span>🔊 Âm lượng</span>
             <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Âm lượng" />
           </label>
-          <button
-            role="menuitemcheckbox"
-            aria-checked={!lite}
-            className="hud-menu-row"
-            onClick={() => {
-              const v = !lite;
-              setLite(v);
-              try {
-                localStorage.setItem("ao-lite", v ? "1" : "0");
-              } catch {}
-            }}
-          >
+          <div className="hud-menu-row" role="radiogroup" aria-label="Đồ hoạ">
             <span>✨ Đồ hoạ</span>
-            <b>{lite ? "Nhẹ" : "Đầy đủ"}</b>
-          </button>
+            <span className="gfx-seg">
+              {(
+                [
+                  ["lite", "Nhẹ", "Ít hiệu ứng, cho máy yếu"],
+                  ["full", "Đầy đủ", "Mặc định"],
+                  ["ultra", "Siêu đẹp", "Đèn toả sáng thật — cần máy khoẻ, tự hạ về Đầy đủ nếu máy chậm"],
+                ] as const
+              ).map(([v, t, d]) => (
+                <button key={v} type="button" role="radio" aria-checked={gfx === v} className={gfx === v ? "on" : ""} title={d} onClick={() => chooseGfx(v)}>
+                  {t}
+                </button>
+              ))}
+            </span>
+          </div>
           <button
             role="menuitemcheckbox"
             aria-checked={bellOn}
