@@ -2,7 +2,7 @@ import puppeteer from "puppeteer-core";
 import { orb } from "./orb.mjs";
 /**
  * "Phòng trải nghiệm" in real Chrome (limit set to 1 minute/day to keep the test short):
- *  - the home page lists the 2 demo rooms (created automatically) with host / seats;
+ *  - the home page lists the 3 demo rooms (created automatically) with host / seats;
  *  - visitor A becomes the host: to-do list, library-only text, YouTube link → ticked;
  *  - visitor B sees the host seat taken, enters as a guest; camera = preview only;
  *  - A's minute runs out → A is shown "hết thời gian" with the sign-up button, the room resets
@@ -60,7 +60,7 @@ const a = await page();
 await a.goto(BASE + "/", { waitUntil: "networkidle0" });
 await a.waitForSelector("#trai-nghiem .demo-card", { timeout: 20000 });
 const cards = await a.$$eval("#trai-nghiem .demo-card h3", (h) => h.map((x) => x.textContent));
-check(cards.length === 2 && /Hội trường/.test(cards[0]) && /Bãi đỗ xe/.test(cards[1]), `home: 2 demo rooms (${cards.join(" | ")})`);
+check(cards.length === 3 && /Hội trường/.test(cards[0]) && /Bãi đỗ xe/.test(cards[1]) && /Phòng họp/.test(cards[2]), `home: 3 demo rooms (${cards.join(" | ")})`);
 check(/Chủ phòng: trống/.test(await text(a, "#trai-nghiem .demo-card")), "home: host seat free");
 check(/1 phút mỗi ngày/.test(await text(a, "#trai-nghiem")), "home: explains the daily minutes");
 check((await a.$$eval(".f-try", (x) => x.length)) >= 4, "feature brochures link to “Thử ngay”");

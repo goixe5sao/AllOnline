@@ -3,7 +3,7 @@
  * no slots, open "forever") and the minutes each device / network used today.
  */
 import type { Db, Queryable } from "../db";
-import type { MapCode } from "@/core/maps";
+import { MAP_INFO, type MapCode } from "@/core/maps";
 import { DEMO_SHOWCASE, demoDay } from "@/core/demo";
 import { getRoom, insertRoom, type RoomRow } from "./rooms";
 import { getSettings } from "./settings";
@@ -14,6 +14,7 @@ const DEMO_WAITING = 6;
 const DEFAULT_DEMOS: { map: MapCode; name: string }[] = [
   { map: "hall", name: "Phòng trải nghiệm 1 · Hội trường" },
   { map: "drive_in", name: "Phòng trải nghiệm 2 · Bãi đỗ xe" },
+  { map: "meeting", name: "Phòng trải nghiệm 3 · Phòng họp" },
 ];
 
 /** Open demo rooms, oldest first. */
@@ -27,7 +28,7 @@ export async function listDemoRooms(q: Queryable): Promise<RoomRow[]> {
   return out;
 }
 
-/** A new demo room on a map: 3 seats + a small waiting area, Hành tinh tương lai stage, no end date. */
+/** A new demo room on a map: 3 seats + a small waiting area, Hành tinh tương lai stage (furnished rooms: their own look), no end date. */
 export async function createDemoRoom(db: Db, ownerId: string, map: MapCode, name: string): Promise<RoomRow> {
   return db.tx(async (q) => {
     const s = await getSettings(q);
@@ -45,7 +46,7 @@ export async function createDemoRoom(db: Db, ownerId: string, map: MapCode, name
         durationHours: 1,
         isPublic: false,
         password: "",
-        stageStyle: "glam",
+        stageStyle: MAP_INFO[map].furnished ? "plain" : "glam",
         initialScreen: DEMO_SHOWCASE[0],
       } as Parameters<typeof insertRoom>[2],
       s,
@@ -60,25 +61,28 @@ export async function createDemoRoom(db: Db, ownerId: string, map: MapCode, name
   });
 }
 
-let ensured = false;
+let ensuring: Promise<void> | null = null;
 /**
- * The two default demo rooms exist as soon as there is an app owner to own them (first call only;
- * the admin can close / add more later). Returns the open demo rooms.
+ * One demo room of each default type exists as soon as there is an app owner to own them. Each
+ * type is created once ever: one the admin closed on purpose stays closed (they can add more).
+ * Returns the open demo rooms.
  */
 export async function ensureDemoRooms(db: Db): Promise<RoomRow[]> {
-  const rooms = await listDemoRooms(db);
-  if (rooms.length || ensured) return rooms;
-  const s = await getSettings(db);
-  if (s.demo_minutes_per_day <= 0) return rooms;
-  // created once ever: if the admin closed them all on purpose they stay closed
-  const ever = (await db.query("select 1 from app.rooms where is_demo limit 1")).rows.length > 0;
-  const owner = (await db.query<{ id: string }>("select id from app.users where role = 'app_owner' order by created_at limit 1")).rows[0];
-  if (ever || !owner) {
-    ensured = ever;
-    return rooms;
+  if (!ensuring) {
+    ensuring = (async () => {
+      const s = await getSettings(db);
+      const owner = (await db.query<{ id: string }>("select id from app.users where role = 'app_owner' order by created_at limit 1")).rows[0];
+      if (s.demo_minutes_per_day <= 0 || !owner) return void (ensuring = null); // try again later
+      for (const d of DEFAULT_DEMOS) {
+        const ever = (await db.query("select 1 from app.rooms where is_demo and map_code = $1 limit 1", [d.map])).rows.length > 0;
+        if (!ever) await createDemoRoom(db, owner.id, d.map, d.name);
+      }
+    })().catch((e) => {
+      ensuring = null;
+      throw e;
+    });
   }
-  ensured = true;
-  for (const d of DEFAULT_DEMOS) await createDemoRoom(db, owner.id, d.map, d.name);
+  await ensuring;
   return listDemoRooms(db);
 }
 

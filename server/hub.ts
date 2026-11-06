@@ -760,7 +760,7 @@ export class Hub {
       case "claim":
       case "change_seat":
       case "accept_invite": {
-        const chair = room.row.owner_id === uid || room.mods.has(uid); // may take the chairperson's seat
+        const chair = room.row.owner_id === uid || room.mods.has(uid) || room.demo?.hostId === uid; // may take the chairperson's seat
         const r = m.t === "claim" ? room.engine.claimSeat(uid, m.seatId, now, chair) : m.t === "change_seat" ? room.engine.changeSeat(uid, m.seatId, chair) : room.engine.acceptInvite(uid, now);
         if (!r.ok) this.error(c, r.code);
         this.flush(room);
@@ -1015,6 +1015,12 @@ export class Hub {
         room.demo.hostName = c.user.display_name;
         logRoomEvent(this.db, room.row.id, uid, "demo_host", {}).catch(() => {});
       } else demoNote = `${room.demo.hostName ?? "Một người khác"} đang làm chủ phòng — bạn vào làm khách nhé.`;
+    }
+    // Demo meeting room: the demo host sits in the chairperson's seat (when it is free).
+    if (room.demo?.hostId === uid && role === "participant") {
+      const chairSeat = room.engine.config.layout.seats.find((s) => s.chair);
+      const me = room.engine.members.get(uid);
+      if (chairSeat && me?.status === "seated" && me.seatId !== chairSeat.id && !room.engine.occupiedSeats().includes(chairSeat.id)) room.engine.changeSeat(uid, chairSeat.id, true);
     }
     if (role !== "participant") {
       const l = room.engine.config.layout;
