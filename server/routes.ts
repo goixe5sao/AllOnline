@@ -37,6 +37,7 @@ import {
   roomConfigSchema,
   transferOwnership,
   verifyPassword,
+  paidTowards,
 } from "./services/rooms";
 import { setDisplayName, type AppUser } from "./services/users";
 import { toHomeRoom } from "@/lib/home-data";
@@ -662,6 +663,8 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     if (!o || (o.user_id !== u.id && u.role !== "app_owner")) throw new AppError("NOT_FOUND", "Không tìm thấy đơn.", 404);
     const s = await getSettings(db);
     const qrConfigured = !!(s.qr_bank_bin && s.qr_account_no);
+    // a short transfer can be topped up: the QR then asks for what is still missing
+    const due = Math.max(0, Number(o.amount_vnd) - (o.status === "underpaid" ? await paidTowards(db, o.id) : 0));
     const { config, ...rest } = o;
     const safeConfig = { ...config, password: undefined };
     return {
@@ -669,12 +672,15 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
       payment: {
         qrConfigured,
         qrImageUrl: qrConfigured
-          ? `https://img.vietqr.io/image/${s.qr_bank_bin}-${s.qr_account_no}-compact2.png?amount=${o.amount_vnd}&addInfo=${encodeURIComponent(o.code)}&accountName=${encodeURIComponent(s.qr_account_name)}`
+          ? `https://img.vietqr.io/image/${s.qr_bank_bin}-${s.qr_account_no}-compact2.png?amount=${due}&addInfo=${encodeURIComponent(o.code)}&accountName=${encodeURIComponent(s.qr_account_name)}`
           : null,
         bankBin: s.qr_bank_bin,
         accountNo: s.qr_account_no,
         accountName: s.qr_account_name,
         transferNote: o.code,
+        due,
+        /** SePay watches the account: the room opens by itself when the money arrives. */
+        autoConfirm: !!cfg.sepayApiKey,
       },
       demoPayAvailable: cfg.mode === "demo",
       room: o.room_id ? await getRoom(db, o.room_id).then((r) => r && { id: r.id, invite_code: r.invite_code, name: r.name }) : null,

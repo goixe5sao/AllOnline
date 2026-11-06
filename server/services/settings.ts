@@ -70,7 +70,7 @@ export async function slotBudget(q: Queryable): Promise<SlotBudget> {
     await q.query<{ budget: number; allocated: number; held: number }>(
       `select (select total_slot_budget from app.settings where id = 1) as budget,
         (select coalesce(sum(total_slots), 0)::int from app.rooms where slots_released_at is null) as allocated,
-        (select coalesce(sum(slots), 0)::int from app.orders where kind = 'create_room' and status = 'pending' and hold_expires_at > now()) as held`,
+        (select coalesce(sum(slots), 0)::int from app.orders where kind = 'create_room' and status in ('pending', 'underpaid') and hold_expires_at > now()) as held`,
     )
   ).rows[0];
   return summarizeBudget(Number(r.budget), Number(r.allocated), Number(r.held));

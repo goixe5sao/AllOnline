@@ -30,7 +30,7 @@ const say = async (p, text) => {
 // ---- 1. a newcomer signs up by chatting with the bot (simulator lives on /account of any member) ----
 const helper = await page();
 await helper.goto(BASE + "/login", { waitUntil: "networkidle0" });
-check(await helper.evaluate(() => document.body.textContent?.includes("bot Sân Khấu Online trên Zalo")), "login page offers the Zalo bot");
+check(await helper.evaluate(() => [...document.querySelectorAll(".login-tabs [role=tab]")].some((t) => t.textContent?.includes("Zalo"))), "login page offers a Zalo tab");
 await helper.screenshot({ path: `${OUT}/zalo-login.png` });
 await post(helper, "/api/auth/demo-login", { displayName: "Người thử bot" });
 await helper.goto(BASE + "/account", { waitUntil: "networkidle0" });
@@ -71,7 +71,8 @@ const sepay = await fetch(BASE + "/api/payments/sepay", {
   body: JSON.stringify({ id: Date.now(), gateway: "Vietcombank", transactionDate: "2026-11-05 20:01:00", accountNumber: "0123456789", content: `IBFT ${orderCode} thanh toan`, transferType: "in", transferAmount: orderView.order.amount_vnd, referenceCode: "FT1" }),
 });
 const sj = await sepay.json();
-check(sj.outcome === "fulfilled", `SePay transfer confirms the order (${sj.outcome})`);
+const paidView = await owner.evaluate(async (id) => (await (await fetch(`/api/orders/${id}`)).json()), order.body.orderId);
+check(sj.success === true && paidView.order.status === "paid", `SePay transfer confirms the order (${paidView.order.status})`);
 const bad = await fetch(BASE + "/api/payments/sepay", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Apikey wrong" }, body: "{}" });
 check(bad.status === 401, "SePay webhook rejects a wrong key");
 reply = await say(owner, "lịch");

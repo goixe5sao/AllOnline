@@ -225,7 +225,9 @@ export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth
       const tx = sepaySchema.parse(await readJson(req, 64 * 1024));
       const r = await recordBankTransfer(db, "sepay", tx);
       if (r.orderId) await afterPaid({ outcome: r.outcome, order: { id: r.orderId, kind: r.kind ?? "" }, roomId: r.roomId });
-      return { success: true, outcome: r.outcome };
+      console.log(`[sepay] tx ${tx.id} ${tx.transferType} ${tx.transferAmount} → ${r.outcome}${r.orderCode ? " " + r.orderCode : ""}`);
+      // SePay expects exactly {"success": true}; the outcome is kept in app.bank_transactions
+      return { success: true };
     },
     { public: true },
   );

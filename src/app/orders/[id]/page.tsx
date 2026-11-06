@@ -9,7 +9,7 @@ import { formatVnd, type Quote } from "@/core/pricing";
 
 interface OrderView {
   order: { id: string; code: string; kind: "create_room" | "extend_room"; status: string; amount_vnd: number; slots: number; hold_expires_at: string; quote: Quote; review_note: string | null; room_id: string | null; created_at: string };
-  payment: { qrConfigured: boolean; qrImageUrl: string | null; bankBin: string; accountNo: string; accountName: string; transferNote: string };
+  payment: { qrConfigured: boolean; qrImageUrl: string | null; bankBin: string; accountNo: string; accountName: string; transferNote: string; due: number; autoConfirm: boolean };
   demoPayAvailable: boolean;
   room: { id: string; invite_code: string; name: string } | null;
 }
@@ -45,6 +45,7 @@ export default function OrderPage() {
         if (!data) return <p className="muted">Đang tải…</p>;
         const o = data.order;
         const pending = o.status === "pending";
+        const topUp = o.status === "underpaid";
         return (
           <div className="stack">
             <div className="card stack">
@@ -69,11 +70,17 @@ export default function OrderPage() {
               {o.review_note && <p className="notice warn">{o.review_note}</p>}
             </div>
 
-            {pending && (
+            {(pending || topUp) && (
               <div className="card stack">
-                <p>
-                  Slot đang được giữ trong <Countdown until={o.hold_expires_at} />. Hết thời gian, đơn tự huỷ và trả slot.
-                </p>
+                {pending ? (
+                  <p>
+                    Slot đang được giữ trong <Countdown until={o.hold_expires_at} />. Hết thời gian, đơn tự huỷ và trả slot.
+                  </p>
+                ) : (
+                  <p className="notice warn">
+                    Còn thiếu <strong>{formatVnd(data.payment.due)}</strong>. Quét QR dưới đây (đã điền sẵn số tiền còn thiếu và nội dung <strong>{o.code}</strong>).
+                  </p>
+                )}
                 {data.payment.qrConfigured ? (
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -101,9 +108,15 @@ export default function OrderPage() {
                 ) : (
                   <p className="notice warn">Chủ ứng dụng chưa cấu hình tài khoản nhận QR.</p>
                 )}
-                <p className="notice">
-                  Quét QR hay chuyển khoản <strong>không tự động</strong> tạo phòng. Phòng chỉ được tạo khi chủ ứng dụng xác nhận đã nhận tiền, hoặc khi cổng thanh toán gửi webhook đã xác thực.
-                </p>
+                {data.payment.autoConfirm ? (
+                  <p className="notice ok">
+                    ⚡ Chuyển <strong>đúng số tiền</strong> và giữ nguyên nội dung <strong>{o.code}</strong>: tiền vào tài khoản là phòng <strong>tự mở trong vài giây</strong> — trang này tự cập nhật, không cần gửi ảnh.
+                  </p>
+                ) : (
+                  <p className="notice">
+                    Quét QR hay chuyển khoản <strong>không tự động</strong> tạo phòng. Phòng chỉ được tạo khi chủ ứng dụng xác nhận đã nhận tiền.
+                  </p>
+                )}
                 <div className="row">
                   {data.demoPayAvailable && (
                     <button

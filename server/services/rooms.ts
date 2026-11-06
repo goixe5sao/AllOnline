@@ -1,3 +1,4 @@
+import { formatVnd } from "@/core/pricing";
 import type { LiveMode } from "@/core/live";
 import { randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -403,13 +404,17 @@ export async function confirmPayment(
       await q.query("update app.orders set review_note = $2, updated_at = now() where id = $1", [order.id, `Nhận thêm thanh toán ${p.amount} (đơn đã thanh toán) — cần kiểm tra hoàn tiền.`]);
       return { outcome: "already_paid", order };
     }
-    if (p.amount < Number(order.amount_vnd)) {
+    // Bank transfers: a short payment can be topped up later (same transfer content) — add them up.
+    const earlier = await paidTowards(q, order.id);
+    const received = earlier + p.amount;
+    if (received < Number(order.amount_vnd)) {
       await record("underpaid");
-      await setOrder("underpaid", `Thiếu tiền: nhận ${p.amount}, cần ${order.amount_vnd}.`);
+      await setOrder("underpaid", `Thiếu tiền: đã nhận ${formatVnd(received)}, cần ${formatVnd(Number(order.amount_vnd))}. Chuyển thêm ${formatVnd(Number(order.amount_vnd) - received)} với cùng nội dung ${order.code}.`);
       return { outcome: "underpaid", order };
     }
+    // a short transfer keeps the slots held until the hold ends (the customer is topping up)
 
-    const holdValid = order.status === "pending" && new Date(order.hold_expires_at).getTime() > Date.now();
+    const holdValid = (order.status === "pending" || order.status === "underpaid") && new Date(order.hold_expires_at).getTime() > Date.now();
     const s = await getSettings(q);
 
     if (order.kind === "create_room") {
@@ -433,7 +438,7 @@ export async function confirmPayment(
       if (cfg.passwordHashed && cfg.password) await q.query("update app.rooms set password_hash = $2 where id = $1", [room.id, cfg.password]);
       const outcome = holdValid ? "fulfilled" : "fulfilled_late";
       await record(outcome);
-      await setOrder(holdValid ? "paid" : "paid_late", p.amount > Number(order.amount_vnd) ? `Thừa tiền: nhận ${p.amount}.` : null, room.id);
+      await setOrder(holdValid ? "paid" : "paid_late", received > Number(order.amount_vnd) ? `Thừa tiền: đã nhận ${formatVnd(received)} (đơn ${formatVnd(Number(order.amount_vnd))}).` : earlier ? `Đã nhận đủ sau ${formatVnd(earlier)} + ${formatVnd(p.amount)}.` : null, room.id);
       return { outcome, order, roomId: room.id };
     }
 
@@ -459,6 +464,12 @@ export async function confirmPayment(
     await setOrder(holdValid ? "paid" : "paid_late", null);
     return { outcome, order, roomId: order.room_id! };
   });
+}
+
+/** Money already received for an order that was short (underpaid transfers, to be topped up). */
+export async function paidTowards(q: Queryable, orderId: string): Promise<number> {
+  const r = await q.query<{ s: number }>("select coalesce(sum(amount_vnd), 0)::float8 as s from app.payments where order_id = $1 and outcome = 'underpaid'", [orderId]);
+  return Number(r.rows[0]?.s ?? 0);
 }
 
 export async function cancelOrder(db: Db, userId: string, orderId: string) {
