@@ -64,6 +64,8 @@ export interface RoomRow {
   stage_style: "plain" | "glam";
   /** Who may go live with their camera (see core/live). */
   live_mode: LiveMode;
+  /** "Phòng trải nghiệm": always open, not billed, no slots, minutes per person per day. */
+  is_demo: boolean;
   expires_at: Date;
   closed_at: Date | null;
   slots_released_at: Date | null;
@@ -77,7 +79,7 @@ export interface RoomRow {
 
 export function roomColumns(alias = "") {
   const p = alias ? alias + "." : "";
-  return ["id", "owner_id", "name", "description", "map_code", "avatar_groups", "official_capacity", "waiting_enabled", "waiting_capacity", "total_slots", "entry_mode", "invite_code", "status", "is_trial", "starts_at", "expires_at", "closed_at", "slots_released_at", "screen_state", "is_public", "open_ended", "scheduled_at", "stage_style", "live_mode", "created_at"]
+  return ["id", "owner_id", "name", "description", "map_code", "avatar_groups", "official_capacity", "waiting_enabled", "waiting_capacity", "total_slots", "entry_mode", "invite_code", "status", "is_trial", "starts_at", "expires_at", "closed_at", "slots_released_at", "screen_state", "is_public", "open_ended", "scheduled_at", "stage_style", "live_mode", "is_demo", "created_at"]
     .map((c) => p + c)
     .concat(`${p}hourly_rate_vnd::float8 as hourly_rate_vnd`, `(${p}password_hash is not null) as has_password`)
     .join(", ");
@@ -166,7 +168,7 @@ export async function previewQuote(db: Db, userId: string, cfg: RoomConfig, prom
 /** Open-ended rooms get a far-away technical expiry; they end when the owner (or the app owner) closes them. */
 const OPEN_ENDED_YEARS = 100;
 
-async function insertRoom(q: Queryable, ownerId: string, cfg: RoomConfig, s: Settings, opts: { trial: boolean; orderId?: string; waitingRatio: number; hourlyRate?: number | null }) {
+export async function insertRoom(q: Queryable, ownerId: string, cfg: RoomConfig, s: Settings, opts: { trial: boolean; orderId?: string; waitingRatio: number; hourlyRate?: number | null }) {
   const waiting = waitingCapacity(cfg.officialCapacity, cfg.waitingEnabled, opts.waitingRatio);
   const screen: ScreenState = cfg.initialScreen ? { ...BLANK_SCREEN, content: cfg.initialScreen, updatedAt: Date.now(), rev: 1 } : BLANK_SCREEN;
   let room: RoomRow | undefined;
@@ -614,7 +616,7 @@ export async function listPublicRooms(q: Queryable): Promise<PublicRoomRow[]> {
       `select r.id, r.name, r.description, r.map_code, r.official_capacity, r.waiting_capacity, r.entry_mode, r.invite_code, r.open_ended,
         r.expires_at, r.created_at, r.scheduled_at, (r.password_hash is not null) as has_password, u.display_name as owner_name
        from app.rooms r join app.users u on u.id = r.owner_id
-       where r.is_public and r.status = 'open' and r.slots_released_at is null and r.expires_at > now()
+       where r.is_public and not r.is_demo and r.status = 'open' and r.slots_released_at is null and r.expires_at > now()
        order by r.created_at desc limit 60`,
     )
   ).rows;
@@ -641,7 +643,7 @@ export async function getRoomByInvite(q: Queryable, code: string): Promise<(Room
 
 export async function listRooms(q: Queryable, filter: { ownerId?: string }) {
   const rows = filter.ownerId
-    ? await q.query<RoomRow>(`select ${ROOM_COLUMNS} from app.rooms where owner_id = $1 order by created_at desc limit 200`, [filter.ownerId])
+    ? await q.query<RoomRow>(`select ${ROOM_COLUMNS} from app.rooms where owner_id = $1 and not is_demo order by created_at desc limit 200`, [filter.ownerId])
     : await q.query<RoomRow & { owner_name: string }>(
         `select ${roomColumns("r")}, u.display_name as owner_name from app.rooms r join app.users u on u.id = r.owner_id order by r.created_at desc limit 500`,
       );

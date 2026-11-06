@@ -516,3 +516,17 @@
 @media (prefers-reduced-motion: reduce) {
   .home *, .home *::before, .home *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- Phòng trải nghiệm ---- */
+.demo-lead { max-width: 820px; margin: 0 0 16px; line-height: 1.6; }
+.demo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+.demo-card { border-radius: 16px; overflow: hidden; background: var(--h-card); border: 1px solid var(--h-line); display: flex; flex-direction: column; }
+.demo-card img { width: 100%; aspect-ratio: 16 / 7; object-fit: cover; display: block; }
+.demo-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+.demo-body h3 { margin: 0; font-size: 1.05rem; }
+.demo-status { margin: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--h-muted); font-size: 0.9rem; }
+.demo-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.demo-actions .disabled { opacity: 0.45; pointer-events: none; }
+.f-try { display: inline-block; margin-top: 6px; font-size: 0.85rem; color: var(--h-lime); text-decoration: none; }
+.f-try:hover { text-decoration: underline; }
+

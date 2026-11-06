@@ -5,13 +5,48 @@ import { JoinCode } from "./join-code";
 
 const SIGNUP = "/login?mode=signup&next=%2Frooms%2Fnew";
 
-export const FEATURES: { icon: string; title: string; text: string }[] = [
-  { icon: "🛸", title: "Một màn hình cho mọi người", text: "YouTube, live camera (chủ phòng duyệt), biểu đồ chứng khoán VN từng phút, hình ảnh — đồng bộ theo giờ máy chủ." },
-  { icon: "🤖", title: "Nhân vật đại diện", text: "Người, động vật hay xe; ngồi ghế, quay nhìn quanh, xem từ phía sau 2 hàng." },
-  { icon: "👽", title: "Chat với người ngồi gần", text: "Chỉ người ở gần nhận được, như thì thầm trong rạp. Không lưu lại." },
-  { icon: "🗳️", title: "Bình chọn trực tiếp", text: "Kết quả hiện ngay trên sân khấu; có thể chỉ cho tài khoản đã đăng ký." },
-  { icon: "📱", title: "Mọi thiết bị", text: "Máy tính, máy tính bảng, điện thoại — chạy trên trình duyệt, không cài đặt." },
-  { icon: "∞", title: "Theo giờ hoặc vô thời hạn", text: "Dùng thử, gói giờ, hoặc mở đến khi tắt: cọc trước, tính đúng giờ đã dùng." },
+/** Feature brochures; `demo` = can be tried in the "Phòng trải nghiệm" right away. */
+export const FEATURES: { icon: string; title: string; text: string; demo?: boolean }[] = [
+  {
+    icon: "🛸",
+    title: "Một màn hình cho mọi người",
+    text: "Chủ phòng chọn thứ cả phòng cùng xem trên màn hình sân khấu: video YouTube (lặp lại hoặc chiếu tiếp cả danh sách), biểu đồ chứng khoán Việt Nam cập nhật từng phút, hình ảnh, chữ, kết quả bình chọn. Ai vào lúc nào cũng thấy đúng đoạn đang chiếu, vì mọi thứ chạy theo giờ máy chủ.",
+    demo: true,
+  },
+  {
+    icon: "🎥",
+    title: "Live camera lên sân khấu",
+    text: "Chủ phòng (hoặc khán giả được chủ phòng duyệt) phát hình và tiếng từ camera, micro lên màn hình cho cả phòng — như MC trên sân khấu thật. Chủ phòng duyệt từng người xin lên sóng và cắt sóng bất cứ lúc nào; không ghi lại.",
+    demo: true,
+  },
+  {
+    icon: "🤖",
+    title: "Nhân vật đại diện",
+    text: "Mỗi người là một nhân vật 3D — người, động vật hay xe hơi (có xe theo mẫu VinFast, tự chọn màu). Ngồi ghế, quay nhìn quanh, hoặc xem từ phía sau 2 hàng để thấy cả mình lẫn sân khấu.",
+    demo: true,
+  },
+  {
+    icon: "👽",
+    title: "Chat với người ngồi gần",
+    text: "Tin nhắn chỉ đến người ở gần bạn, như thì thầm trong rạp, và không được lưu lại. Thêm thả cảm xúc bay lên sân khấu, giơ tay xin phát biểu, đặt câu hỏi cho chủ phòng.",
+    demo: true,
+  },
+  {
+    icon: "🗳️",
+    title: "Bình chọn & Hỏi đáp trực tiếp",
+    text: "Tạo bình chọn trong vài giây, kết quả nhảy ngay trên màn hình sân khấu. Khán giả đặt câu hỏi và bấm ▲ cho câu muốn nghe; chủ phòng đưa câu hay nhất lên màn hình.",
+    demo: true,
+  },
+  {
+    icon: "📱",
+    title: "Mọi thiết bị, không cài đặt",
+    text: "Chạy trên trình duyệt của máy tính, máy tính bảng và điện thoại. Khách chỉ cần link mời và một cái tên — không cần tài khoản. Máy yếu thì tự giảm đồ hoạ.",
+  },
+  {
+    icon: "∞",
+    title: "Theo giờ hoặc vô thời hạn",
+    text: "Dùng thử miễn phí, mua gói theo giờ, hoặc mở phòng vô thời hạn: đặt cọc trước, tắt phòng khi xong, hệ thống tính đúng số giờ đã dùng và hoàn phần dư. Thanh toán bằng quét mã VietQR — tiền vào là phòng tự mở.",
+  },
 ];
 
 export const FAQ: { q: string; a: string }[] = [
@@ -143,6 +178,11 @@ export function Lobby({ pricing }: { pricing: HomePricing | null }) {
                   <div>
                     <h3>{f.title}</h3>
                     <p>{f.text}</p>
+                    {f.demo && (
+                      <a className="f-try" href="#trai-nghiem">
+                        Thử ngay trong phòng trải nghiệm →
+                      </a>
+                    )}
                   </div>
                 </div>
               ))}

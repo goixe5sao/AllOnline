@@ -9,6 +9,7 @@ import { JoinCode } from "@/components/home/join-code";
 import { LightSwitch } from "@/components/home/light-switch";
 import { FAQ, Lobby } from "@/components/home/lobby";
 import { MyRooms } from "@/components/home/my-rooms";
+import { DemoRooms } from "@/components/home/demo-rooms";
 import { Spotlight } from "@/components/home/spotlight";
 import { StageSlides } from "@/components/home/stage-slides";
 import "./home.css";
@@ -128,6 +129,7 @@ export default async function Home() {
         </section>
 
         <div className="floor" id="sanh">
+          <DemoRooms />
           <MyRooms />
           <Lobby pricing={pricing} />
         </div>

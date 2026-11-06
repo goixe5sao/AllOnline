@@ -13,6 +13,7 @@ import { QaPanel, ReactionStream } from "./engage";
 import { AlienOrb } from "./orb-menu";
 import { useRoom } from "./use-room";
 import { LiveAudio, LivePanel, useLivePublisher, useLiveViewer } from "./live";
+import { DEMO_OVER_TEXT, DemoClock, DemoOver, type Mission } from "./demo";
 
 function readSession<T>(key: string): T | null {
   try {
@@ -137,6 +138,8 @@ export function RoomView({ roomId }: { roomId: string }) {
     avatar: typeof window === "undefined" ? null : readSession<{ group: AvatarGroup; model: string; color?: string }>(`ao-avatar-${roomId}`),
     // The room owner chose "attend as a participant" on the invite page.
     asParticipant: typeof window !== "undefined" && sessionStorage.getItem(`ao-mode-${roomId}`) === "participant",
+    // "Phòng trải nghiệm": the visitor chose "Vào làm chủ phòng" on the invite page
+    demoHost: typeof window !== "undefined" && sessionStorage.getItem(`ao-demo-host-${roomId}`) === "1",
   }));
   const { session: s, store, send, serverNow, leave } = useRoom(roomId, boot);
   // Live camera: watching whoever is on air, and this device's own camera when broadcasting.
@@ -144,6 +147,29 @@ export function RoomView({ roomId }: { roomId: string }) {
   const liveView = useLiveViewer(roomId, s.live, selfId);
   const pub = useLivePublisher(roomId, send);
   const onAirSelf = !!s.live?.onAir && s.live.onAir.userId === selfId;
+  // Demo host: the to-do list ticks as things get done
+  const isDemoHost = !!s.demo && s.demo.hostId === selfId && !!selfId;
+  const [missions, setMissions] = useState<Set<Mission>>(() => new Set());
+  const tick = (k: Mission) => setMissions((m) => (m.has(k) ? m : new Set([...m, k])));
+  const scrKind = s.screen.content.kind;
+  const lightsNow = s.room?.stageLights;
+  const [lights0, setLights0] = useState<boolean | undefined>(undefined);
+  useEffect(() => {
+    if (!isDemoHost) return;
+    if (scrKind === "youtube") tick("youtube");
+    if (scrKind === "chart") tick("chart");
+  }, [isDemoHost, scrKind]);
+  useEffect(() => {
+    if (!isDemoHost || lightsNow === undefined) return;
+    if (lights0 === undefined) setLights0(lightsNow);
+    else if (lights0 !== lightsNow) tick("lights");
+  }, [isDemoHost, lightsNow, lights0]);
+  useEffect(() => {
+    if (isDemoHost && s.polls.length) tick("poll");
+  }, [isDemoHost, s.polls.length]);
+  useEffect(() => {
+    if (isDemoHost && pub.preview) tick("camera");
+  }, [isDemoHost, pub.preview]);
   // Cut by a moderator / replaced / live switched off: stop the camera here too.
   const pubLive = pub.state === "live";
   const pubStop = pub.stop;
@@ -389,6 +415,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         <div className="card stack">
           <h1>Phiên tham dự đã kết thúc</h1>
           <p>{s.endReason}</p>
+          {(s.endReason === DEMO_OVER_TEXT || s.endReason?.includes("thời gian trải nghiệm")) && <DemoOver />}
           {s.endReason?.includes("tab hoặc thiết bị khác") && (
             <button className="btn primary" onClick={() => window.location.reload()}>
               Dùng ở tab này (tab kia sẽ dừng)
@@ -493,6 +520,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           </span>
         )}
         {s.role === "observer" && <span className="hud-chip">Quan sát</span>}
+        {s.demo && <DemoClock demo={s.demo} waiting={me?.status === "waiting"} isHost={isDemoHost} />}
       </div>
 
       {isParticipant && p && p.status !== "seated" && (
@@ -730,9 +758,10 @@ export function RoomView({ roomId }: { roomId: string }) {
           onClose={() => setPanel(null)}
           live={s.live}
           onOpenCamera={() => setPanel("live")}
+          demo={isDemoHost && !s.you.isRoomOwner ? { missions } : null}
         />
       )}
-      {panel === "live" && s.live && <LivePanel live={s.live} selfId={s.you.userId} isMod={canModerate} send={send} pub={pub} onClose={() => setPanel(null)} />}
+      {panel === "live" && s.live && <LivePanel live={s.live} selfId={s.you.userId} isMod={canModerate} send={send} pub={pub} onClose={() => setPanel(null)} previewOnly={!!s.demo && !s.you.isRoomOwner} />}
       <LiveAudio stream={onAirSelf ? null : liveView.stream} volume={volume} muted={muted} />
       {panel === "qa" && (
         <QaPanel

@@ -3,6 +3,7 @@ import type { PersonalState, PublicMember } from "./room-engine";
 import type { ScreenAction, ScreenState } from "./screen";
 import type { Candle } from "./market";
 import type { LiveDto, LiveMode } from "./live";
+import type { DemoDto } from "./demo";
 
 /** Persistent promo strip shown at the bottom of every stage screen. */
 export interface StageAd {
@@ -58,7 +59,7 @@ export interface RoomInfoDto {
 }
 
 export type ClientMsg =
-  | { t: "join"; roomId: string; pass?: string; /** reconnect after a drop (not the first join of this page) */ resume?: boolean; avatar?: { group: AvatarGroup; model: string; color?: string }; asParticipant?: boolean }
+  | { t: "join"; roomId: string; pass?: string; /** reconnect after a drop (not the first join of this page) */ resume?: boolean; /** demo room: try being the host */ demoHost?: boolean; avatar?: { group: AvatarGroup; model: string; color?: string }; asParticipant?: boolean }
   | { t: "leave" }
   /** Sent when the page is being closed / reloaded: the server keeps the place only briefly. */
   | { t: "bye" }
@@ -113,6 +114,7 @@ export type ServerMsg =
       questions: QuestionDto[];
       myQuestionVotes: string[];
       live: LiveDto;
+      demo: DemoDto | null;
     }
   | { t: "members"; upsert: PublicMember[]; remove: { userId: string; reason: string }[] }
   | { t: "you"; personal: PersonalState | null }
@@ -123,7 +125,7 @@ export type ServerMsg =
   | { t: "room"; expiresAt: number }
   | { t: "ad"; ad: StageAd | null }
   | { t: "room_closed"; reason: string }
-  | { t: "kicked" }
+  | { t: "kicked"; reason?: "demo_over" }
   | { t: "session_replaced" }
   | { t: "corrected"; x: number; z: number }
   | { t: "error"; code: string; message: string }
@@ -137,6 +139,7 @@ export type ServerMsg =
   | { t: "stage_style"; style: "glam" | "plain" }
   | { t: "stage_lights"; on: boolean }
   | { t: "live"; live: LiveDto }
+  | { t: "demo"; demo: DemoDto }
   /** Latest 1-minute bars incl. the forming one, pushed ~every second during the session. */
   | { t: "market"; symbol: string; bars: Candle[] };
 

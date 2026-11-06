@@ -17,6 +17,8 @@ import { askQuestion, getQuestion, listModerators, listQuestions, myQuestionVote
 import type { MarketService } from "./market/service";
 import { askLive, denyLive, goOnAir, grantLive, initialLive, LIVE_MODES, mayPublish, setLiveMode, stopLive, type LiveDto, type LiveState } from "@/core/live";
 import type { LiveMeter, RealtimeClient } from "./live";
+import { DEMO_SHOWCASE, DEMO_SHOWCASE_MS, demoContentAllowed, demoSecondsLeft, type DemoDto } from "@/core/demo";
+import { addDemoUsage, demoUsage } from "./services/demo";
 
 /** Place kept after the page was closed / reloaded on purpose (a reload comes back within it). */
 const CLOSED_TAB_HOLD_MS = 15_000;
@@ -39,6 +41,8 @@ interface Client {
   msgWindowStart: number;
   ipHash: string;
   deviceId: string;
+  /** Demo room visitor: usage keys (device, network), seconds counted / saved, seconds left at join. */
+  demo?: { keys: string[]; used: number; saved: number; left0: number };
 }
 
 interface LiveRoom {
@@ -63,11 +67,13 @@ interface LiveRoom {
   live: LiveState;
   /** Broadcaster's socket gone since (ms) — taken off air if they do not come back. */
   liveGoneAt?: number;
+  /** Demo room: the visitor trying the owner controls, and the showcase loop shown without one. */
+  demo?: { hostId: string | null; hostName: string | null; showIdx: number; showAt: number };
 }
 
 const num = z.number().finite();
 const msgSchema = z.union([
-  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), resume: z.boolean().optional(), avatar: z.object({ group: z.string(), model: z.string(), color: z.string().max(16).optional() }).optional(), asParticipant: z.boolean().optional() }),
+  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), resume: z.boolean().optional(), demoHost: z.boolean().optional(), avatar: z.object({ group: z.string(), model: z.string(), color: z.string().max(16).optional() }).optional(), asParticipant: z.boolean().optional() }),
   z.object({ t: z.literal("leave") }),
   z.object({ t: z.literal("bye") }),
   z.object({ t: z.literal("move"), x: num, z: num, rotY: num }),
@@ -259,6 +265,7 @@ export class Hub {
 
   /** Socket gone: participants keep their place for the reconnect grace period. */
   private detach(client: Client, leave: boolean) {
+    this.saveDemo(client);
     const room = client.roomId ? this.rooms.get(client.roomId) : null;
     if (room) {
       room.clients.delete(client);
@@ -307,6 +314,7 @@ export class Hub {
       const screen = (row.screen_state as ScreenState)?.content ? (row.screen_state as ScreenState) : BLANK_SCREEN;
       const mods = new Set((await listModerators(this.db, roomId)).map((m) => m.userId));
       const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 }, lights: true, live: initialLive(row.live_mode ?? "approve") };
+      if (row.is_demo) r.demo = { hostId: null, hostName: null, showIdx: 0, showAt: Date.now() };
       this.rooms.set(roomId, r);
       return r;
     })().finally(() => this.loading.delete(roomId));
@@ -331,6 +339,120 @@ export class Hub {
       stageStyle: row.stage_style ?? "plain",
       stageLights: lights,
     };
+  }
+
+  // ---------- "Phòng trải nghiệm" (demo rooms) ----------
+
+  /** The demo host tries the owner controls, but not the risky ones (free text / pictures, kick, live broadcast). */
+  private demoLimited(room: LiveRoom, uid: string) {
+    return !!room.row.is_demo && room.demo?.hostId === uid && room.row.owner_id !== uid && !room.mods.has(uid);
+  }
+
+  isDemoHost(roomId: string, uid: string) {
+    return this.rooms.get(roomId)?.demo?.hostId === uid;
+  }
+
+  private demoDto(room: LiveRoom, c: Client): DemoDto {
+    const limitSec = (this.settings.demo_minutes_per_day ?? 5) * 60;
+    return {
+      hostId: room.demo?.hostId ?? null,
+      hostName: room.demo?.hostName ?? null,
+      leftSec: c.demo ? Math.max(0, c.demo.left0 - c.demo.used) : limitSec,
+      limitSec,
+      unlimited: !c.demo,
+    };
+  }
+
+  private broadcastDemo(room: LiveRoom) {
+    for (const c of room.clients) this.send(c, { t: "demo", demo: this.demoDto(room, c) });
+  }
+
+  /** Seconds counted for a device / network on live connections but not saved yet. */
+  private unsavedDemo(key: string) {
+    let n = 0;
+    for (const c of this.clients) if (c.demo?.keys.includes(key)) n += c.demo.used - c.demo.saved;
+    return n;
+  }
+
+  private saveDemo(c: Client) {
+    if (!c.demo) return;
+    const delta = c.demo.used - c.demo.saved;
+    if (delta <= 0) return;
+    c.demo.saved = c.demo.used;
+    addDemoUsage(this.db, c.demo.keys, delta).catch((e) => console.error("[demo] usage", e));
+  }
+
+  /** Every second in a demo room: count minutes (not while waiting), time out, host gone → reset, showcase. */
+  private demoTick(room: LiveRoom, now: number) {
+    const d = room.demo!;
+    for (const c of [...room.clients]) {
+      if (!c.demo) continue;
+      const m = room.engine.members.get(c.user.id);
+      if (!m || m.status === "waiting") continue;
+      c.demo.used++;
+      if (c.demo.used % 30 === 0) this.saveDemo(c);
+      if (c.demo.used >= c.demo.left0) {
+        this.send(c, { t: "kicked", reason: "demo_over" });
+        this.detach(c, true);
+        c.ws.close(4003, "demo_over");
+      }
+    }
+    if (d.hostId && !room.engine.members.has(d.hostId)) this.demoReset(room, now);
+    if (!d.hostId && now - d.showAt >= DEMO_SHOWCASE_MS) {
+      d.showIdx = (d.showIdx + 1) % DEMO_SHOWCASE.length;
+      d.showAt = now;
+      room.screen = applyScreenAction(room.screen, { action: "set", content: DEMO_SHOWCASE[d.showIdx] }, now);
+      this.broadcast(room, { t: "screen", state: room.screen });
+    }
+  }
+
+  /** The host left / timed out: give the next person a clean room. */
+  private demoReset(room: LiveRoom, now: number) {
+    const d = room.demo!;
+    const was = d.hostName;
+    d.hostId = null;
+    d.hostName = null;
+    d.showIdx = 0;
+    d.showAt = now;
+    room.screen = applyScreenAction(room.screen, { action: "set", content: DEMO_SHOWCASE[0] }, now);
+    void saveScreenState(this.db, room.row.id, room.screen).catch(() => {});
+    room.lights = true;
+    room.hands.clear();
+    if (room.live.onAir) this.liveEnded(room, room.live.onAir, null, "demo_reset");
+    room.live = initialLive(room.live.mode === "off" ? "off" : "approve");
+    void this.db
+      .query("update app.polls set status = 'closed' where room_id = $1 and status <> 'closed'", [room.row.id])
+      .then(async () => {
+        for (const p of await listPolls(this.db, room.row.id)) this.broadcast(room, { t: "poll", poll: p });
+      })
+      .catch((e) => console.error("[demo] reset polls", e));
+    logRoomEvent(this.db, room.row.id, null, "demo_reset", { host: was }).catch(() => {});
+    this.broadcast(room, { t: "screen", state: room.screen });
+    this.broadcast(room, { t: "stage_lights", on: true });
+    this.sendHands(room);
+    this.broadcastLive(room);
+    this.broadcastDemo(room);
+  }
+
+  /** Home page: seats taken and the host of each demo room. */
+  demoInfo(roomId: string) {
+    const room = this.rooms.get(roomId);
+    if (!room) return { seated: 0, waiting: 0, hostName: null, hostLeftSec: null };
+    let seated = 0;
+    let waiting = 0;
+    for (const m of room.engine.members.values()) {
+      if (m.status === "waiting") waiting++;
+      else seated++;
+    }
+    const host = room.demo?.hostId ? [...room.clients].find((c) => c.user.id === room.demo!.hostId) : undefined;
+    return { seated, waiting, hostName: room.demo?.hostName ?? null, hostLeftSec: host?.demo ? Math.max(0, host.demo.left0 - host.demo.used) : room.demo?.hostId ? 0 : null };
+  }
+
+  /** Seconds this device / network has left today (for the home page / invite page). */
+  async demoLeft(deviceKey: string, ipKey: string) {
+    const limitSec = (this.settings.demo_minutes_per_day ?? 5) * 60;
+    const u = await demoUsage(this.db, [deviceKey, ipKey]);
+    return { leftSec: demoSecondsLeft(limitSec, u[deviceKey] + this.unsavedDemo(deviceKey), u[ipKey] + this.unsavedDemo(ipKey)), limitSec };
   }
 
   // ---------- live camera ----------
@@ -392,6 +514,7 @@ export class Hub {
     const room = this.rooms.get(roomId);
     const c = this.byUser.get(userId);
     if (!room || !c || c.roomId !== roomId) throw new AppError("NOT_IN_ROOM", "Bạn chưa ở trong phòng.", 403);
+    if (room.row.is_demo && room.row.owner_id !== userId && !room.mods.has(userId)) throw new AppError("DEMO_LIMITED", "Bản trải nghiệm chỉ cho xem trước camera của bạn — mở phòng thật để live cho mọi người.", 403);
     if (!mayPublish(room.live, userId, this.isMod(room, userId))) throw new AppError("LIVE_NOT_ALLOWED", "Bạn chưa được chủ phòng cho lên sóng.", 403);
     if (this.liveQuota().blocked) throw new AppError("LIVE_QUOTA", "Đã hết hạn mức live của tháng này. Liên hệ quản trị để nâng trần.", 403);
     return { room, name: c.user.display_name };
@@ -481,7 +604,7 @@ export class Hub {
   }
 
   private isMod(room: LiveRoom, uid: string) {
-    return room.row.owner_id === uid || room.mods.has(uid);
+    return room.row.owner_id === uid || room.mods.has(uid) || (!!room.demo && room.demo.hostId === uid);
   }
 
   private sendHands(room: LiveRoom) {
@@ -559,6 +682,7 @@ export class Hub {
     for (const room of this.rooms.values()) {
       room.engine.tick(now);
       this.autoAdvanceVideo(room, now);
+      if (room.demo) this.demoTick(room, now);
       this.pushLiveMarket(room);
       for (const [id, m] of room.ownerInbox) if (now - m.at > 120_000) room.ownerInbox.delete(id);
       this.flush(room);
@@ -669,6 +793,7 @@ export class Hub {
           this.advanceVideo(room, now, uid, "screen_yt_next", true);
           return;
         }
+        if (m.action === "set" && this.demoLimited(room, uid) && !demoContentAllowed(m.content)) return this.error(c, "DEMO_LIBRARY", "Bản trải nghiệm: chữ và hình chọn trong thư viện mẫu (video YouTube thì dán link nào cũng được).");
         room.screen = applyScreenAction(room.screen, m, now);
         if (room.screen.content.kind === "youtube") knownDuration(room.screen.content.videoId); // learn the length early
         await saveScreenState(this.db, room.row.id, room.screen);
@@ -678,6 +803,7 @@ export class Hub {
       }
       case "promote_chat": {
         requireOwner();
+        if (this.demoLimited(room, uid)) return this.error(c, "DEMO_LIMITED", "Bản trải nghiệm không có chức năng này — mở phòng thật (dùng thử miễn phí) để dùng đủ.");
         const msg = room.ownerInbox.get(m.id);
         if (!msg) return this.error(c, "INVALID", "Tin nhắn không còn khả dụng (chỉ giữ tạm 2 phút trong bộ nhớ).");
         room.screen = applyScreenAction(room.screen, { action: "set", content: { kind: "chat", text: msg.text, author: msg.name } }, now);
@@ -689,6 +815,7 @@ export class Hub {
       }
       case "kick": {
         requireOwner();
+        if (this.demoLimited(room, uid)) return this.error(c, "DEMO_LIMITED", "Bản trải nghiệm không có chức năng này — mở phòng thật (dùng thử miễn phí) để dùng đủ.");
         const r = room.engine.kick(m.userId, uid, now);
         if (!r.ok) this.error(c, r.code);
         this.flush(room);
@@ -765,6 +892,7 @@ export class Hub {
       }
       case "live_mode": {
         requireOwner();
+        if (this.demoLimited(room, uid)) return this.error(c, "DEMO_LIMITED", "Bản trải nghiệm không có chức năng này — mở phòng thật (dùng thử miễn phí) để dùng đủ.");
         if (room.live.mode === m.mode) return;
         const was = room.live.onAir;
         room.live = setLiveMode(room.live, m.mode);
@@ -855,6 +983,14 @@ export class Hub {
         }
       const cap = this.settings.ip_max_participants;
       if (cap > 0 && sameIp >= cap) return this.error(c, "IP_LIMIT_PARTICIPANT", ERROR_TEXT.IP_LIMIT_PARTICIPANT);
+      if (room.row.is_demo && !isOwner) {
+        const limitSec = (this.settings.demo_minutes_per_day ?? 5) * 60;
+        const keys = [`dev:${c.deviceId}`, `ip:${c.ipHash}`];
+        const used = await demoUsage(this.db, keys);
+        const left = demoSecondsLeft(limitSec, used[keys[0]] + this.unsavedDemo(keys[0]), used[keys[1]] + this.unsavedDemo(keys[1]));
+        if (limitSec <= 0 || left <= 0) return this.error(c, "DEMO_QUOTA", "Bạn đã dùng hết thời gian trải nghiệm hôm nay. Mai quay lại nhé — hoặc mở phòng dùng thử miễn phí của riêng bạn.");
+        c.demo = { keys, used: 0, saved: 0, left0: left };
+      }
       this.participantIp.set(uid, { ip: c.ipHash, device: c.deviceId });
       const r = room.engine.join(uid, c.user.display_name, { group: m.avatar.group as AvatarGroup, model: m.avatar.model, color: validAvatarColor(m.avatar.group, m.avatar.color) }, Date.now(), m.resume ? { after: process.uptime() < 300 ? "server_restart" : "hold_expired" } : undefined);
       if (!r.ok) {
@@ -867,6 +1003,15 @@ export class Hub {
     c.roomId = room.row.id;
     c.role = role;
     room.clients.add(c);
+    // Demo room: the first visitor asking for it becomes the host (until they leave / time runs out).
+    let demoNote: string | null = null;
+    if (room.demo && role === "participant" && m.demoHost && room.demo.hostId !== uid) {
+      if (!room.demo.hostId || !room.engine.members.has(room.demo.hostId)) {
+        room.demo.hostId = uid;
+        room.demo.hostName = c.user.display_name;
+        logRoomEvent(this.db, room.row.id, uid, "demo_host", {}).catch(() => {});
+      } else demoNote = `${room.demo.hostName ?? "Một người khác"} đang làm chủ phòng — bạn vào làm khách nhé.`;
+    }
     if (role !== "participant") {
       const l = room.engine.config.layout;
       room.engine.setObserver(uid, 0, (l.main.minZ + l.main.maxZ) / 2);
@@ -875,9 +1020,10 @@ export class Hub {
     this.send(c, {
       t: "welcome",
       role,
-      you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner, isModerator: room.mods.has(uid) },
+      you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner, isModerator: room.mods.has(uid) || room.demo?.hostId === uid },
       room: this.roomInfo(room.row, room.lights),
       live: this.liveDto(room),
+      demo: room.demo ? this.demoDto(room, c) : null,
       members: room.engine.publicMembers(),
       screen: room.screen,
       polls: await listPolls(this.db, room.row.id),
@@ -890,6 +1036,10 @@ export class Hub {
       questions: (await listQuestions(this.db, room.row.id)).filter((q) => q.status !== "hidden" || this.isMod(room, uid)),
       myQuestionVotes: await myQuestionVotes(this.db, room.row.id, uid),
     });
+    if (room.demo) {
+      this.broadcastDemo(room);
+      if (demoNote) this.send(c, { t: "error", code: "DEMO_HOST_TAKEN", message: demoNote });
+    }
   }
 
   private chat(room: LiveRoom, c: Client, raw: string, now: number) {

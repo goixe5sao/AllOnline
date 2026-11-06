@@ -1,3 +1,4 @@
+import { createDemoRoom, ensureDemoRooms } from "./services/demo";
 import type { RealtimeClient } from "./live";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -414,6 +415,37 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return hub.liveUsage();
   });
 
+  // ----- "Phòng trải nghiệm": demo rooms anyone can try for a few minutes a day -----
+  const demoKeys = (req: IncomingMessage) => ({ dev: `dev:${auth.deviceId(req) ?? "none"}`, ip: `ip:${auth.ipHash(clientIp(req))}` });
+
+  route(
+    "GET",
+    "/api/demo",
+    async ({ req }) => {
+      const s = await getSettings(db);
+      if (s.demo_minutes_per_day <= 0) return { enabled: false, rooms: [], leftSec: 0, limitSec: 0 };
+      const rooms = await ensureDemoRooms(db);
+      const k = demoKeys(req);
+      const me = await hub.demoLeft(k.dev, k.ip);
+      return {
+        enabled: rooms.length > 0,
+        leftSec: me.leftSec,
+        limitSec: me.limitSec,
+        rooms: rooms.map((r) => ({ id: r.id, name: r.name, map: r.map_code, inviteCode: r.invite_code, seats: r.official_capacity, ...hub.demoInfo(r.id) })),
+      };
+    },
+    { public: true },
+  );
+
+  /** App owner: add a demo room on a map (the two defaults are created automatically). */
+  route("POST", "/api/admin/demo-rooms", async (ctx) => {
+    const u = needUser(ctx);
+    if (u.role !== "app_owner") throw new AppError("FORBIDDEN", "Chỉ chủ ứng dụng.", 403);
+    const b = z.object({ map: z.enum(["hall", "carpet", "tables", "drive_in"]), name: z.string().trim().min(1).max(80) }).parse(await readJson(ctx.req));
+    const r = await createDemoRoom(db, u.id, b.map, b.name);
+    return { id: r.id, inviteCode: r.invite_code };
+  });
+
   /** Page closed / reloaded (navigator.sendBeacon): keep the place only briefly. */
   route("POST", "/api/rooms/:id/bye", async (ctx) => {
     const u = needAttendee(ctx); // guests too: most viewers have no account
@@ -424,7 +456,9 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   });
 
   route("POST", "/api/rooms/:id/stage-style", async (ctx) => {
-    const { u, room } = await moderatedRoom(ctx, ctx.params[0]);
+    const demoRoom = await getRoom(db, ctx.params[0]);
+    const viaDemo = !!demoRoom?.is_demo && !!ctx.user && hub.isDemoHost(demoRoom.id, ctx.user.id);
+    const { u, room } = viaDemo ? { u: ctx.user!, room: demoRoom! } : await moderatedRoom(ctx, ctx.params[0]);
     const b = z.object({ style: z.enum(["glam", "plain"]) }).parse(await readJson(ctx.req));
     await db.query("update app.rooms set stage_style = $2 where id = $1", [room.id, b.style]);
     await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'stage_style', $3)", [room.id, u.id, JSON.stringify({ style: b.style })]);
@@ -537,7 +571,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   route(
     "GET",
     "/api/invite/:code",
-    async ({ params, user }) => {
+    async ({ params, user, req }) => {
       const r = await getRoomByInvite(db, params[0]);
       if (!r || r.status !== "open") throw new AppError("NOT_FOUND", "Link mời không hợp lệ hoặc phòng đã đóng.", 404);
       const account = user && !user.is_guest ? user : null;
@@ -554,9 +588,11 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
           openEnded: r.open_ended,
           startsAt: r.scheduled_at ? new Date(r.scheduled_at).getTime() : null,
           isPublic: r.is_public,
+          isDemo: r.is_demo,
         },
         isOwner: !!user && user.id === r.owner_id,
-        guestJoinEnabled: (await getSettings(db)).guest_join_enabled,
+        guestJoinEnabled: r.is_demo || (await getSettings(db)).guest_join_enabled,
+        demo: r.is_demo ? { ...hub.demoInfo(r.id), ...(await hub.demoLeft(demoKeys(req).dev, demoKeys(req).ip)) } : null,
         reminded: account ? (await db.query("select 1 from app.room_reminders where room_id = $1 and user_id = $2", [r.id, account.id])).rows.length > 0 : false,
         zaloLinked: account ? await hasZalo(db, account.id) : false,
         zaloBot: zaloBotInfo(),
@@ -595,7 +631,6 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
 
   route("POST", "/api/join", async (ctx) => {
     const u = needAttendee(ctx);
-    if (u.is_guest && !(await getSettings(db)).guest_join_enabled) throw new AppError("GUEST_DISABLED", "Phòng yêu cầu đăng nhập tài khoản.", 403);
     const b = z.object({ inviteCode: z.string().max(20), password: z.string().max(64).default("") }).parse(await readJson(ctx.req));
     const lim = joinLimiter.get(u.id);
     const now = Date.now();
@@ -603,6 +638,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     joinLimiter.set(u.id, lim && now - lim.at < 60_000 ? { n: lim.n + 1, at: lim.at } : { n: 1, at: now });
     const r = await getRoomByInvite(db, b.inviteCode);
     if (!r || r.status !== "open") throw new AppError("NOT_FOUND", "Link mời không hợp lệ hoặc phòng đã đóng.", 404);
+    if (u.is_guest && !r.is_demo && !(await getSettings(db)).guest_join_enabled) throw new AppError("GUEST_DISABLED", "Phòng yêu cầu đăng nhập tài khoản.", 403);
     // The room owner does not need the room password to attend their own room.
     if (r.owner_id !== u.id && r.password_hash && !verifyPassword(b.password, r.password_hash)) throw new AppError("INVALID_ROOM_PASSWORD", "Mật mã phòng không đúng.", 403);
     return { roomId: r.id, pass: auth.roomPass(u.id, r.id) };

@@ -51,7 +51,8 @@ const httpsUrl = z
 export const screenContentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("blank") }),
   z.object({ kind: z.literal("text"), text: z.string().trim().min(1).max(500) }),
-  z.object({ kind: z.literal("image"), url: z.union([httpsUrl, z.string().regex(/^\/api\/uploads\/[0-9a-f-]{36}$/)]) }),
+  // https links, uploads, or the site's own sample pictures (demo room library)
+  z.object({ kind: z.literal("image"), url: z.union([httpsUrl, z.string().regex(/^\/api\/uploads\/[0-9a-f-]{36}$/), z.string().regex(/^\/(maps\/[a-z_]+\.webp|og\.png)$/)]) }),
   z.object({
     kind: z.literal("youtube"),
     videoId: ytId,
