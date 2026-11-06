@@ -58,11 +58,15 @@ export function StageSlides({ intro, initialRooms, maps }: { intro: ReactNode; i
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const load = () =>
+    // a room that ended while this page is open drops out at once (also if the refresh fails)
+    const alive = (r: HomeRoom) => r.openEnded || r.expiresAt > Date.now();
+    const load = () => {
+      setRooms((prev) => (prev.every(alive) ? prev : prev.filter(alive)));
       fetch("/api/rooms/public")
         .then((r) => (r.ok ? r.json() : null))
-        .then((d: { rooms: HomeRoom[] } | null) => d && setRooms(d.rooms))
+        .then((d: { rooms: HomeRoom[] } | null) => d && setRooms(d.rooms.filter(alive)))
         .catch(() => undefined);
+    };
     const id = setInterval(load, 20_000);
     return () => clearInterval(id);
   }, []);

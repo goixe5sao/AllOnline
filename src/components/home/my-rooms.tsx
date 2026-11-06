@@ -41,9 +41,23 @@ function SettlementLine({ s }: { s: NonNullable<MyRoom["settlement"]> }) {
   );
 }
 
+/** Closed, expired, or past its end time (the sweeper may not have closed it yet). */
+export function roomEnded(r: Pick<MyRoom, "status" | "open_ended" | "expires_at">, now = Date.now()) {
+  return r.status !== "open" || (!r.open_ended && new Date(r.expires_at).getTime() <= now);
+}
+
+/** Ended rooms stay in the main list only while money is still to be settled (open-ended bill). */
+export function splitMyRooms<T extends Pick<MyRoom, "status" | "open_ended" | "expires_at" | "settlement">>(rooms: T[], now = Date.now()) {
+  const shown: T[] = [];
+  const ended: T[] = [];
+  for (const r of rooms) (!roomEnded(r, now) || (r.settlement && r.settlement.status !== "settled") ? shown : ended).push(r);
+  return { shown, ended };
+}
+
 function MyRoomsList() {
   const { data, reload } = useApi<{ rooms: MyRoom[] }>("/api/rooms/mine", 15_000);
   const [err, setErr] = useState("");
+  const [showEnded, setShowEnded] = useState(false);
   if (!data) return <p className="muted-x">Đang tải phòng của bạn…</p>;
   if (!data.rooms.length)
     return (
@@ -51,11 +65,19 @@ function MyRoomsList() {
         Bạn chưa có phòng nào. <Link href="/rooms/new">Mở phòng đầu tiên →</Link>
       </p>
     );
+  const { shown, ended } = splitMyRooms(data.rooms);
+  const list = showEnded ? [...shown, ...ended] : shown;
   return (
-    <div className="mr-grid">
+    <div className="stack" style={{ gap: 12 }}>
+      {!shown.length && (
+        <p className="muted-x">
+          Không có phòng nào đang mở. <Link href="/rooms/new">Mở phòng mới →</Link>
+        </p>
+      )}
+      <div className="mr-grid">
       {err && <p className="mr-err">{err}</p>}
-      {data.rooms.map((r) => (
-        <article className="mr" key={r.id}>
+      {list.map((r) => (
+        <article className={`mr ${roomEnded(r) ? "ended" : ""}`} key={r.id}>
           <div className="mr-head">
             <h3>{r.name}</h3>
             <span className={`mr-status ${r.status === "open" ? "on" : ""}`}>{r.status === "open" ? "Đang mở" : r.status === "expired" ? "Hết hạn" : "Đã đóng"}</span>
@@ -104,6 +126,12 @@ function MyRoomsList() {
           </Link>
         </article>
       ))}
+      </div>
+      {ended.length > 0 && (
+        <button type="button" className="btn-ghost small mr-more" aria-expanded={showEnded} onClick={() => setShowEnded(!showEnded)}>
+          {showEnded ? "Ẩn phòng đã kết thúc" : `Xem ${ended.length} phòng đã kết thúc`}
+        </button>
+      )}
     </div>
   );
 }
