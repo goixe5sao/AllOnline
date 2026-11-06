@@ -445,7 +445,7 @@ export class Hub {
       else seated++;
     }
     const host = room.demo?.hostId ? [...room.clients].find((c) => c.user.id === room.demo!.hostId) : undefined;
-    return { seated, waiting, hostName: room.demo?.hostName ?? null, hostLeftSec: host?.demo ? Math.max(0, host.demo.left0 - host.demo.used) : room.demo?.hostId ? 0 : null };
+    return { seated, waiting, hostName: room.demo?.hostName ?? null, hostLeftSec: host?.demo ? Math.max(0, host.demo.left0 - host.demo.used) : null }; // null: no limit (room / app owner) or reconnecting
   }
 
   /** Seconds this device / network has left today (for the home page / invite page). */
