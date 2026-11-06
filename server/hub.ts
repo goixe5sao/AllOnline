@@ -760,7 +760,8 @@ export class Hub {
       case "claim":
       case "change_seat":
       case "accept_invite": {
-        const r = m.t === "claim" ? room.engine.claimSeat(uid, m.seatId, now) : m.t === "change_seat" ? room.engine.changeSeat(uid, m.seatId) : room.engine.acceptInvite(uid, now);
+        const chair = room.row.owner_id === uid || room.mods.has(uid); // may take the chairperson's seat
+        const r = m.t === "claim" ? room.engine.claimSeat(uid, m.seatId, now, chair) : m.t === "change_seat" ? room.engine.changeSeat(uid, m.seatId, chair) : room.engine.acceptInvite(uid, now);
         if (!r.ok) this.error(c, r.code);
         this.flush(room);
         return;
@@ -999,6 +1000,9 @@ export class Hub {
         return this.error(c, r.code);
       }
       role = "participant";
+      // Meeting room: the owner / a co-host sitting down takes the chairperson's seat when it is free.
+      const chairSeat = room.engine.config.layout.seats.find((s) => s.chair);
+      if (chairSeat && (isOwner || room.mods.has(uid)) && r.member.status === "seated" && r.member.seatId !== chairSeat.id && !room.engine.occupiedSeats().includes(chairSeat.id)) room.engine.changeSeat(uid, chairSeat.id, true);
     }
     c.roomId = room.row.id;
     c.role = role;

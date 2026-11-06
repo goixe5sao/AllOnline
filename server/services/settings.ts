@@ -1,3 +1,4 @@
+import { MAP_CODES } from "@/core/maps";
 import { z } from "zod";
 import type { Db, Queryable } from "../db";
 import { summarizeBudget, type SlotBudget } from "@/core/slots";
@@ -112,7 +113,7 @@ export const settingsPatchSchema = z
     qr_account_name: z.string().trim().max(80),
     upload_max_mb: z.number().int().min(1).max(50),
     upload_retention_days: z.number().int().min(1).max(3650),
-    enabled_maps: z.array(z.enum(["hall", "carpet", "tables", "drive_in"])).min(1),
+    enabled_maps: z.array(z.enum(MAP_CODES)).min(1),
     enabled_avatar_groups: z.array(z.enum(["people", "animals", "vehicles"])).min(1),
     guest_join_enabled: z.boolean(),
     stage_ad_enabled: z.boolean(),

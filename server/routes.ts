@@ -11,7 +11,7 @@ import type { Hub } from "./hub";
 import type { Storage } from "./storage";
 import { sniffMime } from "./storage";
 import { clientIp, readBody, readJson, sameOrigin, sendJson } from "./http";
-import { AVATARS, MAP_INFO } from "@/core/maps";
+import { AVATARS, MAP_CODES, MAP_INFO } from "@/core/maps";
 import { DEMO_WEB_URL } from "@/core/demo";
 import { CHART_INTERVALS, demoMarketProvider, type CandleResult } from "@/core/market";
 import type { MarketService } from "./market/service";
@@ -443,7 +443,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   route("POST", "/api/admin/demo-rooms", async (ctx) => {
     const u = needUser(ctx);
     if (u.role !== "app_owner") throw new AppError("FORBIDDEN", "Chỉ chủ ứng dụng.", 403);
-    const b = z.object({ map: z.enum(["hall", "carpet", "tables", "drive_in"]), name: z.string().trim().min(1).max(80) }).parse(await readJson(ctx.req));
+    const b = z.object({ map: z.enum(MAP_CODES), name: z.string().trim().min(1).max(80) }).parse(await readJson(ctx.req));
     const r = await createDemoRoom(db, u.id, b.map, b.name);
     return { id: r.id, inviteCode: r.invite_code };
   });

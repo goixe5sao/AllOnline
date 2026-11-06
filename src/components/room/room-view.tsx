@@ -186,7 +186,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [gfx, setGfx] = useState<"lite" | "full" | "ultra">("full");
   // Graphics levels only exist for the "Hành tinh tương lai" stage; a "Đơn sắc" room is one simple
   // look for everyone (the viewer's saved choice comes back when the owner switches the stage).
-  const glamRoom = s.room?.stageStyle === "glam";
+  const glamRoom = s.room?.stageStyle === "glam" && !(s.room && MAP_INFO[s.room.map].furnished);
   const gfxOn = glamRoom ? gfx : "full";
   const lite = gfxOn === "lite";
   // After an automatic fall-back, choosing "Siêu đẹp" again means "keep it": no more watchdog.
@@ -693,7 +693,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             { id: "screen", icon: "📺", label: "Xem màn hình", onClick: openFull },
             ...(isParticipant ? [{ id: "view", icon: behind ? "👁" : "🎥", label: behind ? "Góc của tôi" : "Xem từ sau", onClick: () => setBehind(!behind), active: !behind, stay: true }] : []),
             { id: "sound", icon: muted ? "🔇" : "🔊", label: muted ? "Bật tiếng" : "Tắt tiếng", onClick: () => setMuted(!muted), active: !muted, stay: true },
-            ...(canModerate ? [{ id: "lights", icon: s.room.stageLights ? "💡" : "🌑", label: s.room.stageLights ? "Tắt đèn sân khấu" : "Bật đèn sân khấu", onClick: () => send({ t: "stage_lights", on: !s.room!.stageLights }), active: s.room.stageLights, stay: true }] : []),
+            ...(canModerate ? [{ id: "lights", icon: s.room.stageLights ? "💡" : "🌑", label: `${s.room.stageLights ? "Tắt" : "Bật"} đèn ${MAP_INFO[s.room.map].furnished ? "phòng" : "sân khấu"}`, onClick: () => send({ t: "stage_lights", on: !s.room!.stageLights }), active: s.room.stageLights, stay: true }] : []),
             ...(s.live && (s.live.mode !== "off" || canModerate) && (isParticipant || canModerate) ? [{ id: "live", icon: onAirSelf ? "🔴" : "🎥", label: onAirSelf ? "Đang live" : "Live camera", onClick: () => setPanel(panel === "live" ? null : "live"), active: panel === "live" || onAirSelf }] : []),
             ...(isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" ? [{ id: "seats", icon: "💺", label: "Đổi chỗ", onClick: () => setPanel(panel === "seats" ? null : "seats"), active: panel === "seats" }] : []),
             { id: "settings", icon: "⚙️", label: "Cài đặt", onClick: () => setMoreOpen(!moreOpen), active: moreOpen },

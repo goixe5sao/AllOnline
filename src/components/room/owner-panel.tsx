@@ -1,6 +1,7 @@
 "use client";
 
 import { WebPanel } from "./web-panel";
+import { MAP_INFO } from "@/core/maps";
 import { DEMO_IMAGES, DEMO_TEXTS } from "@/core/demo";
 import { DemoMissions, type Mission } from "./demo";
 import type { LiveDto } from "@/core/live";
@@ -22,7 +23,7 @@ import { YouTubePanel } from "./youtube-panel";
 
 const STATUS_VI: Record<string, string> = { seated: "Đang ngồi", finding: "Đang tìm chỗ", invited: "Được mời vào chỗ", waiting: "Chờ ngoài cổng" };
 
-function StageStyleSwitch({ roomId, style, lights, send }: { roomId: string; style: "glam" | "plain"; lights: boolean; send: (m: ClientMsg) => void }) {
+function StageStyleSwitch({ roomId, style, lights, send, furnished }: { roomId: string; style: "glam" | "plain"; lights: boolean; send: (m: ClientMsg) => void; furnished?: boolean }) {
   const [err, setErr] = useState("");
   const set = async (s: "glam" | "plain") => {
     try {
@@ -33,16 +34,20 @@ function StageStyleSwitch({ roomId, style, lights, send }: { roomId: string; sty
   };
   return (
     <div className="stack" style={{ gap: 4 }}>
-      <small>Kiểu sân khấu (mọi người thấy ngay)</small>
+      <small>{furnished ? "Đèn phòng (tắt đèn = chế độ trình chiếu, mọi người thấy ngay)" : "Kiểu sân khấu (mọi người thấy ngay)"}</small>
       <div className="row">
-        <button className={`hud-btn ${style === "glam" ? "primary" : ""}`} aria-pressed={style === "glam"} onClick={() => set("glam")}>
-          🛸 Hành tinh tương lai
-        </button>
-        <button className={`hud-btn ${style === "plain" ? "primary" : ""}`} aria-pressed={style === "plain"} onClick={() => set("plain")}>
-          ◻ Đơn sắc
-        </button>
+        {!furnished && (
+          <>
+            <button className={`hud-btn ${style === "glam" ? "primary" : ""}`} aria-pressed={style === "glam"} onClick={() => set("glam")}>
+              🛸 Hành tinh tương lai
+            </button>
+            <button className={`hud-btn ${style === "plain" ? "primary" : ""}`} aria-pressed={style === "plain"} onClick={() => set("plain")}>
+              ◻ Đơn sắc
+            </button>
+          </>
+        )}
         <button className={`hud-btn ${lights ? "primary" : ""}`} aria-pressed={lights} onClick={() => send({ t: "stage_lights", on: !lights })}>
-          {lights ? "💡 Đèn sân khấu: bật" : "🌑 Đèn sân khấu: tắt"}
+          {furnished ? (lights ? "💡 Đèn phòng: bật" : "🌑 Đèn phòng: tắt") : lights ? "💡 Đèn sân khấu: bật" : "🌑 Đèn sân khấu: tắt"}
         </button>
       </div>
       {err && <small>{err}</small>}
@@ -501,7 +506,7 @@ export function OwnerPanel(p: {
       </div>
       {tab === "screen" && (
         <>
-          <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} lights={p.room.stageLights} send={p.send} />
+          <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} lights={p.room.stageLights} send={p.send} furnished={MAP_INFO[p.room.map].furnished} />
           <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} demo={!!p.demo} />
         </>
       )}

@@ -1,4 +1,4 @@
-import type { MapCode } from "@/core/maps";
+import { MAP_CODES, type MapCode } from "@/core/maps";
 
 /** A room its owner chose to show on the home page. */
 export interface HomeRoom {
@@ -49,12 +49,12 @@ export function registerHomeData(p: HomeDataProvider) {
 
 export async function getHomeData(): Promise<HomeData> {
   const p = (globalThis as Record<string, unknown>)[KEY] as HomeDataProvider | undefined;
-  if (!p) return { rooms: [], enabledMaps: ["hall", "carpet", "tables", "drive_in"], online: 0, pricing: null };
+  if (!p) return { rooms: [], enabledMaps: [...MAP_CODES], online: 0, pricing: null };
   try {
     return await p();
   } catch (e) {
     console.error("[home]", e);
-    return { rooms: [], enabledMaps: ["hall", "carpet", "tables", "drive_in"], online: 0, pricing: null };
+    return { rooms: [], enabledMaps: [...MAP_CODES], online: 0, pricing: null };
   }
 }
 

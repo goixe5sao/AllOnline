@@ -6,7 +6,7 @@ import type { Db, Queryable } from "../db";
 import { canReserve, waitingCapacity } from "@/core/slots";
 import { applyDiscount, quoteOpenEnded, quoteRoom, settleOpenEnded, type PriceTier, type Quote, type QuoteResult } from "@/core/pricing";
 import { checkPromo, redeemPromo } from "./promos";
-import { MAP_INFO, type MapCode } from "@/core/maps";
+import { MAP_CODES, MAP_INFO, type MapCode } from "@/core/maps";
 import { BLANK_SCREEN, screenContentSchema, type ScreenState } from "@/core/screen";
 import { getPriceTiers, getSettings, lockSlots, slotBudget, type Settings } from "./settings";
 
@@ -23,7 +23,7 @@ export class AppError extends Error {
 export const roomConfigSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(1000).default(""),
-  map: z.enum(["hall", "carpet", "tables", "drive_in"]),
+  map: z.enum(MAP_CODES),
   avatarGroups: z.array(z.enum(["people", "animals", "vehicles"])).min(1).max(3),
   officialCapacity: z.number().int().min(1),
   waitingEnabled: z.boolean(),

@@ -149,6 +149,7 @@ export const ERROR_TEXT: Record<string, string> = {
   ROOM_NOT_OPEN: "Phòng đã đóng hoặc hết hạn.",
   NO_PASS: "Bạn cần vào phòng qua link mời.",
   SEAT_TAKEN: "Chỗ này vừa có người khác ngồi.",
+  CHAIR_RESERVED: "Ghế chủ tọa dành cho chủ phòng / trợ lý.",
   TOO_FAR: "Hãy đến gần chỗ trống hơn rồi bấm “Vào chỗ”.",
   NOT_FINDING: "Bạn chưa được vào khu chính.",
   FIND_TIME_OVER: "Đã hết thời gian tìm chỗ.",

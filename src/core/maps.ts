@@ -6,7 +6,13 @@
  * rotY convention: forward vector = (-sin(rotY), 0, -cos(rotY)); rotY = 0 looks toward -z.
  */
 
-export type MapCode = "hall" | "carpet" | "tables" | "drive_in";
+/**
+ * Every room type ("MAP"). To add one: a code here, its MAP_INFO entry, a branch in buildLayout
+ * (seats + screen), and — for a furnished room — a kit in src/components/room/kits (walls,
+ * furniture, chairs). The database stores the code as text, so no migration is needed.
+ */
+export const MAP_CODES = ["hall", "carpet", "tables", "drive_in", "meeting"] as const;
+export type MapCode = (typeof MAP_CODES)[number];
 export type AvatarGroup = "people" | "animals" | "vehicles";
 export type EntryMode = "auto_assign" | "gate_entry";
 
@@ -21,6 +27,8 @@ export interface Seat {
   rank: number;
   /** Table id for the tables map. */
   group?: string;
+  /** The chairperson's seat (meeting room): only the owner / co-hosts may sit there. */
+  chair?: boolean;
 }
 
 export interface Rect {
@@ -47,12 +55,19 @@ export interface Layout {
   maxSpeed: number;
 }
 
-export const MAP_INFO: Record<MapCode, { name: string; description: string; groups: AvatarGroup[] }> = {
+/** furnished: the room has its own look (walls, furniture) — the stage styles do not apply. */
+export const MAP_INFO: Record<MapCode, { name: string; description: string; groups: AvatarGroup[]; furnished?: boolean }> = {
   hall: { name: "Hội trường ghế ngồi", description: "Ghế hướng về sân khấu, có lối đi giữa, cổng và khu chờ.", groups: ["people", "animals"] },
   carpet: { name: "Khu thảm ngồi", description: "Các tấm thảm hướng về màn hình chung.", groups: ["people", "animals"] },
   tables: { name: "Khu bàn", description: "Mỗi bàn 4 vị trí; mỗi vị trí là một chỗ chính thức.", groups: ["people", "animals"] },
   drive_in: { name: "Rạp chiếu ngoài trời từ ô tô", description: "Ô đỗ dốc dần về sau, so le để hạn chế xe trước che tầm nhìn. Buổi tối, ánh sáng dịu.", groups: ["vehicles"] },
+  meeting: { name: "Phòng họp", description: "Bàn họp dài, ghế có lưng dựa, ghế chủ tọa ở đầu bàn, màn chiếu gắn tường — như phòng họp văn phòng.", groups: ["people", "animals"], furnished: true },
 };
+
+/** Meeting room: chairs at the long table (both sides, before extra rows along the walls). */
+export const MEETING_TABLE_PER_SIDE = 10;
+export const MEETING_SEAT_GAP = 0.95;
+export const MEETING_TABLE_W = 1.5;
 
 export interface AvatarModel {
   id: string;
@@ -189,6 +204,33 @@ export function buildLayout(map: MapCode, capacity: number): Layout {
     }
     eyeHeight = 1.15;
     rowGap = 3;
+  } else if (map === "meeting") {
+    // Long table along z (its near end toward the screen wall); chairs on both sides, the
+    // chairperson at the far head. More people than the table holds: rows along the walls.
+    const others = Math.max(0, capacity - 1);
+    const perSide = Math.min(MEETING_TABLE_PER_SIDE, Math.ceil(others / 2));
+    const atTable = Math.min(others, perSide * 2);
+    const sideX = MEETING_TABLE_W / 2 + 0.5;
+    for (let i = 0; i < others; i++) {
+      if (i < atTable) {
+        const side = i % 2 ? 1 : -1;
+        const idx = Math.floor(i / 2);
+        raw.push({ x: side * sideX, z: 0.55 + idx * MEETING_SEAT_GAP, y: 0, rotY: 0, group: "table" });
+      } else {
+        const k = i - atTable;
+        const perWallRow = Math.max(1, perSide) * 2;
+        const wallRow = Math.floor(k / perWallRow);
+        const j = k % perWallRow;
+        const side = j % 2 ? 1 : -1;
+        raw.push({ x: side * (sideX + 1.2 + wallRow * 1.05), z: 0.55 + Math.floor(j / 2) * MEETING_SEAT_GAP, y: 0, rotY: 0, group: "wall" });
+      }
+    }
+    const tableEnd = 0.1 + Math.max(1, perSide) * MEETING_SEAT_GAP + 0.3;
+    raw.push({ x: 0, z: tableEnd + 0.75, y: 0, rotY: 0, chair: true, group: "head" });
+    eyeHeight = 1.15;
+    rowGap = MEETING_SEAT_GAP;
+    claimDistance = 1.5;
+    maxSpeed = 2.5;
   } else {
     // Drive-in: each row is raised and staggered by half a bay so the car in front does not
     // fully block the driver's line of sight to the big screen.
@@ -208,8 +250,14 @@ export function buildLayout(map: MapCode, capacity: number): Layout {
     maxSpeed = 9;
   }
 
-  const pad = map === "drive_in" ? 5 : 2;
-  {
+  const pad = map === "drive_in" ? 5 : map === "meeting" ? 1.3 : 2;
+  if (map === "meeting") {
+    // A wall-mounted projection screen at the near end of the table, its bottom ~1 m up.
+    const maxAbsX = Math.max(0, ...raw.map((s) => Math.abs(s.x)));
+    const width = round(Math.min(5.2, Math.max(3.2, 2.4 + maxAbsX * 0.9)));
+    const height = round((width * 9) / 16);
+    screen = { x: 0, y: round(1.05 + height / 2), z: -2.2, width, height };
+  } else {
     // Stage screen spans ~3/4 of the auditorium width (16:9), bottom edge above the stage.
     const maxAbsX = Math.max(0, ...raw.map((s) => Math.abs(s.x)));
     const width = round(Math.max(map === "drive_in" ? 18 : 8, 0.75 * 2 * (maxAbsX + pad)));

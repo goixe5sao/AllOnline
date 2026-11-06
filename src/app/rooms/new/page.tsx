@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { api, ApiError, useApi } from "@/lib/api";
-import { AVATARS, type AvatarGroup, type MapCode } from "@/core/maps";
+import { AVATARS, MAP_INFO, type AvatarGroup, type MapCode } from "@/core/maps";
 import { formatVnd, type Quote } from "@/core/pricing";
 import { parseYouTubeId } from "@/core/screen";
 import { CHART_INTERVALS, INTERVAL_LABEL, type ChartInterval } from "@/core/market";
@@ -95,7 +95,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   }, [screenKind, screenValue, chartInterval]);
 
   const symbolBad = screenKind === "chart" && !initialScreen;
-  const config = { name: name.trim() || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen, scheduledAt: startsAt ? new Date(startsAt).getTime() : null, stageStyle };
+  const config = { name: name.trim() || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen, scheduledAt: startsAt ? new Date(startsAt).getTime() : null, stageStyle: MAP_INFO[map].furnished ? "plain" : stageStyle };
 
   // Re-quote on ANY change of the configuration (a fixed mistake must clear the error), debounced;
   // a late answer to an older request is ignored.
@@ -218,6 +218,9 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
         <label className="check">
           <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Hiện phòng trên trang chủ Sân Khấu Online (ai cũng thấy và bấm vào được; đổi lại bất cứ lúc nào)
         </label>
+        {MAP_INFO[map].furnished ? (
+          <small>{MAP_INFO[map].name} có nội thất riêng (không chọn kiểu sân khấu); trong phòng vẫn bật / tắt đèn được.</small>
+        ) : (
         <div className="field">
           Kiểu sân khấu <small>(đổi được bất cứ lúc nào trong phòng)</small>
           <div className="row" role="radiogroup" aria-label="Kiểu sân khấu">
@@ -235,6 +238,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
             ))}
           </div>
         </div>
+        )}
         <label className="field">
           Giờ bắt đầu sự kiện <small>(không bắt buộc — trang mời hiện đếm ngược, khách bấm “Nhắc tôi” để bot Zalo nhắc)</small>
           <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
