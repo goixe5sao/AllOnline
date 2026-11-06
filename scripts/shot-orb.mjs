@@ -62,5 +62,20 @@ await guest.type("form input[maxlength='60']", "Khách");
 await guest.click("form button.btn.primary");
 await openOrb(guest, "orb-guest");
 check((await guest.$$(".orb-item.featured")).length === 0, "guest: no featured button");
+// most used nearest the centre: mic, sound, chat in the first ring; the voice settings + 😊 right after
+const ring = await guest.evaluate(() => {
+  const o = document.querySelector(".orb").getBoundingClientRect();
+  const c = { x: o.x + o.width / 2, y: o.y + o.height / 2 };
+  return [...document.querySelectorAll(".orb-item")]
+    .map((e) => {
+      const r = e.getBoundingClientRect();
+      return { id: e.dataset.orb, d: Math.hypot(r.x + r.width / 2 - c.x, r.y + r.height / 2 - c.y) };
+    })
+    .sort((a, b) => a.d - b.d)
+    .map((x) => x.id);
+});
+check(["mic", "sound", "chat"].every((id) => ring.slice(0, 3).includes(id)), `guest ring 1 = mic, sound, chat (${ring.slice(0, 3).join(", ")})`);
+check(["voice", "react"].every((id) => ring.slice(3, 7).includes(id)), `ring 2 has the voice settings and 😊 (${ring.slice(3, 7).join(", ")})`);
+console.log("order from the centre:", ring.join(" -> "));
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -114,7 +114,7 @@ await sleep(2000);
 check(!(await dbg(ha))?.voices?.[lanId], "Hà (far away): Lan's voice not pulled at all");
 
 // ---- Minh blocks Lan just for himself
-await orb(minh, "settings");
+await orb(minh, "voice");
 await minh.waitForSelector(".voice-person", { timeout: 10000 });
 await minh.screenshot({ path: `${OUT}/voice-settings.png` });
 await minh.evaluate(() => document.querySelector(".voice-person")?.click());
@@ -139,7 +139,7 @@ check(await waitFor(async () => (await dbg(lan))?.micOn === true && !!(await dbg
 const tuId = await tu.evaluate(async () => (await (await fetch("/api/me")).json()).user?.id);
 await orb(tu, "sound");
 check(await waitFor(async () => !!(await dbg(tu))?.voices?.[lanId]?.connected, 25000), "before: Tú (near) hears Lan too");
-await orb(lan, "settings");
+await orb(lan, "voice");
 await lan.waitForSelector(".voice-pick", { timeout: 10000 });
 await lan.evaluate(() => [...document.querySelectorAll(".voice-pick")].find((l) => l.textContent?.includes("Minh"))?.querySelector("input")?.click());
 await lan.evaluate(() => [...document.querySelectorAll(".voice-group button")].find((b) => b.textContent?.includes("Chỉ nói với"))?.click());

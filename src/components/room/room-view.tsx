@@ -183,6 +183,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [fullView, setFullView] = useState(false);
   const [panel, setPanel] = useState<"owner" | "seats" | "qa" | "live" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [gfx, setGfx] = useState<"lite" | "full" | "ultra">("full");
   // Graphics levels only exist for the "Hành tinh tương lai" stage; a "Đơn sắc" room is one simple
@@ -634,6 +635,17 @@ export function RoomView({ roomId }: { roomId: string }) {
         <span style={{ flex: 1 }} />
         {isParticipant && openPoll && <ParticipantPoll poll={openPoll} myVote={s.myVotes[openPoll.id]} onVote={(o) => send({ t: "vote", pollId: openPoll.id, optionId: o })} isGuest={s.you.isGuest} />}
       </div>
+      {voiceOpen && s.voice && s.voice.mode !== "off" && (
+        <div className="hud-menu orb-settings voice-panel" role="dialog" aria-label="Người nói chuyện">
+          <div className="row between" style={{ alignItems: "center" }}>
+            <strong>👥 Người nói chuyện</strong>
+            <button className="hud-btn chat-close" onClick={() => setVoiceOpen(false)} aria-label="Đóng">
+              ✕
+            </button>
+          </div>
+          <VoiceSettings voice={voice} names={voiceName} store={store} selfId={s.you.userId} />
+        </div>
+      )}
       {moreOpen && (
         <div className="hud-menu orb-settings" role="dialog" aria-label="Cài đặt">
           <div className="row between" style={{ alignItems: "center" }}>
@@ -646,7 +658,6 @@ export function RoomView({ roomId }: { roomId: string }) {
             <span>🔊 Âm lượng</span>
             <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Âm lượng" />
           </label>
-          {s.voice && s.voice.mode !== "off" && <VoiceSettings voice={voice} names={voiceName} store={store} selfId={s.you.userId} />}
           {glamRoom && (
           <div className="hud-menu-row" role="radiogroup" aria-label="Đồ hoạ">
             <span>✨ Đồ hoạ</span>
@@ -711,15 +722,12 @@ export function RoomView({ roomId }: { roomId: string }) {
         <AlienOrb
           badge={canModerate ? s.hands.length : 0}
           onReact={s.role !== "observer" ? (e) => send({ t: "react", e }) : undefined}
+          // Most used nearest the orb: ring 1 = talk / listen / chat (the owner's controls first),
+          // ring 2 = talking with people (who you hear, reactions, hand, Q&A), ring 3 = view & move,
+          // outer ring = lights, settings, leave.
+          reactAfter={s.voice && s.voice.mode !== "off" ? "voice" : "chat"}
           items={[
-            // the owner's controls first: nearest the orb, and highlighted
             ...(canModerate ? [{ id: "control", icon: "🎬", label: "Điều khiển", onClick: () => setPanel(panel === "owner" ? null : "owner"), active: panel === "owner", badge: s.hands.length, featured: true }] : []),
-            { id: "chat", icon: "💬", label: "Chat", onClick: () => setChatOpen(!chatOpen), active: chatOpen },
-            ...(isParticipant ? [{ id: "hand", icon: "✋", label: handUp ? "Hạ tay" : "Giơ tay", onClick: () => send({ t: "hand", up: !handUp }), active: handUp }] : []),
-            { id: "qa", icon: "❓", label: "Hỏi đáp", onClick: () => setPanel(panel === "qa" ? null : "qa"), active: panel === "qa", badge: openQuestions },
-            { id: "screen", icon: "📺", label: "Xem màn hình", onClick: openFull },
-            ...(isParticipant ? [{ id: "view", icon: behind ? "👁" : "🎥", label: behind ? "Góc của tôi" : "Xem từ sau", onClick: () => setBehind(!behind), active: !behind, stay: true }] : []),
-            { id: "sound", icon: muted ? "🔇" : "🔊", label: muted ? "Bật tiếng" : "Tắt tiếng", onClick: () => setMuted(!muted), active: !muted, stay: true },
             ...(voice.canTalk
               ? [
                   {
@@ -736,10 +744,19 @@ export function RoomView({ roomId }: { roomId: string }) {
                   },
                 ]
               : []),
-            ...(canModerate ? [{ id: "lights", icon: s.room.stageLights ? "💡" : "🌑", label: `${s.room.stageLights ? "Tắt" : "Bật"} đèn ${MAP_INFO[s.room.map].furnished ? "phòng" : "sân khấu"}`, onClick: () => send({ t: "stage_lights", on: !s.room!.stageLights }), active: s.room.stageLights, stay: true }] : []),
-            ...(s.live && (s.live.mode !== "off" || canModerate) && (isParticipant || canModerate) ? [{ id: "live", icon: onAirSelf ? "🔴" : "🎥", label: onAirSelf ? "Đang live" : "Live camera", onClick: () => setPanel(panel === "live" ? null : "live"), active: panel === "live" || onAirSelf }] : []),
+            { id: "sound", icon: muted ? "🔇" : "🔊", label: muted ? "Bật tiếng" : "Tắt tiếng", onClick: () => setMuted(!muted), active: !muted, stay: true },
+            { id: "chat", icon: "💬", label: "Chat", onClick: () => setChatOpen(!chatOpen), active: chatOpen },
+            ...(s.voice && s.voice.mode !== "off"
+              ? [{ id: "voice", icon: "👥", label: voice.group.size ? `Nói riêng (${voice.group.size})` : "Người nói chuyện", onClick: () => (setVoiceOpen(!voiceOpen), setMoreOpen(false)), active: voiceOpen || voice.group.size > 0 }]
+              : []),
+            ...(isParticipant ? [{ id: "hand", icon: "✋", label: handUp ? "Hạ tay" : "Giơ tay", onClick: () => send({ t: "hand", up: !handUp }), active: handUp }] : []),
+            { id: "qa", icon: "❓", label: "Hỏi đáp", onClick: () => setPanel(panel === "qa" ? null : "qa"), active: panel === "qa", badge: openQuestions },
+            { id: "screen", icon: "📺", label: "Xem màn hình", onClick: openFull },
+            ...(isParticipant ? [{ id: "view", icon: behind ? "👁" : "🎥", label: behind ? "Góc của tôi" : "Xem từ sau", onClick: () => setBehind(!behind), active: !behind, stay: true }] : []),
             ...(isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" ? [{ id: "seats", icon: "💺", label: "Đổi chỗ", onClick: () => setPanel(panel === "seats" ? null : "seats"), active: panel === "seats" }] : []),
-            { id: "settings", icon: "⚙️", label: "Cài đặt", onClick: () => setMoreOpen(!moreOpen), active: moreOpen },
+            ...(s.live && (s.live.mode !== "off" || canModerate) && (isParticipant || canModerate) ? [{ id: "live", icon: onAirSelf ? "🔴" : "📹", label: onAirSelf ? "Đang live" : "Live camera", onClick: () => setPanel(panel === "live" ? null : "live"), active: panel === "live" || onAirSelf }] : []),
+            ...(canModerate ? [{ id: "lights", icon: s.room.stageLights ? "💡" : "🌑", label: `${s.room.stageLights ? "Tắt" : "Bật"} đèn ${MAP_INFO[s.room.map].furnished ? "phòng" : "sân khấu"}`, onClick: () => send({ t: "stage_lights", on: !s.room!.stageLights }), active: s.room.stageLights, stay: true }] : []),
+            { id: "settings", icon: "⚙️", label: "Cài đặt", onClick: () => (setMoreOpen(!moreOpen), setVoiceOpen(false)), active: moreOpen },
             {
               id: "leave",
               icon: "🚪",

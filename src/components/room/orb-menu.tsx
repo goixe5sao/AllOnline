@@ -40,7 +40,7 @@ function readPos(): Pos | null {
     return null;
   }
 }
-export function AlienOrb({ items, onReact, badge }: { items: OrbItem[]; onReact?: (e: Reaction) => void; badge?: number }) {
+export function AlienOrb({ items, onReact, badge, reactAfter }: { items: OrbItem[]; onReact?: (e: Reaction) => void; badge?: number; /** 😊 sits right after this item (default: last) */ reactAfter?: string }) {
   const [open, setOpen] = useState(false);
   const [reacts, setReacts] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -118,7 +118,8 @@ export function AlienOrb({ items, onReact, badge }: { items: OrbItem[]; onReact?
   // Arcs in the up-left quarter around the orb (bottom-right corner): 3, 4 and 4 places (+ a 4th arc when needed); the
   // reaction toggle takes the last place of the last arc, reactions get an arc of their own.
   // A 4th arc only when there are more functions (owner attending as a participant).
-  const all = onReact ? [...items, null] : items;
+  const at = reactAfter ? items.findIndex((it) => it.id === reactAfter) + 1 : 0;
+  const all = onReact ? (at > 0 ? [...items.slice(0, at), null, ...items.slice(at)] : [...items, null]) : items;
   // Arcs open toward the middle of the screen: mirrored when the orb sits on the left / top half.
   let style: React.CSSProperties | undefined;
   let fx = 1;
