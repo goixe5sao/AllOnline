@@ -9,6 +9,7 @@ import { orb } from "./orb.mjs";
  *  - Minh blocks Lan just for himself → silent for him;
  *  - the owner turns Lan's mic off → her mic chip disappears, she is told;
  *  - "Chỉ tài khoản đăng ký": guests lose the mic button;
+ *  - "Nói riêng với nhóm": Lan talks only with Minh, Tú (near too) is cut both ways, then back;
  *  - two-way talk; after a network drop the mic comes back by itself;
  *  - server stays responsive (ping) the whole time.
  *   BASE=http://localhost:3100 node scripts/e2e-voice.mjs <outDir>
@@ -73,6 +74,7 @@ async function guest(name) {
 const lan = await guest("Lan");
 const minh = await guest("Minh");
 const ha = await guest("Hà");
+const tu = await guest("Tú"); // sits next to them (S3)
 // Hà moves to the last row, far corner (> 8 m from the front row)
 await orb(ha, "seats");
 await ha.waitForSelector('[aria-label="Chỗ S48"]');
@@ -132,6 +134,26 @@ await lan.setOfflineMode(true);
 await sleep(4000);
 await lan.setOfflineMode(false);
 check(await waitFor(async () => (await dbg(lan))?.micOn === true && !!(await dbg(minh))?.voices?.[lanId]?.connected, 40000), "after a network drop Lan's mic is back and Minh hears her again");
+
+// ---- "Nói riêng với nhóm": Lan talks only with Minh, so Tú (also near) no longer gets her voice
+const tuId = await tu.evaluate(async () => (await (await fetch("/api/me")).json()).user?.id);
+await orb(tu, "sound");
+check(await waitFor(async () => !!(await dbg(tu))?.voices?.[lanId]?.connected, 25000), "before: Tú (near) hears Lan too");
+await orb(lan, "settings");
+await lan.waitForSelector(".voice-pick", { timeout: 10000 });
+await lan.evaluate(() => [...document.querySelectorAll(".voice-pick")].find((l) => l.textContent?.includes("Minh"))?.querySelector("input")?.click());
+await lan.evaluate(() => [...document.querySelectorAll(".voice-group button")].find((b) => b.textContent?.includes("Chỉ nói với"))?.click());
+check(await waitFor(async () => /Nói riêng với 1 người/.test(await text(lan, ".hud-status")), 5000), "Lan: the lock chip (talking only with 1 person)");
+await lan.screenshot({ path: `${OUT}/voice-group.png` });
+check(await waitFor(async () => !(await dbg(tu))?.voices?.[lanId], 10000), "Tú no longer receives Lan's voice (cut by the server)");
+check(!!(await dbg(minh))?.voices?.[lanId]?.connected, "Minh (in her group) still hears her");
+await orb(tu, "mic");
+check(await waitFor(async () => !!(await dbg(minh))?.voices?.[tuId]?.connected, 25000), "Tú talks: Minh (no group) hears him");
+await sleep(2500);
+check(!(await dbg(lan))?.voices?.[tuId], "but Lan (talking only with Minh) does not");
+await lan.evaluate(() => document.querySelector(".voice-group-chip")?.click());
+check(await waitFor(async () => !!(await dbg(tu))?.voices?.[lanId]?.connected && !!(await dbg(lan))?.voices?.[tuId]?.connected, 25000), "back to everyone around: Tú and Lan hear each other again");
+await orb(tu, "mic");
 
 // ---- the owner sees the open mic and turns it off
 await orb(owner, "control");

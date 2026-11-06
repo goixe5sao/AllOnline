@@ -532,6 +532,11 @@ export function RoomView({ roomId }: { roomId: string }) {
             🎙️ Mic đang bật
           </button>
         )}
+        {voice.group.size > 0 && (
+          <button type="button" className="hud-chip voice-group-chip" onClick={() => voice.setGroup([])} title={`Chỉ ${[...voice.group].map(voiceName).join(", ")} nghe bạn, và bạn chỉ nghe họ. Bấm để nói với mọi người xung quanh.`}>
+            🔒 Nói riêng với {voice.group.size} người
+          </button>
+        )}
         {muted && voice.nearTalking && (
           <button type="button" className="hud-chip voice-hint" onClick={() => setMuted(false)}>
             🔇 Người gần bạn đang nói — bấm để nghe
@@ -641,7 +646,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             <span>🔊 Âm lượng</span>
             <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Âm lượng" />
           </label>
-          {s.voice && s.voice.mode !== "off" && <VoiceSettings voice={voice} names={voiceName} />}
+          {s.voice && s.voice.mode !== "off" && <VoiceSettings voice={voice} names={voiceName} store={store} selfId={s.you.userId} />}
           {glamRoom && (
           <div className="hud-menu-row" role="radiogroup" aria-label="Đồ hoạ">
             <span>✨ Đồ hoạ</span>

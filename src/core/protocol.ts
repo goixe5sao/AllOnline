@@ -93,6 +93,8 @@ export type ClientMsg =
   /** Moderators: who may talk; turn one person's mic off (or everyone's, without userId). */
   | { t: "voice_mode"; mode: VoiceMode }
   | { t: "voice_mute"; userId?: string }
+  /** "Talk only with these people" (empty = everyone around). */
+  | { t: "voice_group"; ids: string[] }
   | { t: "observe"; x: number; z: number }
   | ({ t: "screen" } & ScreenAction)
   | { t: "promote_chat"; id: string }

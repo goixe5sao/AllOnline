@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mayTalk, pickSources, sameList, voiceGain, VOICE_KEEP_RADIUS, VOICE_MAX_SOURCES, VOICE_RADIUS, VOICE_STICKY_MS, type VoiceCandidate } from "@/core/voice";
+import { canHear, mayTalk, pickSources, sameList, voiceGain, VOICE_KEEP_RADIUS, VOICE_MAX_SOURCES, VOICE_RADIUS, VOICE_STICKY_MS, type VoiceCandidate } from "@/core/voice";
 
 const me = { id: "me", x: 0, z: 0 };
 const t = (id: string, x: number, o: Partial<VoiceCandidate> = {}): VoiceCandidate => ({ id, x, z: 0, speaking: false, lastSpokeAt: 0, ...o });
@@ -67,5 +67,22 @@ describe("distance fading", () => {
     expect(voiceGain(VOICE_RADIUS)).toBe(0);
     expect(voiceGain(4)).toBeGreaterThan(0.3);
     expect(voiceGain(4)).toBeLessThan(0.8);
+  });
+});
+
+describe("talk only with a group", () => {
+  const groups = new Map<string, Set<string>>([["lan", new Set(["minh"])]]);
+  const g = (id: string) => groups.get(id);
+  it("Lan's voice reaches only the people she chose", () => {
+    expect(canHear("minh", "lan", g)).toBe(true);
+    expect(canHear("tu", "lan", g)).toBe(false);
+  });
+  it("and she hears only them", () => {
+    expect(canHear("lan", "minh", g)).toBe(true);
+    expect(canHear("lan", "tu", g)).toBe(false);
+  });
+  it("people without a group hear each other as usual", () => {
+    expect(canHear("tu", "minh", g)).toBe(true);
+    expect(canHear("minh", "tu", g)).toBe(true);
   });
 });

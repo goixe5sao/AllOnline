@@ -69,6 +69,20 @@ export function pickSources(me: { id: string; x: number; z: number }, talkers: V
     .sort();
 }
 
+/** Most people in one "talk only with" group. */
+export const VOICE_GROUP_MAX = 20;
+
+/**
+ * "Nói riêng với nhóm": someone who chose a group is heard only by those people and hears only
+ * them (both ways, enforced by the server). No group = everyone around, as usual.
+ */
+export function canHear(listener: string, talker: string, groupOf: (id: string) => ReadonlySet<string> | undefined): boolean {
+  const tg = groupOf(talker);
+  if (tg && !tg.has(listener)) return false;
+  const lg = groupOf(listener);
+  return !lg || lg.has(talker);
+}
+
 export const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /** One voice a listener should pull. */

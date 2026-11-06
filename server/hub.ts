@@ -16,7 +16,7 @@ import type { AppUser } from "./services/users";
 import { askQuestion, getQuestion, listModerators, listQuestions, myQuestionVotes, setQuestionStatus, toggleVote } from "./services/qa";
 import type { MarketService } from "./market/service";
 import { askLive, denyLive, goOnAir, grantLive, initialLive, LIVE_MODES, mayPublish, setLiveMode, stopLive, type LiveDto, type LiveState } from "@/core/live";
-import { mayTalk, pickSources, sameList, VOICE_BITRATE_BPS, VOICE_MODES, type VoiceDto, type VoiceMode, type VoiceSource } from "@/core/voice";
+import { canHear, mayTalk, pickSources, sameList, VOICE_BITRATE_BPS, VOICE_GROUP_MAX, VOICE_MODES, type VoiceDto, type VoiceMode, type VoiceSource } from "@/core/voice";
 import type { LiveMeter, RealtimeClient } from "./live";
 import { DEMO_SHOWCASE, DEMO_SHOWCASE_MS, demoContentAllowed, type DemoDto } from "@/core/demo";
 import { addDemoUsage } from "./services/demo";
@@ -80,6 +80,8 @@ interface RoomVoice {
   talkers: Map<string, { sessionId: string; track: string; mic: boolean; speaking: boolean; lastSpokeAt: number }>;
   /** The list last sent to each listener (user ids, sorted). */
   heard: Map<string, string[]>;
+  /** "Talk only with": the people each person chose (both ways: heard only by them, hears only them). */
+  groups: Map<string, Set<string>>;
   /** Tracks a listener may pull: talker id -> until (ms); a little longer than "heard" (requests in flight). */
   allowed: Map<string, Map<string, number>>;
   /** A quick re-pick is scheduled (someone started talking / turned the mic on / left). */
@@ -127,6 +129,7 @@ const msgSchema = z.union([
   z.object({ t: z.literal("voice_state"), mic: z.boolean(), speaking: z.boolean() }),
   z.object({ t: z.literal("voice_mode"), mode: z.enum(VOICE_MODES) }),
   z.object({ t: z.literal("voice_mute"), userId: z.string().uuid().optional() }),
+  z.object({ t: z.literal("voice_group"), ids: z.array(z.string().uuid()).max(VOICE_GROUP_MAX) }),
 ] as const) as unknown as z.ZodType<ClientMsg>;
 
 export class Hub {
@@ -335,7 +338,7 @@ export class Hub {
       );
       const screen = (row.screen_state as ScreenState)?.content ? (row.screen_state as ScreenState) : BLANK_SCREEN;
       const mods = new Set((await listModerators(this.db, roomId)).map((m) => m.userId));
-      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 }, lights: true, live: initialLive(row.live_mode ?? "approve"), voice: { mode: row.voice_mode ?? "all", talkers: new Map(), heard: new Map(), allowed: new Map() } };
+      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 }, lights: true, live: initialLive(row.live_mode ?? "approve"), voice: { mode: row.voice_mode ?? "all", talkers: new Map(), heard: new Map(), allowed: new Map(), groups: new Map() } };
       if (row.is_demo) r.demo = { hostId: null, hostName: null, showIdx: 0, showAt: Date.now() };
       this.rooms.set(roomId, r);
       return r;
@@ -614,6 +617,7 @@ export class Hub {
     room.voice.talkers.delete(userId);
     room.voice.heard.delete(userId);
     room.voice.allowed.delete(userId);
+    room.voice.groups.delete(userId);
     if (was?.mic) this.broadcastVoice(room);
     if (was) this.voiceSoon(room);
   }
@@ -638,7 +642,8 @@ export class Hub {
       const prev = v.heard.get(id) ?? [];
       if (!talkers.length && !prev.length) continue;
       const p = room.engine.positionOf(id);
-      const next = p ? pickSources({ id, x: p.x, z: p.z }, talkers, prev, now) : [];
+      const mine = v.groups.size ? talkers.filter((t) => canHear(id, t.id, (x) => v.groups.get(x))) : talkers;
+      const next = p ? pickSources({ id, x: p.x, z: p.z }, mine, prev, now) : [];
       for (const s of next) if (v.talkers.get(s)?.speaking) pulled++;
       if (sameList(prev, next)) continue;
       v.heard.set(id, next);
@@ -1063,6 +1068,16 @@ export class Hub {
         t.speaking = speaking;
         if (changed) this.broadcastVoice(room);
         if (changed || started) this.voiceSoon(room);
+        return;
+      }
+      case "voice_group": {
+        const ids = new Set(m.ids.filter((id) => id !== uid));
+        if (ids.size) room.voice.groups.set(uid, ids);
+        else room.voice.groups.delete(uid);
+        // whoever is no longer allowed loses the right to pull me at once (not after 20 s)
+        const groupOf = (id: string) => room.voice.groups.get(id);
+        for (const [listener, allow] of room.voice.allowed) for (const t of [...allow.keys()]) if (!canHear(listener, t, groupOf)) allow.delete(t);
+        this.voiceSoon(room);
         return;
       }
       case "voice_mode": {

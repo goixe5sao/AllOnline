@@ -454,3 +454,11 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .voice-mics { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .voice-mics li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgb(255 255 255 / 0.05); }
 .voice-mod { padding-bottom: 10px; border-bottom: 1px solid rgb(255 255 255 / 0.08); }
+
+.voice-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-bottom: 8px; border-bottom: 1px solid rgb(255 255 255 / 0.08); }
+.voice-group > small, .voice-group > .row { flex-basis: 100%; }
+.voice-pick { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgb(255 255 255 / 0.18); font-size: 13px; cursor: pointer; }
+.voice-pick.on { border-color: #b6ff3d; background: rgb(182 255 61 / 0.12); }
+.voice-pick input { width: 15px; height: 15px; accent-color: #b6ff3d; }
+.voice-group-now { color: #b6ff3d; }
+.hud-chip.voice-group-chip { cursor: pointer; color: #ffd38a; border-color: rgb(255 211 138 / 0.5); }

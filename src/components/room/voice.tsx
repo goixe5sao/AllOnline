@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { api, ApiError } from "@/lib/api";
-import { VOICE_MODE_LABEL, VOICE_MODES, VOICE_RADIUS, type VoiceDto, type VoiceMode, type VoiceSource } from "@/core/voice";
+import { VOICE_GROUP_MAX, VOICE_MODE_LABEL, VOICE_MODES, VOICE_RADIUS, type VoiceDto, type VoiceMode, type VoiceSource } from "@/core/voice";
 import type { ClientMsg } from "@/core/protocol";
 import type { Layout } from "@/core/maps";
 import type { MemberStore } from "./use-room";
@@ -431,6 +431,19 @@ export function useVoice(roomId: string, send: (m: ClientMsg) => void, o: { voic
   });
   const sendRef = useRef(send);
   sendRef.current = send;
+  // "Nói riêng với nhóm": the people I talk with only (empty = everyone around)
+  const [group, setGroupState] = useState<Set<string>>(new Set());
+  const groupRef = useRef(group);
+  groupRef.current = group;
+  const setGroup = useCallback((ids: string[]) => {
+    const g = new Set(ids.slice(0, VOICE_GROUP_MAX));
+    setGroupState(g);
+    sendRef.current({ t: "voice_group", ids: [...g] });
+  }, []);
+  // the server forgets the group on a reconnect: tell it again
+  useEffect(() => {
+    if (o.joins > 1 && groupRef.current.size) sendRef.current({ t: "voice_group", ids: [...groupRef.current] });
+  }, [o.joins]);
 
   useEffect(() => {
     const e = new VoiceEngine(
@@ -506,7 +519,7 @@ export function useVoice(roomId: string, send: (m: ClientMsg) => void, o: { voic
   );
 
   // nearTalking: someone near is talking (shown as a hint while the room sound is off)
-  return { engine, micOn, busy, error, clearError: () => setError(""), toggleMic, canTalk, duck: duck && !o.muted, nearTalking: duck, blocked, toggleBlock, voiceVolume, setVoiceVolume };
+  return { engine, micOn, busy, error, clearError: () => setError(""), toggleMic, canTalk, duck: duck && !o.muted, nearTalking: duck, blocked, toggleBlock, voiceVolume, setVoiceVolume, group, setGroup };
 }
 export type VoiceApi = ReturnType<typeof useVoice>;
 
@@ -531,16 +544,75 @@ export function VoiceSync({ engine, store, layout }: { engine: VoiceEngine | nul
   return null;
 }
 
-/** Settings: voices' volume, and the people you hear (block one just for you). */
-export function VoiceSettings({ voice, names }: { voice: VoiceApi; names: (id: string) => string }) {
+/** People near me (for "Nói riêng với nhóm"), nearest first; the group's members stay listed. */
+function nearby(store: MemberStore, selfId: string, keep: Set<string>) {
+  const me = store.map.get(selfId);
+  const out: { id: string; name: string; d: number }[] = [];
+  for (const m of store.map.values()) {
+    if (m.userId === selfId) continue;
+    const d = me ? Math.hypot(m.x - me.x, m.z - me.z) : 0;
+    if (d <= VOICE_RADIUS || keep.has(m.userId)) out.push({ id: m.userId, name: m.name, d });
+  }
+  return out.sort((a, b) => a.d - b.d).slice(0, 30);
+}
+
+/** Settings: voices' volume, talk only with a group, the people you hear (block one just for you). */
+export function VoiceSettings({ voice, names, store, selfId }: { voice: VoiceApi; names: (id: string) => string; store: MemberStore; selfId: string }) {
   const heard = voice.engine?.heard() ?? [];
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((x) => x + 1), 2000);
     return () => clearInterval(t);
   }, []);
+  const [pick, setPick] = useState<Set<string>>(() => new Set(voice.group));
+  const people = nearby(store, selfId, new Set([...voice.group, ...pick]));
+  const changed = pick.size !== voice.group.size || [...pick].some((id) => !voice.group.has(id));
   return (
     <div className="stack voice-settings" style={{ gap: 6 }}>
+      <div className="voice-group">
+        <small className="muted">🔒 Nói riêng với nhóm — chọn người ở gần: chỉ họ nghe bạn, và bạn chỉ nghe họ.</small>
+        {people.length === 0 ? (
+          <small className="muted">Chưa có ai ở gần bạn.</small>
+        ) : (
+          people.map((p) => (
+            <label key={p.id} className={`voice-pick ${pick.has(p.id) ? "on" : ""}`}>
+              <input
+                type="checkbox"
+                checked={pick.has(p.id)}
+                onChange={() =>
+                  setPick((s) => {
+                    const n = new Set(s);
+                    if (n.has(p.id)) n.delete(p.id);
+                    else if (n.size < VOICE_GROUP_MAX) n.add(p.id);
+                    return n;
+                  })
+                }
+              />
+              {p.name}
+            </label>
+          ))
+        )}
+        <div className="row" style={{ gap: 6 }}>
+          {(changed || !voice.group.size) && (
+            <button type="button" className="hud-btn primary" disabled={!pick.size} onClick={() => voice.setGroup([...pick])}>
+              🔒 Chỉ nói với {pick.size || ""} người này
+            </button>
+          )}
+          {voice.group.size > 0 && (
+            <button
+              type="button"
+              className="hud-btn"
+              onClick={() => {
+                setPick(new Set());
+                voice.setGroup([]);
+              }}
+            >
+              🌐 Nói với mọi người xung quanh
+            </button>
+          )}
+        </div>
+        {voice.group.size > 0 && <small className="voice-group-now">Đang nói riêng với: {[...voice.group].map(names).join(", ")}</small>}
+      </div>
       <label className="hud-menu-row">
         <span>🗣 Giọng người xung quanh</span>
         <input type="range" min={0} max={150} value={voice.voiceVolume} onChange={(e) => voice.setVoiceVolume(Number(e.target.value))} aria-label="Âm lượng giọng nói" />
