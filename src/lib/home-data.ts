@@ -14,6 +14,8 @@ export interface HomeRoom {
   hasPassword: boolean;
   ownerName: string;
   live: { admitted: number; seated: number } | null;
+  /** Planned start of the event (optional). */
+  startsAt?: number | null;
 }
 
 /** What the ticket booth on the home page offers (from the app owner's settings). */
@@ -57,7 +59,7 @@ export async function getHomeData(): Promise<HomeData> {
 }
 
 export function toHomeRoom(
-  r: { id: string; name: string; description: string; map_code: MapCode; official_capacity: number; entry_mode: string; invite_code: string; open_ended: boolean; expires_at: Date | string; has_password: boolean; owner_name: string },
+  r: { id: string; name: string; description: string; map_code: MapCode; official_capacity: number; entry_mode: string; invite_code: string; open_ended: boolean; expires_at: Date | string; has_password: boolean; owner_name: string; scheduled_at?: Date | string | null },
   live: { admitted: number; seated: number } | null,
 ): HomeRoom {
   return {
@@ -73,5 +75,33 @@ export function toHomeRoom(
     hasPassword: r.has_password,
     ownerName: r.owner_name,
     live,
+    startsAt: r.scheduled_at ? new Date(r.scheduled_at).getTime() : null,
   };
+}
+
+/** What the invite page needs for its title, description and share image (server-rendered). */
+export interface InviteMeta {
+  name: string;
+  description: string;
+  map: MapCode;
+  startsAt: number | null;
+  isPublic: boolean;
+  ownerName: string;
+}
+
+const INVITE_KEY = "__allonlineInviteMeta";
+
+export function registerInviteMeta(p: (code: string) => Promise<InviteMeta | null>) {
+  (globalThis as Record<string, unknown>)[INVITE_KEY] = p;
+}
+
+export async function getInviteMeta(code: string): Promise<InviteMeta | null> {
+  const p = (globalThis as Record<string, unknown>)[INVITE_KEY] as ((code: string) => Promise<InviteMeta | null>) | undefined;
+  if (!p) return null;
+  try {
+    return await p(code);
+  } catch (e) {
+    console.error("[invite-meta]", e);
+    return null;
+  }
 }

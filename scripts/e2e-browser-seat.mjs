@@ -23,6 +23,7 @@ async function owner() {
 async function guestInto(invite, name) {
   const p = await (await browser.createBrowserContext()).newPage();
   await p.setViewport({ width: 1280, height: 720 });
+  await p.evaluateOnNewDocument(() => localStorage.setItem("ao-gfx", "lite")); // software 3D: keep each click fast
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/join/${invite}`, { waitUntil: "networkidle0" });
   await p.type("input[maxlength='60']", name);
@@ -31,7 +32,8 @@ async function guestInto(invite, name) {
   await sleep(5000);
   return p;
 }
-const seatChip = (p) => p.evaluate(() => [...document.querySelectorAll(".hud-chip")].map((e) => e.textContent).find((t) => t?.startsWith("Chỗ")) ?? null);
+// seat number lives in the status pill since the orb HUD ("· Chỗ S3")
+const seatChip = (p) => p.evaluate(() => [...document.querySelectorAll(".hud-pill-sub, .hud-chip")].map((e) => e.textContent?.replace(/^·\s*/, "").trim()).find((t) => t?.startsWith("Chỗ")) ?? null);
 
 /** Scan-click the 3D view until the "Chọn chỗ" popup appears. */
 async function pickSeat(p) {

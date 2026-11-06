@@ -1,4 +1,5 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import type { RealtimeClient } from "./live";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import type { Config } from "./config";
@@ -34,11 +35,20 @@ import {
   requestExtension,
   requestRoom,
   roomConfigSchema,
+  transferOwnership,
   verifyPassword,
+  paidTowards,
 } from "./services/rooms";
 import { setDisplayName, type AppUser } from "./services/users";
 import { toHomeRoom } from "@/lib/home-data";
 import { listPromos, promoInputSchema, upsertPromo } from "./services/promos";
+import { addModerator, listModerators, removeModerator, resolveNewOwner } from "./services/qa";
+import { reportCsv, roomReport } from "./services/report";
+import { eventIcs } from "./services/calendar";
+import { hasZalo } from "./services/identities";
+import type { ZaloBot } from "./zalo/bot";
+import { zaloRoutes } from "./zalo/routes";
+import { getVideoInfo } from "./youtube";
 
 interface Ctx {
   req: IncomingMessage;
@@ -50,8 +60,8 @@ interface Ctx {
 
 type Handler = (ctx: Ctx) => Promise<unknown>;
 
-export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService; analysis: StockVnAnalysis }) {
-  const { cfg, db, auth, hub, storage, market, analysis } = deps;
+export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService; analysis: StockVnAnalysis; bot: ZaloBot; rtc: RealtimeClient }) {
+  const { cfg, db, auth, hub, storage, market, analysis, bot, rtc } = deps;
   const routes: { method: string; re: RegExp; handler: Handler; public?: boolean }[] = [];
   const route = (method: string, pattern: string, handler: Handler, opts: { public?: boolean } = {}) =>
     routes.push({ method, re: new RegExp("^" + pattern.replace(/:\w+/g, "([^/]+)") + "$"), handler, public: opts.public });
@@ -151,6 +161,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     "/api/auth/logout",
     async ({ req, res, user }) => {
       auth.clearGuest(res);
+      auth.clearAccount(res);
       if (cfg.mode === "demo") auth.demoLogout(res);
       else if (!user?.is_guest) await auth.supabase(req, res).auth.signOut();
       if (user) auth.invalidate(user.id);
@@ -185,6 +196,8 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
         trial: { enabled: s.trial_enabled, maxHours: s.trial_max_hours, maxCapacity: s.trial_max_capacity, perAccount: s.trial_rooms_per_account, startsAt: s.trial_starts_at, endsAt: s.trial_ends_at },
         extensionEnabled: s.extension_enabled,
         openEnded: { enabled: s.open_ended_enabled, deposit: Number(s.open_ended_deposit_vnd) },
+        zaloLogin: !!(cfg.zaloAppId && cfg.zaloAppSecret),
+        zaloBot: cfg.zaloOaId ? { url: `https://zalo.me/${cfg.zaloOaId}` } : null,
         priceTiers: await getPriceTiers(db),
         waitingSurchargePct: s.waiting_surcharge_pct,
         budget: await slotBudget(db),
@@ -283,6 +296,206 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { events: events.rows, orders: orders.rows };
   });
 
+  /** Zalo OA bot users can chat with (shown on invite / login pages); null when not set up. */
+  const zaloBotInfo = () => (cfg.zaloOaId ? { oaId: cfg.zaloOaId, url: `https://zalo.me/${cfg.zaloOaId}` } : null);
+
+  // ----- co-hosts, ownership, schedule, report -----
+  /** Owner, co-host or app owner (report / Q&A tools); owner-only actions use ownedRoom. */
+  const moderatedRoom = async (ctx: Ctx, id: string) => {
+    const u = needUser(ctx);
+    const room = await getRoom(db, id);
+    if (!room) throw new AppError("NOT_FOUND", "Không tìm thấy phòng.", 404);
+    if (room.owner_id !== u.id && u.role !== "app_owner") {
+      const m = await db.query("select 1 from app.room_moderators where room_id = $1 and user_id = $2", [room.id, u.id]);
+      if (!m.rows.length) throw new AppError("FORBIDDEN", "Bạn không phải chủ phòng hoặc trợ lý của phòng này.", 403);
+    }
+    return { u, room };
+  };
+
+  route("GET", "/api/rooms/:id/moderators", async (ctx) => {
+    const { room } = await moderatedRoom(ctx, ctx.params[0]);
+    return { moderators: await listModerators(db, room.id) };
+  });
+
+  route("POST", "/api/rooms/:id/moderators", async (ctx) => {
+    const { u, room } = await ownedRoom(ctx, ctx.params[0]);
+    const b = z.object({ userId: z.string().uuid().optional(), email: z.string().email().optional() }).refine((x) => x.userId || x.email).parse(await readJson(ctx.req));
+    const r = await addModerator(db, room.id, room.owner_id, b);
+    await hub.refreshModerators(room.id);
+    void u;
+    return r;
+  });
+
+  route("POST", "/api/rooms/:id/moderators/:uid/remove", async (ctx) => {
+    const { u, room } = await ownedRoom(ctx, ctx.params[0]);
+    await removeModerator(db, room.id, u.id, ctx.params[1]);
+    await hub.refreshModerators(room.id);
+    return { ok: true };
+  });
+
+  route("POST", "/api/rooms/:id/transfer", async (ctx) => {
+    const { u, room } = await ownedRoom(ctx, ctx.params[0], false);
+    if (room.open_ended) throw new AppError("OPEN_ENDED_NO_TRANSFER", "Phòng vô thời hạn gắn với tiền cọc của bạn nên không chuyển chủ được. Hãy thêm người đó làm trợ lý.");
+    const b = z.object({ userId: z.string().uuid().optional(), email: z.string().email().optional(), keepAsModerator: z.boolean().default(true) }).refine((x) => x.userId || x.email).parse(await readJson(ctx.req));
+    const next = await resolveNewOwner(db, b);
+    if (next.id === room.owner_id) throw new AppError("ALREADY_OWNER", "Người này đã là chủ phòng.");
+    await transferOwnership(db, room.id, next.id, u.id);
+    await db.query("delete from app.room_moderators where room_id = $1 and user_id = $2", [room.id, next.id]);
+    if (b.keepAsModerator) await db.query("insert into app.room_moderators (room_id, user_id, added_by) values ($1, $2, $3) on conflict do nothing", [room.id, room.owner_id, u.id]);
+    await hub.refreshOwner(room.id);
+    return { ownerId: next.id, name: next.display_name };
+  });
+
+  /** Title + length of a YouTube video for the owner's playlist (null fields when YouTube does not say). */
+  route("GET", "/api/youtube/:id", async (ctx) => {
+    needUser(ctx);
+    const id = ctx.params[0];
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) throw new AppError("INVALID", "Mã video không hợp lệ.");
+    const info = await getVideoInfo(id);
+    return { videoId: id, title: info?.title ?? null, durationSec: info?.durationSec ?? null };
+  });
+
+  // ----- live camera (Cloudflare Realtime): this server only checks who may publish / watch -----
+  const sdpSchema = z.object({ type: z.enum(["offer", "answer"]), sdp: z.string().min(10).max(200_000) });
+  const roomIdOf = (ctx: Ctx) => {
+    const id = ctx.params[0];
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new AppError("INVALID", "Mã phòng không hợp lệ.");
+    return id;
+  };
+
+  /** STUN / TURN servers for the browser's RTCPeerConnection. */
+  route("GET", "/api/live/ice", async (ctx) => {
+    needAttendee(ctx);
+    return { iceServers: await rtc.iceServers() };
+  });
+
+  /** Broadcaster: offer with their camera / mic tracks → SFU answer; then they are on air. */
+  route("POST", "/api/live/:id/publish", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ offer: sdpSchema, tracks: z.array(z.object({ mid: z.string().max(10), kind: z.enum(["audio", "video"]) })).min(1).max(2) }).parse(await readJson(ctx.req, 300_000));
+    const { name } = hub.liveCanPublish(u.id, roomId);
+    const sessionId = await rtc.newSession();
+    const nonce = randomUUID().slice(0, 8);
+    const tracks = b.tracks.map((t) => ({ mid: t.mid, trackName: `${t.kind}-${nonce}`, kind: t.kind }));
+    const r = await rtc.publish(sessionId, b.offer, tracks.map(({ mid, trackName }) => ({ mid, trackName })));
+    if (!r.sessionDescription) throw new AppError("LIVE_SFU", "Máy chủ video không trả lời.", 502);
+    hub.liveStarted(roomId, u.id, name, sessionId, { audio: tracks.find((t) => t.kind === "audio")?.trackName, video: tracks.find((t) => t.kind === "video")?.trackName });
+    return { sessionId, answer: r.sessionDescription };
+  });
+
+  /** Viewer: a new SFU session pulling the on-air tracks → the SFU's offer (answered below). */
+  route("POST", "/api/live/:id/pull", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const on = hub.liveForViewer(u.id, roomId);
+    const remote = [on.tracks.audio, on.tracks.video].filter((t): t is string => !!t).map((trackName) => ({ sessionId: on.sessionId, trackName }));
+    const sessionId = await rtc.newSession();
+    hub.livePullOpened(sessionId, u.id, roomId);
+    const r = await rtc.pull(sessionId, remote);
+    if (!r.sessionDescription) throw new AppError("LIVE_SFU", "Máy chủ video không trả lời.", 502);
+    return { sessionId, offer: r.sessionDescription, broadcaster: on.sessionId, tracks: (r.tracks ?? []).map((t) => ({ mid: t.mid, trackName: t.trackName })) };
+  });
+
+  route("POST", "/api/live/:id/answer", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ sessionId: z.string().min(8).max(100), answer: sdpSchema }).parse(await readJson(ctx.req, 300_000));
+    const owner = hub.livePullOwner(b.sessionId);
+    if (!owner || owner.userId !== u.id || owner.roomId !== roomId) throw new AppError("FORBIDDEN", "Phiên xem không hợp lệ.", 403);
+    await rtc.renegotiate(b.sessionId, b.answer);
+    return { ok: true };
+  });
+
+  /** App owner: estimated live traffic this month vs the cap. */
+  route("GET", "/api/admin/live-usage", async (ctx) => {
+    const u = needUser(ctx);
+    if (u.role !== "app_owner") throw new AppError("FORBIDDEN", "Chỉ chủ ứng dụng.", 403);
+    return hub.liveUsage();
+  });
+
+  /** Page closed / reloaded (navigator.sendBeacon): keep the place only briefly. */
+  route("POST", "/api/rooms/:id/bye", async (ctx) => {
+    const u = needAttendee(ctx); // guests too: most viewers have no account
+    const id = ctx.params[0];
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new AppError("INVALID", "Mã phòng không hợp lệ.");
+    hub.bye(u.id, id);
+    return { ok: true };
+  });
+
+  route("POST", "/api/rooms/:id/stage-style", async (ctx) => {
+    const { u, room } = await moderatedRoom(ctx, ctx.params[0]);
+    const b = z.object({ style: z.enum(["glam", "plain"]) }).parse(await readJson(ctx.req));
+    await db.query("update app.rooms set stage_style = $2 where id = $1", [room.id, b.style]);
+    await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'stage_style', $3)", [room.id, u.id, JSON.stringify({ style: b.style })]);
+    hub.setStageStyle(room.id, b.style);
+    return { style: b.style };
+  });
+
+  route("POST", "/api/rooms/:id/schedule", async (ctx) => {
+    const { u, room } = await ownedRoom(ctx, ctx.params[0]);
+    const b = z.object({ startsAt: z.number().int().positive().nullable() }).parse(await readJson(ctx.req));
+    if (b.startsAt && b.startsAt > Date.now() + 366 * 86400_000) throw new AppError("INVALID", "Giờ bắt đầu quá xa.");
+    await db.query("update app.rooms set scheduled_at = $2 where id = $1", [room.id, b.startsAt ? new Date(b.startsAt) : null]);
+    // A new time means new reminders.
+    await db.query("update app.room_reminders set sent_soon_at = null, sent_start_at = null where room_id = $1", [room.id]);
+    await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'schedule_set', $3)", [room.id, u.id, JSON.stringify({ startsAt: b.startsAt })]);
+    await hub.refreshRoom(room.id);
+    return { startsAt: b.startsAt };
+  });
+
+  route("GET", "/api/rooms/:id/report", async (ctx) => {
+    const { room } = await moderatedRoom(ctx, ctx.params[0]);
+    return withLive(room.id, await roomReport(db, room.id));
+  });
+
+  /** Adds what happened since the last per-minute sample (live rooms only). */
+  const withLive = (roomId: string, r: Awaited<ReturnType<typeof roomReport>>) => {
+    const live = hub.liveActivity(roomId);
+    if (!live) return r;
+    const now = Date.now();
+    return {
+      ...r,
+      peak: live.connections > r.peak.connections ? { connections: live.connections, at: now } : r.peak,
+      totals: { ...r.totals, reactions: r.totals.reactions + live.reactions, chats: r.totals.chats + live.chats },
+      series: [...r.series, { at: now, connections: live.connections, seated: live.seated, waiting: live.waiting }],
+    };
+  };
+
+  route("GET", "/api/rooms/:id/report.csv", async (ctx) => {
+    const { room } = await moderatedRoom(ctx, ctx.params[0]);
+    const csv = reportCsv(withLive(room.id, await roomReport(db, room.id)));
+    const name = `bao-cao-${room.invite_code}.csv`;
+    ctx.res.writeHead(200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"`, "Cache-Control": "no-store" });
+    ctx.res.end(csv);
+    return undefined;
+  });
+
+  // ----- reminders ("Nhắc tôi") and calendar file -----
+  route("POST", "/api/rooms/:id/remind", async (ctx) => {
+    const u = needUser(ctx);
+    const b = z.object({ on: z.boolean() }).parse(await readJson(ctx.req));
+    const room = await getRoom(db, ctx.params[0]);
+    if (!room || room.status !== "open") throw new AppError("NOT_FOUND", "Phòng không còn mở.", 404);
+    if (b.on) await db.query("insert into app.room_reminders (room_id, user_id) values ($1, $2) on conflict do nothing", [room.id, u.id]);
+    else await db.query("delete from app.room_reminders where room_id = $1 and user_id = $2", [room.id, u.id]);
+    return { on: b.on, zaloLinked: await hasZalo(db, u.id) };
+  });
+
+  route(
+    "GET",
+    "/api/invite/:code/calendar.ics",
+    async ({ params, res, url }) => {
+      const r = await getRoomByInvite(db, params[0]);
+      if (!r || r.status !== "open" || !r.scheduled_at) throw new AppError("NOT_FOUND", "Phòng chưa có lịch.", 404);
+      const origin = cfg.publicOrigin ?? url.origin;
+      res.writeHead(200, { "Content-Type": "text/calendar; charset=utf-8", "Content-Disposition": `attachment; filename="su-kien-${r.invite_code}.ics"` });
+      res.end(eventIcs({ uid: r.id, title: r.name, description: r.description, startsAt: new Date(r.scheduled_at).getTime(), url: `${origin}/join/${r.invite_code}` }));
+      return undefined;
+    },
+    { public: true },
+  );
+
   route("POST", "/api/rooms/:id/uploads", async (ctx) => {
     const { u, room } = await ownedRoom(ctx, ctx.params[0], false);
     const s = await getSettings(db);
@@ -327,10 +540,26 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     async ({ params, user }) => {
       const r = await getRoomByInvite(db, params[0]);
       if (!r || r.status !== "open") throw new AppError("NOT_FOUND", "Link mời không hợp lệ hoặc phòng đã đóng.", 404);
+      const account = user && !user.is_guest ? user : null;
       return {
-        room: { id: r.id, name: r.name, description: r.description, map: r.map_code, avatarGroups: r.avatar_groups, entryMode: r.entry_mode, hasPassword: !!r.password_hash, expiresAt: r.expires_at, openEnded: r.open_ended },
+        room: {
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          map: r.map_code,
+          avatarGroups: r.avatar_groups,
+          entryMode: r.entry_mode,
+          hasPassword: !!r.password_hash,
+          expiresAt: r.expires_at,
+          openEnded: r.open_ended,
+          startsAt: r.scheduled_at ? new Date(r.scheduled_at).getTime() : null,
+          isPublic: r.is_public,
+        },
         isOwner: !!user && user.id === r.owner_id,
         guestJoinEnabled: (await getSettings(db)).guest_join_enabled,
+        reminded: account ? (await db.query("select 1 from app.room_reminders where room_id = $1 and user_id = $2", [r.id, account.id])).rows.length > 0 : false,
+        zaloLinked: account ? await hasZalo(db, account.id) : false,
+        zaloBot: zaloBotInfo(),
       };
     },
     { public: true },
@@ -434,6 +663,8 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     if (!o || (o.user_id !== u.id && u.role !== "app_owner")) throw new AppError("NOT_FOUND", "Không tìm thấy đơn.", 404);
     const s = await getSettings(db);
     const qrConfigured = !!(s.qr_bank_bin && s.qr_account_no);
+    // a short transfer can be topped up: the QR then asks for what is still missing
+    const due = Math.max(0, Number(o.amount_vnd) - (o.status === "underpaid" ? await paidTowards(db, o.id) : 0));
     const { config, ...rest } = o;
     const safeConfig = { ...config, password: undefined };
     return {
@@ -441,12 +672,15 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
       payment: {
         qrConfigured,
         qrImageUrl: qrConfigured
-          ? `https://img.vietqr.io/image/${s.qr_bank_bin}-${s.qr_account_no}-compact2.png?amount=${o.amount_vnd}&addInfo=${encodeURIComponent(o.code)}&accountName=${encodeURIComponent(s.qr_account_name)}`
+          ? `https://img.vietqr.io/image/${s.qr_bank_bin}-${s.qr_account_no}-compact2.png?amount=${due}&addInfo=${encodeURIComponent(o.code)}&accountName=${encodeURIComponent(s.qr_account_name)}`
           : null,
         bankBin: s.qr_bank_bin,
         accountNo: s.qr_account_no,
         accountName: s.qr_account_name,
         transferNote: o.code,
+        due,
+        /** SePay watches the account: the room opens by itself when the money arrives. */
+        autoConfirm: !!cfg.sepayApiKey,
       },
       demoPayAvailable: cfg.mode === "demo",
       room: o.room_id ? await getRoom(db, o.room_id).then((r) => r && { id: r.id, invite_code: r.invite_code, name: r.name }) : null,
@@ -482,7 +716,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
       if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) throw new AppError("BAD_SIGNATURE", "Chữ ký không hợp lệ.", 401);
       const b = z.object({ txnId: z.string().min(1).max(100), orderCode: z.string().max(40), amount: z.number().int().min(0) }).parse(JSON.parse(raw.toString("utf8")));
       const r = await confirmPayment(db, { orderCode: b.orderCode, provider: "webhook", txnId: b.txnId, amount: b.amount, actorId: null, raw: b });
-      if (r.roomId && r.order?.kind === "extend_room") await hub.refreshRoom(r.roomId);
+      await afterPaid(r);
       return { outcome: r.outcome };
     },
     { public: true },
@@ -551,7 +785,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     const o = await getOrder(db, ctx.params[0]);
     if (!o) throw new AppError("NOT_FOUND", "Không tìm thấy đơn.", 404);
     const r = await confirmPayment(db, { orderCode: o.code, provider: "manual", txnId: b.reference || null, amount: b.amount, actorId: u.id, raw: { reference: b.reference } });
-    if (r.roomId && o.kind === "extend_room") await hub.refreshRoom(r.roomId);
+    await afterPaid(r);
     return r;
   });
 
@@ -581,6 +815,9 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { events: r.rows };
   });
 
+  // ----- Zalo login / bot, SePay, payment proofs -----
+  const { afterPaid } = zaloRoutes(route, { cfg, db, auth, hub, storage, bot });
+
   // ----- dispatcher -----
   return async function handle(req: IncomingMessage, res: ServerResponse, url: URL) {
     const method = req.method ?? "GET";
@@ -589,7 +826,9 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
       const m = url.pathname.match(r.re);
       if (!m) continue;
       try {
-        if (method !== "GET" && url.pathname !== "/api/payments/webhook" && !sameOrigin(req)) throw new AppError("BAD_ORIGIN", "Yêu cầu bị chặn.", 403);
+        // Server-to-server webhooks (payment providers, Zalo) carry their own signature / key.
+        const webhook = url.pathname.startsWith("/api/payments/") || url.pathname === "/api/zalo/webhook";
+        if (method !== "GET" && !webhook && !sameOrigin(req)) throw new AppError("BAD_ORIGIN", "Yêu cầu bị chặn.", 403);
         auth.ensureDevice(req, res);
         const user = await auth.currentUser(req, res).catch(() => null);
         const out = await r.handler({ req, res, url, params: m.slice(1).map(decodeURIComponent), user });

@@ -2,15 +2,130 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { vnEventTime } from "@/lib/vn-time";
 import { AppShell } from "@/components/app-shell";
 import { api, ApiError, fmtTime, useApi, type Me } from "@/lib/api";
-import { AVATARS, MAP_INFO, type AvatarGroup, type MapCode } from "@/core/maps";
+import { AVATARS, CAR_COLORS, MAP_INFO, type AvatarGroup, type MapCode } from "@/core/maps";
+import dynamic from "next/dynamic";
+
+// 3D preview of the chosen boy / girl (client only: WebGL).
+const AvatarPreview = dynamic(() => import("@/components/room/avatar-preview"), { ssr: false });
 
 interface InviteView {
-  room: { id: string; name: string; description: string; map: MapCode; avatarGroups: AvatarGroup[]; entryMode: string; hasPassword: boolean; expiresAt: string; openEnded?: boolean };
+  room: { id: string; name: string; description: string; map: MapCode; avatarGroups: AvatarGroup[]; entryMode: string; hasPassword: boolean; expiresAt: string; openEnded?: boolean; startsAt: number | null; isPublic: boolean };
   isOwner: boolean;
   guestJoinEnabled: boolean;
+  reminded: boolean;
+  zaloLinked: boolean;
+  zaloBot: { oaId: string; url: string } | null;
+}
+
+function countdown(ms: number) {
+  if (ms <= 0) return "Đang diễn ra";
+  const d = Math.floor(ms / 86400_000);
+  const h = Math.floor((ms % 86400_000) / 3600_000);
+  const m = Math.floor((ms % 3600_000) / 60_000);
+  const s = Math.floor((ms % 60_000) / 1000);
+  return d > 0 ? `Còn ${d} ngày ${h} giờ` : h > 0 ? `Còn ${h} giờ ${m} phút` : `Còn ${m} phút ${String(s).padStart(2, "0")} giây`;
+}
+
+function googleCalendarUrl(e: { title: string; description: string; startsAt: number; url: string }) {
+  const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const q = new URLSearchParams({ action: "TEMPLATE", text: e.title, dates: `${stamp(e.startsAt)}/${stamp(e.startsAt + 2 * 3600_000)}`, details: `${e.description ? e.description + "\n\n" : ""}Vào phòng: ${e.url}`, location: e.url });
+  return `https://calendar.google.com/calendar/render?${q.toString()}`;
+}
+
+/** Event box: start time + countdown, "Nhắc tôi" (Zalo bot), calendar, share. */
+function EventBox({ code, data, me, onChange }: { code: string; data: InviteView; me: Me | null; onChange: () => void }) {
+  const r = data.room;
+  const [now, setNow] = useState(() => Date.now());
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const link = typeof location !== "undefined" ? `${location.origin}/join/${code}` : `/join/${code}`;
+  const isAccount = !!me && !me.isGuest;
+  const share = async () => {
+    const text = r.startsAt ? `${r.name} — ${vnEventTime(r.startsAt)}` : r.name;
+    try {
+      if (navigator.share) await navigator.share({ title: r.name, text, url: link });
+      else {
+        await navigator.clipboard.writeText(`${text}\n${link}`);
+        setMsg("Đã sao chép link mời — dán vào Zalo, Messenger…");
+      }
+    } catch {
+      /* share sheet closed */
+    }
+  };
+  return (
+    <div className="card stack event-box">
+      {r.startsAt ? (
+        <>
+          <div className="event-when">🗓 {vnEventTime(r.startsAt)}</div>
+          <div className="event-count" aria-live="off">
+            {countdown(r.startsAt - now)}
+          </div>
+        </>
+      ) : (
+        <div className="event-when">Phòng đang mở — vào được ngay</div>
+      )}
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        {r.startsAt && r.startsAt > now && (
+          isAccount ? (
+            <button
+              className={`btn ${data.reminded ? "" : "primary"}`}
+              onClick={async () => {
+                try {
+                  const res = await api<{ on: boolean; zaloLinked: boolean }>(`/api/rooms/${r.id}/remind`, { body: { on: !data.reminded } });
+                  setMsg(res.on ? (res.zaloLinked ? "Bot Zalo sẽ nhắc bạn trước giờ bắt đầu." : "Đã ghi nhớ. Liên kết Zalo để bot nhắn tin nhắc bạn (xem bên dưới).") : "Đã bỏ nhắc.");
+                  onChange();
+                } catch (e) {
+                  setMsg((e as ApiError).message);
+                }
+              }}
+            >
+              {data.reminded ? "🔕 Bỏ nhắc" : "🔔 Nhắc tôi qua Zalo"}
+            </button>
+          ) : (
+            <Link className="btn primary" href={`/login?next=${encodeURIComponent(`/join/${code}`)}`}>
+              🔔 Đăng nhập để được nhắc
+            </Link>
+          )
+        )}
+        {r.startsAt && (
+          <>
+            <a className="btn" href={`/api/invite/${encodeURIComponent(code)}/calendar.ics`}>
+              📅 Thêm vào lịch
+            </a>
+            <a className="btn" href={googleCalendarUrl({ title: r.name, description: r.description, startsAt: r.startsAt, url: link })} target="_blank" rel="noopener noreferrer">
+              Google Calendar
+            </a>
+          </>
+        )}
+        <button className="btn" onClick={share}>
+          ↗ Chia sẻ
+        </button>
+        <a className="btn" href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer">
+          Facebook
+        </a>
+      </div>
+      {isAccount && data.reminded && !data.zaloLinked && (
+        <small className="notice">
+          Để bot Zalo nhắn tin nhắc, hãy <Link href="/account">liên kết tài khoản với Zalo</Link>
+          {data.zaloBot ? (
+            <>
+              {" "}
+              hoặc nhắn <b>ĐĂNG KÝ</b> cho <a href={data.zaloBot.url} target="_blank" rel="noopener noreferrer">bot Sân Khấu Online trên Zalo</a>
+            </>
+          ) : null}
+          . File lịch cũng tự nhắc 30 phút trước.
+        </small>
+      )}
+      {msg && <small>{msg}</small>}
+    </div>
+  );
 }
 
 function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me | null }) {
@@ -19,7 +134,9 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
   const isAccount = !!me && !me.isGuest;
   const [name, setName] = useState(me?.displayName ?? "");
   const [password, setPassword] = useState("");
-  const [avatar, setAvatar] = useState<{ group: AvatarGroup; model: string }>({ group: r.avatarGroups[0], model: AVATARS[r.avatarGroups[0]].models[0].id });
+  const [avatar, setAvatar] = useState<{ group: AvatarGroup; model: string; color?: string }>({ group: r.avatarGroups[0], model: AVATARS[r.avatarGroups[0]].models[0].id });
+  /** Car paint (only for cars); undefined = the model's own colour. */
+  const [paint, setPaint] = useState<string | undefined>(undefined);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -46,7 +163,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
           if (!isAccount) await api("/api/guest", { body: { displayName: name } });
           const j = await api<{ roomId: string; pass: string }>("/api/join", { body: { inviteCode: code, password } });
           sessionStorage.setItem(`ao-pass-${j.roomId}`, j.pass);
-          sessionStorage.setItem(`ao-avatar-${j.roomId}`, JSON.stringify(avatar));
+          sessionStorage.setItem(`ao-avatar-${j.roomId}`, JSON.stringify(avatar.group === "vehicles" && paint ? { ...avatar, color: paint } : avatar));
           if (data.isOwner) sessionStorage.setItem(`ao-mode-${j.roomId}`, "participant");
           router.push(`/room/${j.roomId}`);
         } catch (e) {
@@ -100,14 +217,28 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
             <small>{AVATARS[g].label}</small>
             <div className="choice-grid">
               {AVATARS[g].models.map((m) => (
-                <button type="button" key={m.id} className="choice" aria-pressed={avatar.group === g && avatar.model === m.id} onClick={() => setAvatar({ group: g, model: m.id })}>
-                  <span className="swatch" style={{ background: m.color }} />
+                <button type="button" key={m.id} data-model={m.id} className="choice" aria-pressed={avatar.group === g && avatar.model === m.id} onClick={() => setAvatar({ group: g, model: m.id })}>
+                  <span className="swatch" style={{ background: g === "vehicles" && paint ? paint : m.color }} />
+                  {m.gender && <span aria-hidden>{m.gender === "female" ? "👧 " : "👦 "}</span>}
                   {m.label}
                 </button>
               ))}
             </div>
           </div>
         ))}
+        {avatar.group === "people" && <AvatarPreview model={avatar.model} />}
+        {avatar.group === "vehicles" && (
+          <>
+            <small>Màu xe</small>
+            <div className="car-colors" role="radiogroup" aria-label="Màu xe">
+              {CAR_COLORS.map((c) => {
+                const on = (paint ?? AVATARS.vehicles.models.find((x) => x.id === avatar.model)?.color) === c.hex;
+                return <button type="button" key={c.hex} role="radio" aria-checked={on} aria-label={c.label} title={c.label} className={`car-color${on ? " on" : ""}`} style={{ background: c.hex }} onClick={() => setPaint(c.hex)} />;
+              })}
+            </div>
+            <AvatarPreview group="vehicles" model={avatar.model} color={paint} />
+          </>
+        )}
       </div>
 
       {r.hasPassword && !data.isOwner && (
@@ -122,7 +253,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
         {busy ? "Đang vào…" : data.isOwner ? "Vào như người tham dự" : "Vào phòng"}
       </button>
       <small>
-        {!isAccount && "Không cần tài khoản. "}Phòng không có voice/webcam; chat chỉ đến người ở gần bạn và không được lưu lại.
+        {!isAccount && "Không cần tài khoản. "}Chat chỉ đến người ở gần bạn và không được lưu lại. Camera của bạn không bao giờ tự bật: chỉ người được chủ phòng cho phép mới live hình + tiếng lên màn hình, và không ghi lại.
         {!isAccount && (
           <>
             {" "}
@@ -136,13 +267,18 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
 
 export default function JoinPage() {
   const { code } = useParams<{ code: string }>();
-  const { data, error } = useApi<InviteView>(`/api/invite/${encodeURIComponent(code)}`);
+  const { data, error, reload } = useApi<InviteView>(`/api/invite/${encodeURIComponent(code)}`);
   return (
     <AppShell narrow>
       {(me) => {
         if (error) return <p className="notice error">{error.message}</p>;
         if (!data) return <p className="muted">Đang tải…</p>;
-        return <JoinForm code={code} data={data} me={me} />;
+        return (
+          <div className="stack">
+            <EventBox code={code} data={data} me={me} onChange={reload} />
+            <JoinForm code={code} data={data} me={me} />
+          </div>
+        );
       }}
     </AppShell>
   );

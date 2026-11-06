@@ -10,8 +10,12 @@ import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
 import * as THREE from "three";
 import { AVATARS, HALL_RISE, clampToRect, type Layout, type Seat } from "@/core/maps";
 import type { PublicMember } from "@/core/room-engine";
-import type { ClientMsg, RoomRole, StageAd } from "@/core/protocol";
+import { REACTION_EMOJI, type ClientMsg, type RoomRole, type StageAd } from "@/core/protocol";
 import type { MemberStore } from "./use-room";
+import { HumanLod, HumanModel, POSE_HEIGHTS, type Pose } from "./people";
+import { GlamStage } from "./stage-fx";
+import { UltraFx } from "./ultra-fx";
+import { CarModel, carSize } from "./cars";
 
 /** Participants may only tilt the view a little (±12°) — they turn around themselves instead. */
 export const PITCH_RANGE = 0.21;
@@ -42,23 +46,6 @@ function headingVec(rotY: number) {
 
 // ---------------- avatars ----------------
 
-const SKIN = "#f1c7a5";
-
-function PersonModel({ color }: { color: string }) {
-  return (
-    <group>
-      <mesh position={[0, 0.55, 0]}>
-        <cylinderGeometry args={[0.22, 0.26, 0.9, 10]} />
-        <meshStandardMaterial color={color} />
-      </mesh>
-      <mesh position={[0, 1.18, 0]}>
-        <sphereGeometry args={[0.2, 14, 12]} />
-        <meshStandardMaterial color={SKIN} />
-      </mesh>
-    </group>
-  );
-}
-
 function AnimalModel({ model, color }: { model: string; color: string }) {
   const ear = model === "rabbit" ? [0.06, 0.35, 0.06] : model === "dog" ? [0.08, 0.18, 0.04] : [0.09, 0.12, 0.09];
   return (
@@ -85,52 +72,20 @@ function AnimalModel({ model, color }: { model: string; color: string }) {
   );
 }
 
-const CAR_DIMS: Record<string, { w: number; h: number; l: number; cabin: [number, number, number, number]; bed?: boolean }> = {
-  sedan: { w: 1.8, h: 0.6, l: 4.4, cabin: [1.6, 0.5, 2.2, 0.1] },
-  suv: { w: 1.9, h: 0.85, l: 4.6, cabin: [1.75, 0.6, 2.8, 0.2] },
-  pickup: { w: 1.9, h: 0.8, l: 5.2, cabin: [1.75, 0.6, 1.8, -0.9], bed: true },
-  mini: { w: 1.6, h: 0.6, l: 3.4, cabin: [1.5, 0.55, 2.0, 0.1] },
-};
-
-function CarModel({ model, color }: { model: string; color: string }) {
-  const d = CAR_DIMS[model] ?? CAR_DIMS.sedan;
-  return (
-    <group>
-      <mesh position={[0, 0.35 + d.h / 2, 0]}>
-        <boxGeometry args={[d.w, d.h, d.l]} />
-        <meshStandardMaterial color={color} metalness={0.3} roughness={0.5} />
-      </mesh>
-      <mesh position={[0, 0.35 + d.h + d.cabin[1] / 2, d.cabin[3]]}>
-        <boxGeometry args={[d.cabin[0], d.cabin[1], d.cabin[2]]} />
-        <meshStandardMaterial color="#1b2a35" transparent opacity={0.75} />
-      </mesh>
-      {[
-        [-1, -1],
-        [1, -1],
-        [-1, 1],
-        [1, 1],
-      ].map(([sx, sz]) => (
-        <mesh key={`${sx}${sz}`} position={[(sx * d.w) / 2, 0.35, (sz * d.l) / 3]} rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.35, 0.35, 0.25, 12]} />
-          <meshStandardMaterial color="#111" />
-        </mesh>
-      ))}
-      {[-1, 1].map((s) => (
-        <mesh key={s} position={[(s * d.w) / 3, 0.35 + d.h * 0.6, -d.l / 2 - 0.01]}>
-          <boxGeometry args={[0.3, 0.12, 0.02]} />
-          <meshStandardMaterial color="#fff6d0" emissive="#ffe9a0" emissiveIntensity={0.6} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-function SimpleModel({ group, color }: { group: string; color: string }) {
+function SimpleModel({ group, model, color }: { group: string; model: string; color: string }) {
+  const car = carSize(model);
+  // far away: body + dark cabin, same size as the detailed car
   return group === "vehicles" ? (
-    <mesh position={[0, 0.8, 0]}>
-      <boxGeometry args={[1.8, 1.1, 4.2]} />
-      <meshBasicMaterial color={color} />
-    </mesh>
+    <group>
+      <mesh position={[0, 0.65, 0]}>
+        <boxGeometry args={[car.w, 0.7, car.l]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <mesh position={[0, 1.0 + (car.h - 1.0) / 2, model === "pickup" ? -0.4 : 0.15]}>
+        <boxGeometry args={[car.w * 0.84, car.h - 1.0, model === "pickup" ? 1.9 : car.l * 0.55]} />
+        <meshBasicMaterial color="#15202a" />
+      </mesh>
+    </group>
   ) : (
     <mesh position={[0, 0.65, 0]}>
       <boxGeometry args={[0.5, 1.3, 0.5]} />
@@ -141,17 +96,66 @@ function SimpleModel({ group, color }: { group: string; color: string }) {
 
 const tmpV = new THREE.Vector3();
 /** Where the name tag sits on each kind of avatar (local coords; +x = the avatar's right side). */
-const SHOULDER: Record<string, [number, number, number]> = { people: [0.22, 0.95, 0], animals: [0.2, 0.75, 0], vehicles: [0, 1.5, 0] };
+/** Name tag at the centre of the body, on the vertical axis (stays centred whichever way the avatar turns). */
+const SHOULDER: Record<string, [number, number, number]> = { people: [0, 0.75, 0], animals: [0, 0.55, 0], vehicles: [0, 1.0, 0] };
+/** Just above the head: chat bubble and reaction pop. */
+const HEAD_TOP: Record<string, number> = { people: 1.5, animals: 1.4, vehicles: 1.9 };
 const tmpA = new THREE.Vector3();
 
-const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, portal }: { id: string; store: MemberStore; layout: Layout; lite: boolean; bubbleTick: number; portal: React.RefObject<HTMLElement | null> }) {
+/** Short drops (Wi-Fi hiccup, reload) are not shown; after this the avatar fades + countdown. */
+const OFF_SHOW_MS = 10_000;
+const GHOST = "ghostMat";
+/** Fade (or restore) every mesh of an avatar; materials are cloned so shared ones stay intact. */
+function ghost(root: THREE.Object3D | null, on: boolean) {
+  root?.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    type Mat = THREE.Material | THREE.Material[];
+    const ud = mesh.userData as { [GHOST]?: { orig: Mat; fake: Mat } };
+    const g = ud[GHOST];
+    // React may have swapped the material meanwhile: then the faded copy is no longer in use
+    if (g && mesh.material !== g.fake) {
+      (Array.isArray(g.fake) ? g.fake : [g.fake]).forEach((m) => m.dispose());
+      delete ud[GHOST];
+    }
+    if (on && !ud[GHOST]) {
+      const orig = mesh.material;
+      const fade = (m: THREE.Material) => Object.assign(m.clone(), { transparent: true, opacity: 0.32 * m.opacity, depthWrite: false });
+      const fake = Array.isArray(orig) ? orig.map(fade) : fade(orig);
+      ud[GHOST] = { orig, fake };
+      mesh.material = fake;
+    } else if (!on && ud[GHOST]) {
+      const { orig, fake } = ud[GHOST]!;
+      (Array.isArray(fake) ? fake : [fake]).forEach((m) => m.dispose());
+      mesh.material = orig;
+      delete ud[GHOST];
+    }
+  });
+}
+
+const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, portal, hand }: { id: string; store: MemberStore; layout: Layout; lite: boolean; bubbleTick: number; portal: React.RefObject<HTMLElement | null>; hand: boolean }) {
   const g = useRef<THREE.Group>(null);
   const detailed = useRef<THREE.Group>(null);
   const simple = useRef<THREE.Group>(null);
   const tag = useRef<HTMLDivElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const popAt = useRef(0);
+  const offTag = useRef<HTMLSpanElement>(null);
+  const offShown = useRef(false);
+  const offText = useRef("");
+  useEffect(() => {
+    const d = detailed.current;
+    const sm = simple.current;
+    return () => (ghost(d, false), ghost(sm, false));
+  }, []);
   const m = store.map.get(id);
   const seat = m?.seatId ? layout.seats.find((s) => s.id === m.seatId) : undefined;
   const { camera } = useThree();
+  // People sit on a chair / on the carpet once seated, and stand while walking to a seat.
+  const pose: Pose = m?.status === "seated" && seat ? (layout.map === "carpet" ? "floor" : "chair") : "stand";
+  const isPerson = m?.avatar.group === "people";
+  const tagY = isPerson ? POSE_HEIGHTS[pose].body : SHOULDER[m?.avatar.group ?? "animals"][1];
+  const headTop = isPerson ? POSE_HEIGHTS[pose].headTop : HEAD_TOP[m?.avatar.group ?? "animals"];
 
   useFrame((_, dt) => {
     const cur = store.map.get(id);
@@ -176,7 +180,7 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
       let show = dist < 7;
       if (show) {
         const sc = layout.screen;
-        tmpV.set(g.current.position.x, g.current.position.y + SHOULDER[cur.avatar.group][1], g.current.position.z).project(camera);
+        tmpV.set(g.current.position.x, g.current.position.y + tagY, g.current.position.z).project(camera);
         // Outside the view (e.g. the neighbour right below / beside the camera): a projected
         // point behind the camera would otherwise flip and float over the screen.
         if (tmpV.z > 1 || Math.abs(tmpV.x) > 1.05 || Math.abs(tmpV.y) > 1.05) show = false;
@@ -187,12 +191,43 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
       }
       tag.current.style.display = show ? "block" : "none";
     }
+    // Disconnected for a while: faded avatar + "reconnecting · place kept N s" on the tag.
+    const now = Date.now();
+    const off = !cur.connected && cur.offAt !== undefined && now - cur.offAt >= OFF_SHOW_MS;
+    if (off || off !== offShown.current) {
+      // re-applied while off (cheap, idempotent) so meshes React re-creates fade too
+      ghost(detailed.current, off);
+      ghost(simple.current, off);
+      if (off !== offShown.current) tag.current?.classList.toggle("off", off);
+      offShown.current = off;
+    }
+    if (offTag.current) {
+      const left = off && cur.holdUntil !== undefined ? Math.max(0, Math.ceil((cur.holdUntil - now) / 1000)) : 0;
+      const text = off ? `⟳ đang kết nối lại${left ? ` · giữ chỗ ${left}s` : ""}` : "";
+      if (text !== offText.current) {
+        offText.current = text;
+        offTag.current.textContent = text;
+        offTag.current.style.display = text ? "block" : "none";
+      }
+    }
+    // Reaction pop above the head (2.5 s), restarted on every new reaction.
+    const r = store.reacts.get(id);
+    if (pop.current) {
+      const fresh = !!r && Date.now() - r.at < 2500 && dist < 40;
+      if (fresh && r!.at !== popAt.current) {
+        popAt.current = r!.at;
+        pop.current.textContent = REACTION_EMOJI[r!.e];
+        pop.current.classList.remove("go");
+        void pop.current.offsetWidth; // restart the CSS animation
+        pop.current.classList.add("go");
+      }
+      pop.current.style.display = fresh ? "block" : "none";
+    }
   });
 
   if (!m) return null;
-  const color = AVATARS[m.avatar.group].models.find((x) => x.id === m.avatar.model)?.color ?? "#888";
-  const height = m.avatar.group === "vehicles" ? 2.2 : 1.6;
-  const shoulder = SHOULDER[m.avatar.group];
+  const model = AVATARS[m.avatar.group].models.find((x) => x.id === m.avatar.model);
+  const color = m.avatar.color ?? model?.color ?? "#888";
   const bubble = store.bubbles.get(id);
   const showBubble = bubble && Date.now() - bubble.at < 8000;
   void bubbleTick;
@@ -200,21 +235,29 @@ const Avatar = memo(function Avatar({ id, store, layout, lite, bubbleTick, porta
   return (
     <group ref={g} position={[m.x, seat?.y ?? 0, m.z]} rotation={[0, m.rotY, 0]}>
       <group ref={detailed}>
-        {m.avatar.group === "people" ? <PersonModel color={color} /> : m.avatar.group === "animals" ? <AnimalModel model={m.avatar.model} color={color} /> : <CarModel model={m.avatar.model} color={color} />}
+        {isPerson ? <HumanModel color={color} gender={model?.gender ?? "male"} hair={model?.hair ?? "#2b1d16"} pose={pose} /> : m.avatar.group === "animals" ? <AnimalModel model={m.avatar.model} color={color} /> : <CarModel model={m.avatar.model} color={color} />}
       </group>
       <group ref={simple} visible={false}>
-        <SimpleModel group={m.avatar.group} color={color} />
+        {isPerson ? <HumanLod color={color} gender={model?.gender ?? "male"} pose={pose} /> : <SimpleModel group={m.avatar.group} model={m.avatar.model} color={color} />}
       </group>
       {showBubble && (
-        <Html position={[0, height + 0.15, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+        <Html position={[0, headTop, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
           <div className="bubble">{bubble!.text}</div>
         </Html>
       )}
+      <Html position={[0, headTop, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+        <div ref={pop} className="react-pop" style={{ display: "none" }} />
+        {hand && (
+          <div className="hand-pop" title="Đang giơ tay">
+            ✋
+          </div>
+        )}
+      </Html>
       {/* Name on the shoulder: readable from behind without covering the head or the screen. */}
-      <Html position={shoulder} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
-        <div ref={tag} className="nametag" style={{ opacity: m.connected ? 1 : 0.5 }}>
+      <Html position={[0, tagY, 0]} portal={portal as React.RefObject<HTMLElement>} style={{ pointerEvents: "none" }} zIndexRange={[16777000, 16776000]}>
+        <div ref={tag} className="nametag">
           {m.name}
-          {!m.connected && " (mất kết nối)"}
+          <span ref={offTag} className="nametag-off" style={{ display: "none" }} />
         </div>
       </Html>
     </group>
@@ -313,8 +356,12 @@ function SeatsVisual({ layout, freeHighlight, occupied, selected, ownSeat }: { l
   );
 }
 
-function World({ layout, children }: { layout: Layout; children?: ReactNode }) {
+function World({ layout, glam, lite, lights, children }: { layout: Layout; glam: boolean; lite: boolean; lights: boolean; children?: ReactNode }) {
   const night = layout.map === "drive_in";
+  // Stage lights off: the house goes dark, only the screen (and a faint glow) stays.
+  const dim = lights ? 1 : glam ? 0.45 : 0.35;
+  // Glam stage: a dark, theatre-like hall lit by neon, beams and the screen.
+  const bg = glam ? (night ? "#05040d" : "#0b0918") : night ? "#070b16" : "#cfdde3";
   const m = layout.main;
   const w = layout.waiting;
   const sc = layout.screen;
@@ -324,18 +371,23 @@ function World({ layout, children }: { layout: Layout; children?: ReactNode }) {
   const fenceRight = m.maxX - (layout.gate.x + layout.gate.halfWidth);
   return (
     <group>
-      <color attach="background" args={[night ? "#070b16" : "#cfdde3"]} />
-      {night ? <fog attach="fog" args={["#070b16", 40, 160]} /> : <fog attach="fog" args={["#cfdde3", 40, 120]} />}
-      <ambientLight intensity={night ? 0.5 : 0.7} />
-      <hemisphereLight args={[night ? "#4a5a88" : "#ffffff", night ? "#0b0d10" : "#9aa38f", night ? 0.7 : 0.6]} />
-      <directionalLight position={[10, 20, 10]} intensity={night ? 0.6 : 1.2} color={night ? "#9fb3ff" : "#fff"} />
+      <color attach="background" args={[bg]} />
+      <fog attach="fog" args={[bg, glam ? 30 : 40, night ? 160 : glam ? 95 : 120]} />
+      <ambientLight intensity={(glam ? 0.35 : night ? 0.5 : 0.7) * dim} />
+      <hemisphereLight args={[glam ? "#7a6bd8" : night ? "#4a5a88" : "#ffffff", glam ? "#160d22" : night ? "#0b0d10" : "#9aa38f", (glam ? 0.55 : night ? 0.7 : 0.6) * dim]} />
+      <directionalLight position={[10, 20, 10]} intensity={(glam ? 0.35 : night ? 0.6 : 1.2) * dim} color={glam || night ? "#9fb3ff" : "#fff"} />
+      {glam && <GlamStage layout={layout} lite={lite} lights={lights} />}
       {/* soft light thrown by the screen */}
       <pointLight position={[sc.x, sc.y, sc.z + 6]} intensity={night ? 40 : 10} distance={night ? 90 : 30} color="#dfe8ff" />
 
       {/* main floor */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, (sc.z - 1 + m.maxZ) / 2]}>
         <planeGeometry args={[width + 6, mainDepth + 2]} />
-        <meshStandardMaterial color={night ? "#2b3138" : layout.map === "carpet" ? "#d9cbb4" : layout.map === "tables" ? "#cdb497" : "#9eaab0"} />
+        {glam ? (
+          <meshStandardMaterial color={night ? "#1a1824" : layout.map === "carpet" ? "#3a1d2c" : "#1d1a2b"} metalness={0.35} roughness={0.38} />
+        ) : (
+          <meshStandardMaterial color={night ? "#2b3138" : layout.map === "carpet" ? "#d9cbb4" : layout.map === "tables" ? "#cdb497" : "#9eaab0"} />
+        )}
       </mesh>
       {layout.map === "drive_in" &&
         Array.from({ length: Math.ceil((m.maxZ - 4) / 7.5) + 1 }, (_, row) => (
@@ -348,13 +400,13 @@ function World({ layout, children }: { layout: Layout; children?: ReactNode }) {
         Array.from({ length: Math.ceil((m.maxZ + 1) / 1.4) }, (_, row) => (
           <mesh key={row} position={[0, (row * HALL_RISE) / 2, -1 + row * 1.4]}>
             <boxGeometry args={[width, row * HALL_RISE + 0.01, 1.4]} />
-            <meshStandardMaterial color="#8d969c" />
+            <meshStandardMaterial color={glam ? (row % 2 ? "#251f38" : "#2b2440") : "#8d969c"} metalness={glam ? 0.2 : 0} roughness={glam ? 0.5 : 1} />
           </mesh>
         ))}
       {/* waiting area outside the gate */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.005, (w.minZ + w.maxZ) / 2]}>
         <planeGeometry args={[w.maxX - w.minX, w.maxZ - w.minZ + 2]} />
-        <meshStandardMaterial color={night ? "#14181c" : "#b9c4b0"} />
+        <meshStandardMaterial color={glam ? "#120f1d" : night ? "#14181c" : "#b9c4b0"} />
       </mesh>
       {/* low fence with an opening (no arch: it blocked the view from the back rows) */}
       <mesh position={[m.minX + fenceLeft / 2, 0.6, m.maxZ]}>
@@ -369,13 +421,13 @@ function World({ layout, children }: { layout: Layout; children?: ReactNode }) {
       {layout.map !== "drive_in" && (
         <mesh position={[sc.x, 0.3, sc.z + 1.2]}>
           <boxGeometry args={[sc.width + 2, 0.6, 2.6]} />
-          <meshStandardMaterial color="#4a3b35" />
+          <meshStandardMaterial color={glam ? "#120f1c" : "#4a3b35"} metalness={glam ? 0.6 : 0} roughness={glam ? 0.25 : 1} />
         </mesh>
       )}
       {layout.map !== "drive_in" && (
         <mesh position={[sc.x, (sc.y + sc.height / 2 + 0.6) / 2, sc.z - 0.3]}>
           <boxGeometry args={[sc.width + 4, sc.y + sc.height / 2 + 0.6, 0.2]} />
-          <meshStandardMaterial color="#2a2422" />
+          <meshStandardMaterial color={glam ? "#0d0a16" : "#2a2422"} />
         </mesh>
       )}
       <mesh position={[sc.x, sc.y, sc.z - 0.12]}>
@@ -624,25 +676,20 @@ function ParticipantRig({ layout, store, selfId, controls, send, entryMode }: { 
     if (c.behind) {
       // Eyes of someone sitting 2 rows behind: own avatar + the rows in front + the screen.
       const seated = !!seat && me.status === "seated";
-      // The camera is level with the centre of the stage screen (same height on desktop and
-      // mobile). It stays far enough back that the own avatar is at most ~30° below the horizon,
-      // and pitches down just enough to put the own avatar in the lower part of the frame while
-      // the whole screen stays in view.
+      // Over the shoulder, low (not floating above the hall): just behind and a little above the
+      // own head — close enough that the row in between never hides the own avatar — aimed at
+      // the centre of the stage screen; pitch is limited so the own avatar stays in frame.
       const selfFloor = seat ? seat.y : floorY(layout, sf.z, me.status !== "waiting");
-      const selfTop = selfFloor + (isCar ? 2.2 : 1.6);
-      let back = layout.rowGap * 2 + (seated ? 0 : layout.rowGap);
-      let bx = sf.x - h.fx * back;
-      let bz = sf.z - h.fz * back;
-      let y = Math.max(layout.screen.y, floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.6);
-      const minBack = (y - selfTop) / Math.tan(0.53);
-      if (back < minBack) {
-        back = minBack;
-        bx = sf.x - h.fx * back;
-        bz = sf.z - h.fz * back;
-        y = Math.max(y, floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.6);
-      }
+      // centre of the own head (seated on a chair / on the carpet / standing) or the car roof
+      const selfTop = selfFloor + (isCar ? 1.8 : seated ? (layout.map === "carpet" ? 0.85 : 1.24) : 1.53);
+      const back = isCar ? (seated ? 6 : 8) : seated ? Math.min(1.6, layout.rowGap * 1.1) : 2.4;
+      const bx = sf.x - h.fx * back;
+      const bz = sf.z - h.fz * back;
+      const y = Math.max(selfTop + (isCar ? 1.2 : 0.5), floorY(layout, bz, me.status !== "waiting") + layout.eyeHeight + 0.3);
       camera.position.set(bx, y, bz);
-      tilt = -Math.max(0, Math.atan2(Math.max(0, y - selfTop), back) - 0.38);
+      const toScreen = Math.atan2(layout.screen.y - y, Math.max(1, Math.hypot(layout.screen.x - bx, layout.screen.z - bz)));
+      const selfBelow = Math.atan2(Math.max(0, y - selfTop), back); // own head, angle below the horizon
+      tilt = Math.min(toScreen, 0.36 - selfBelow);
     } else {
       // Own view: always level with the centre of the stage screen, looking straight ahead,
       // so the screen sits in the middle of the display (also right after joining).
@@ -738,6 +785,9 @@ export interface SceneProps {
   send: (m: ClientMsg) => void;
   screen: ReactNode;
   lite: boolean;
+  /** "Siêu đẹp": bloom glow (viewer's choice, falls back on its own when the device is slow). */
+  ultra?: boolean;
+  onSlow?: () => void;
   paused: boolean;
   domElement: HTMLElement | null;
   portal: React.RefObject<HTMLElement | null>;
@@ -745,6 +795,12 @@ export interface SceneProps {
   ad: StageAd | null;
   selectedSeat: string | null;
   behindView?: boolean;
+  /** Stage look chosen by the room owner. */
+  stageStyle?: "glam" | "plain";
+  /** Stage lights on (owner / co-host switch). */
+  stageLights?: boolean;
+  /** Members with a raised hand (✋ above the avatar). */
+  hands?: Set<string>;
   onSeatClick?: (seatId: string, x: number, y: number) => void;
   /** Room owner attending as a participant: double-click a free seat to go there at once. */
   onSeatDoubleClick?: (seatId: string) => void;
@@ -769,15 +825,16 @@ export function RoomScene(p: SceneProps) {
       gl={{ antialias: !p.lite, alpha: true, powerPreference: p.lite ? "low-power" : "high-performance" }}
       camera={{ fov: 60, near: 0.1, far: 400, position: [0, 2, 10] }}
     >
-      <World layout={p.layout}>
+      <World layout={p.layout} glam={p.stageStyle === "glam"} lite={p.lite} lights={p.stageLights !== false}>
         <SeatsVisual layout={p.layout} freeHighlight={p.highlightFree} occupied={occupied} selected={p.selectedSeat} ownSeat={p.role === "participant" ? (p.store.map.get(p.selfId)?.seatId ?? null) : null} />
         <StageScreen layout={p.layout} portal={p.portal}>
           {p.screen}
         </StageScreen>
         {ids.map((id) => (
-          <Avatar key={id} id={id} store={p.store} layout={p.layout} lite={p.lite} bubbleTick={p.bubbleTick} portal={p.portal} />
+          <Avatar key={id} id={id} store={p.store} layout={p.layout} lite={p.lite} bubbleTick={p.bubbleTick} portal={p.portal} hand={!!p.hands?.has(id)} />
         ))}
       </World>
+      {p.ultra && !p.lite && <UltraFx onSlow={p.onSlow} />}
       <AdClickTarget layout={p.layout} ad={p.ad} domElement={p.domElement} />
       {p.role === "participant" && <SeatClickTarget layout={p.layout} domElement={p.domElement} occupied={occupied} onSeatClick={p.onSeatClick} onSeatDoubleClick={p.onSeatDoubleClick} />}
       {p.role === "participant" ? (

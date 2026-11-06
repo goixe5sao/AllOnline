@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { publishLiveBars } from "./market-live";
-import { ERROR_TEXT, type StageAd, type ClientMsg, type PollViewDto, type RoomInfoDto, type RoomRole, type ServerMsg } from "@/core/protocol";
+import { ERROR_TEXT, type StageAd, type ClientMsg, type PollViewDto, type QuestionDto, type Reaction, type RoomInfoDto, type RoomRole, type ServerMsg } from "@/core/protocol";
 import type { PersonalState, PublicMember } from "@/core/room-engine";
 import { BLANK_SCREEN, type ScreenState } from "@/core/screen";
+import type { LiveDto } from "@/core/live";
 import type { AvatarGroup } from "@/core/maps";
 
 export interface ChatLine {
@@ -22,7 +23,12 @@ export interface RoomSession {
   conn: ConnState;
   endReason: string | null;
   role: RoomRole | null;
-  you: { userId: string; name: string; isGuest: boolean; isRoomOwner: boolean } | null;
+  you: { userId: string; name: string; isGuest: boolean; isRoomOwner: boolean; isModerator: boolean } | null;
+  hands: { userId: string; name: string; at: number }[];
+  questions: QuestionDto[];
+  myQuestionVotes: string[];
+  /** Live camera on the stage: mode, requests, who is on air, monthly quota. */
+  live: LiveDto | null;
   room: RoomInfoDto | null;
   screen: ScreenState;
   polls: PollViewDto[];
@@ -40,10 +46,16 @@ export interface RoomSession {
 export class MemberStore {
   map = new Map<string, PublicMember>();
   bubbles = new Map<string, { text: string; at: number }>();
+  /** Last reaction per member (shown above the avatar for a moment). */
+  reacts = new Map<string, { e: Reaction; at: number }>();
+  /** Every reaction in the room, for the rising-emoji stream (trimmed). */
+  stream: { id: number; e: Reaction; at: number }[] = [];
+  /** Listeners for new reactions (stream overlay, clap sound) without re-rendering React. */
+  onReact = new Set<(e: Reaction, from: string) => void>();
   correction: { x: number; z: number } | null = null;
 }
 
-export function useRoom(roomId: string, opts: { pass: string | null; avatar: { group: AvatarGroup; model: string } | null; asParticipant?: boolean }) {
+export function useRoom(roomId: string, opts: { pass: string | null; avatar: { group: AvatarGroup; model: string; color?: string } | null; asParticipant?: boolean }) {
   const store = useRef(new MemberStore()).current;
   const [s, setS] = useState<RoomSession>({
     conn: "connecting",
@@ -60,6 +72,10 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
     toast: null,
     ad: null,
     version: 0,
+    hands: [],
+    questions: [],
+    myQuestionVotes: [],
+    live: null,
   });
   const wsRef = useRef<WebSocket | null>(null);
   const offsetRef = useRef(0);
@@ -84,6 +100,15 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
       setTimeout(() => setS((p) => (p.toast === text ? { ...p, toast: null } : p)), 4000);
     };
 
+    /** Disconnect times arrive in server ms; members keep them in this device's clock. */
+    const local = (u: PublicMember): PublicMember =>
+      u.offAt === undefined ? u : { ...u, offAt: u.offAt - offsetRef.current, holdUntil: u.holdUntil === undefined ? undefined : u.holdUntil - offsetRef.current };
+    /** Joined once already on this page: later joins are reconnects. */
+    let joinedOnce = false;
+    let hiddenAt = 0;
+    /** A ticket request is in flight (avoid two sockets when several triggers fire at once). */
+    let pending = false;
+
     const end = (reason: string) => {
       endedRef.current = true;
       setS((p) => ({ ...p, conn: "ended", endReason: reason }));
@@ -95,8 +120,58 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
         case "welcome":
           offsetRef.current = m.serverNow - Date.now();
           retryRef.current = 0;
-          store.map = new Map(m.members.map((x) => [x.userId, x]));
-          setS((p) => ({ ...p, conn: "open", role: m.role, you: m.you, room: m.room, screen: m.screen, polls: m.polls, myVotes: m.myVotes, personal: m.personal, settings: m.settings, ad: m.ad, version: p.version + 1 }));
+          joinedOnce = true;
+          store.map = new Map(m.members.map((x) => [x.userId, local(x)]));
+          setS((p) => ({
+            ...p,
+            conn: "open",
+            role: m.role,
+            you: m.you,
+            room: m.room,
+            screen: m.screen,
+            polls: m.polls,
+            myVotes: m.myVotes,
+            personal: m.personal,
+            settings: m.settings,
+            ad: m.ad,
+            hands: m.hands,
+            questions: m.questions,
+            myQuestionVotes: m.myQuestionVotes,
+            live: m.live,
+            version: p.version + 1,
+          }));
+          return;
+        case "react": {
+          const at = Date.now();
+          store.reacts.set(m.from, { e: m.e, at });
+          store.stream = [...store.stream.filter((x) => at - x.at < 4000).slice(-40), { id: at + Math.random(), e: m.e, at }];
+          for (const f of store.onReact) f(m.e, m.from);
+          return;
+        }
+        case "hands":
+          setS((p) => ({ ...p, hands: m.hands }));
+          return;
+        case "question":
+          setS((p) => ({ ...p, questions: p.questions.some((x) => x.id === m.q.id) ? p.questions.map((x) => (x.id === m.q.id ? m.q : x)) : [...p.questions, m.q] }));
+          return;
+        case "question_remove":
+          setS((p) => ({ ...p, questions: p.questions.filter((x) => x.id !== m.id) }));
+          return;
+        case "my_qvote":
+          setS((p) => ({ ...p, myQuestionVotes: m.on ? [...p.myQuestionVotes, m.id] : p.myQuestionVotes.filter((x) => x !== m.id) }));
+          return;
+        case "stage_style":
+          setS((p) => (p.room ? { ...p, room: { ...p.room, stageStyle: m.style } } : p));
+          return;
+        case "live":
+          setS((p) => ({ ...p, live: m.live }));
+          return;
+        case "stage_lights":
+          setS((p) => (p.room ? { ...p, room: { ...p.room, stageLights: m.on } } : p));
+          return;
+        case "mod":
+          setS((p) => (p.you ? { ...p, you: { ...p.you, isModerator: m.isModerator } } : p));
+          toast(m.isModerator ? "Bạn vừa được chủ phòng chọn làm trợ lý điều hành." : "Bạn không còn là trợ lý điều hành.");
           return;
         case "members": {
           let structural = m.remove.length > 0;
@@ -104,7 +179,7 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
           for (const u of m.upsert) {
             const prev = store.map.get(u.userId);
             if (!prev || prev.status !== u.status || prev.seatId !== u.seatId || prev.connected !== u.connected) structural = true;
-            store.map.set(u.userId, u);
+            store.map.set(u.userId, local(u));
           }
           if (structural) setS((p) => ({ ...p, version: p.version + 1 }));
           return;
@@ -162,15 +237,18 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
 
     const connect = async () => {
       if (disposed || endedRef.current) return;
+      const st = wsRef.current?.readyState;
+      if (pending || st === WebSocket.OPEN || st === WebSocket.CONNECTING) return;
+      pending = true;
       try {
-        const { ticket } = await api<{ ticket: string }>("/api/ws-ticket");
+        const { ticket } = await api<{ ticket: string }>("/api/ws-ticket").finally(() => (pending = false));
         // The effect may have been disposed while the ticket was loading (unmount / StrictMode).
         if (disposed || endedRef.current) return;
         const proto = location.protocol === "https:" ? "wss" : "ws";
         const ws = new WebSocket(`${proto}://${location.host}/ws?ticket=${encodeURIComponent(ticket)}`);
         wsRef.current = ws;
         ws.onopen = () => {
-          ws.send(JSON.stringify({ t: "join", roomId, pass: opts.pass ?? undefined, avatar: opts.avatar ?? undefined, asParticipant: opts.asParticipant || undefined } satisfies ClientMsg));
+          ws.send(JSON.stringify({ t: "join", roomId, pass: opts.pass ?? undefined, resume: joinedOnce || undefined, avatar: opts.avatar ?? undefined, asParticipant: opts.asParticipant || undefined } satisfies ClientMsg));
           pingTimer = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: "ping", c: Date.now() })), 10_000);
         };
         ws.onmessage = (e) => {
@@ -203,11 +281,47 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
       }
     };
     window.addEventListener("online", online);
+    // Page closed / reloaded: say goodbye so the place is kept only briefly (not the full grace).
+    // Not on a back/forward-cache freeze (persisted): that page may come back as it was.
+    const pagehide = (e: PageTransitionEvent) => {
+      if (e.persisted || endedRef.current) return;
+      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ t: "bye" } satisfies ClientMsg));
+      // a socket message may not get out when the tab is closed; a beacon is delivered anyway
+      try {
+        navigator.sendBeacon?.(`/api/rooms/${roomId}/bye`);
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("pagehide", pagehide);
+    // Back to the tab / app (phones freeze background pages): reconnect now, not after the back-off.
+    const visibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (endedRef.current) return;
+      const away = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN && away > 25_000) {
+        // the server has most likely cut a socket that slept this long: start a fresh one
+        retryRef.current = 0;
+        ws.close();
+      } else if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        retryRef.current = 0;
+        clearTimeout(timer);
+        void connect();
+      }
+    };
+    document.addEventListener("visibilitychange", visibility);
     return () => {
       disposed = true;
       clearTimeout(timer);
       clearInterval(pingTimer);
       window.removeEventListener("online", online);
+      window.removeEventListener("pagehide", pagehide);
+      document.removeEventListener("visibilitychange", visibility);
       wsRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

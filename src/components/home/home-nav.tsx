@@ -12,12 +12,12 @@ export function HomeNav() {
   const member = user && !user.isGuest;
   return (
     <header className="hn">
-      <Link href="/" className="hn-brand" aria-label="AllOnline — trang chủ">
+      <Link href="/" className="hn-brand" aria-label="Sân Khấu Online — trang chủ">
         <span className="hn-mark" aria-hidden>
-          A
+          S
         </span>
         <span>
-          All<b>Online</b>
+          Sân Khấu <b>Online</b>
         </span>
       </Link>
       <ThemeToggle className="hn-theme" />

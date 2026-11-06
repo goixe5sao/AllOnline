@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { MAP_INFO, type MapCode } from "@/core/maps";
 import type { HomeRoom } from "@/lib/home-data";
 import { MAP_SHORT, STAGE_COPY } from "./stage-info";
+import { vnEventTime } from "@/lib/vn-time";
 
 const PER_PAGE = 6;
 const DWELL_MS = 9000;
@@ -28,7 +29,13 @@ function RoomTile({ r }: { r: HomeRoom }) {
           {MAP_SHORT[r.map]} · {r.officialCapacity} chỗ{r.openEnded ? " · ∞" : ""}
           {r.hasPassword ? " · 🔒" : ""}
         </span>
-        <span className={`st-room-live ${watching ? "on" : ""}`}>{watching ? `● ${watching} đang xem` : "● Sẵn sàng"}</span>
+        {r.startsAt && !watching ? (
+          <span className="st-room-live soon" suppressHydrationWarning>
+            🗓 {vnEventTime(r.startsAt)}
+          </span>
+        ) : (
+          <span className={`st-room-live ${watching ? "on" : ""}`}>{watching ? `● ${watching} đang xem` : "● Sẵn sàng"}</span>
+        )}
       </span>
       <span className="st-room-go" aria-hidden>
         ›
@@ -51,11 +58,15 @@ export function StageSlides({ intro, initialRooms, maps }: { intro: ReactNode; i
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const load = () =>
+    // a room that ended while this page is open drops out at once (also if the refresh fails)
+    const alive = (r: HomeRoom) => r.openEnded || r.expiresAt > Date.now();
+    const load = () => {
+      setRooms((prev) => (prev.every(alive) ? prev : prev.filter(alive)));
       fetch("/api/rooms/public")
         .then((r) => (r.ok ? r.json() : null))
-        .then((d: { rooms: HomeRoom[] } | null) => d && setRooms(d.rooms))
+        .then((d: { rooms: HomeRoom[] } | null) => d && setRooms(d.rooms.filter(alive)))
         .catch(() => undefined);
+    };
     const id = setInterval(load, 20_000);
     return () => clearInterval(id);
   }, []);
@@ -186,7 +197,7 @@ export function StageSlides({ intro, initialRooms, maps }: { intro: ReactNode; i
             {(Object.keys(MAP_INFO) as MapCode[]).map((m) => (
               <article key={m} className={`st-type ${maps.includes(m) ? "" : "off"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element -- static webp preview */}
-                <img src={`/maps/${m}.webp`} alt={`Ảnh ${MAP_INFO[m].name} trong AllOnline`} loading="lazy" width={480} height={300} />
+                <img src={`/maps/${m}.webp`} alt={`Ảnh ${MAP_INFO[m].name} trong Sân Khấu Online`} loading="lazy" width={480} height={300} />
                 <h3>{MAP_INFO[m].name}</h3>
                 <p className="st-type-tag">{STAGE_COPY[m].tag}</p>
                 <p>{STAGE_COPY[m].fit}</p>

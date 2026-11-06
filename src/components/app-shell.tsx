@@ -24,12 +24,13 @@ export function AppShell({ children, narrow, requireLogin }: { children: (me: Me
       )}
       <header className="topnav">
         <Link href="/" className="brand">
-          <span className="brand-mark">A</span> AllOnline
+          <span className="brand-mark">S</span> Sân Khấu Online
         </Link>
         <nav aria-label="Điều hướng chính">
           {link("/", "Tổng quan")}
           {user && !user.isGuest && link("/rooms/new", "Tạo phòng")}
           {user && !user.isGuest && link("/orders", "Đơn của tôi")}
+          {user && !user.isGuest && link("/account", "Tài khoản")}
           {user?.role === "app_owner" && link("/admin", "Quản trị")}
         </nav>
         <span className="spacer" />

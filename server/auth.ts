@@ -9,6 +9,8 @@ import { createGuest, getUser, upsertUser, type AppUser } from "./services/users
 const DEMO_COOKIE = "ao_demo";
 const GUEST_COOKIE = "ao_guest";
 const DEVICE_COOKIE = "ao_dev";
+/** Accounts signed in with Zalo (Zalo Login or a one-time link from the Zalo bot). */
+const ACCOUNT_COOKIE = "ao_acc";
 
 export class Signer {
   constructor(private secret: string) {}
@@ -79,7 +81,21 @@ export class Auth {
     appendCookie(res, serializeCookie(GUEST_COOKIE, "", { maxAge: 0, httpOnly: true, sameSite: "lax" }));
   }
 
+  /** Signed session for Zalo accounts (no Supabase identity behind them). 30 days. */
+  startAccount(res: ServerResponse, userId: string) {
+    appendCookie(res, serializeCookie(ACCOUNT_COOKIE, this.signer.sign({ k: "acc", uid: userId, exp: Date.now() + 30 * 86400_000 }), { httpOnly: true, sameSite: "lax", maxAge: 30 * 86400, secure: this.cfg.secureCookies }));
+  }
+
+  clearAccount(res: ServerResponse) {
+    appendCookie(res, serializeCookie(ACCOUNT_COOKIE, "", { maxAge: 0, httpOnly: true, sameSite: "lax" }));
+  }
+
   private async accountUser(req: IncomingMessage, res: ServerResponse): Promise<AppUser | null> {
+    const acc = this.signer.verify<{ k: string; uid: string; exp: number }>(parseCookies(req.headers.cookie)[ACCOUNT_COOKIE]);
+    if (acc?.k === "acc") {
+      const u = await getUser(this.db, acc.uid);
+      if (u && !u.is_guest) return u;
+    }
     if (this.cfg.mode === "demo") {
       const p = this.signer.verify<{ uid: string; exp: number }>(parseCookies(req.headers.cookie)[DEMO_COOKIE]);
       return p ? getUser(this.db, p.uid) : null;

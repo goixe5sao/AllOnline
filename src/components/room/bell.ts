@@ -97,3 +97,31 @@ export function hourIndex(serverMs: number) {
 export function vnHourLabel(serverMs: number) {
   return new Date(serverMs).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Ho_Chi_Minh" });
 }
+
+/**
+ * Short applause clap (filtered noise bursts), synthesised — no audio file. Throttled by the
+ * caller; `volume` 0..1.
+ */
+export function playClap(volume = 0.5) {
+  if (!ctx || ctx.state !== "running" || volume <= 0) return;
+  const ac = ctx;
+  const t0 = ac.currentTime;
+  const len = Math.floor(ac.sampleRate * 0.12);
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (len * 0.18));
+  // two or three slightly offset claps sound like a small group
+  const n = 2 + Math.floor(Math.random() * 2);
+  for (let k = 0; k < n; k++) {
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const bp = ac.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 1100 + Math.random() * 900;
+    bp.Q.value = 0.9;
+    const g = ac.createGain();
+    g.gain.value = volume * 0.5;
+    src.connect(bp).connect(g).connect(ac.destination);
+    src.start(t0 + k * (0.03 + Math.random() * 0.05));
+  }
+}

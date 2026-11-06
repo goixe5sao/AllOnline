@@ -264,6 +264,7 @@
 .st-room-meta { font-size: 0.78rem; color: var(--h-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .st-room-live { font-size: 0.75rem; font-weight: 700; color: var(--h-faint); }
 .st-room-live.on { color: var(--h-lime); }
+.st-room-live.soon { color: var(--h-led); }
 .st-room-go { color: var(--h-cyan); font-size: 1.6rem; padding-right: 4px; }
 .st-empty { display: flex; justify-content: center; padding: 10px 0; }
 .st-types { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -386,6 +387,8 @@
 .mr-head h3 { margin: 0; font-size: 1.05rem; }
 .mr-status { font-size: 0.78rem; padding: 3px 10px; border-radius: 999px; background: var(--h-input); color: var(--h-muted); white-space: nowrap; }
 .mr-status.on { background: rgb(182 255 61 / 0.16); color: var(--h-lime); }
+.mr.ended { opacity: 0.62; }
+.mr-more { align-self: flex-start; justify-self: start; width: auto; }
 .mr-meta, .mr-bill { margin: 0; color: var(--h-muted); font-size: 0.9rem; }
 .mr-bill { color: var(--h-soft); }
 .mr-bill b { color: #ffd38a; }

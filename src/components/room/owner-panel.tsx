@@ -1,5 +1,7 @@
 "use client";
 
+import type { LiveDto } from "@/core/live";
+import { LiveModeration } from "./live";
 import { useState } from "react";
 import Link from "next/link";
 import { api, ApiError, fmtDuration, fmtTime, useApi } from "@/lib/api";
@@ -11,11 +13,43 @@ import type { ClientMsg, PollViewDto, RoomInfoDto } from "@/core/protocol";
 import type { PublicMember } from "@/core/room-engine";
 import type { ChatLine } from "./use-room";
 import { SymbolPicker } from "./symbol-picker";
+import { HandsList } from "./engage";
+import { HostsSection, ScheduleSection, StatsTab } from "./owner-extra";
+import { YouTubePanel } from "./youtube-panel";
 
 const STATUS_VI: Record<string, string> = { seated: "Đang ngồi", finding: "Đang tìm chỗ", invited: "Được mời vào chỗ", waiting: "Chờ ngoài cổng" };
 
+function StageStyleSwitch({ roomId, style, lights, send }: { roomId: string; style: "glam" | "plain"; lights: boolean; send: (m: ClientMsg) => void }) {
+  const [err, setErr] = useState("");
+  const set = async (s: "glam" | "plain") => {
+    try {
+      await api(`/api/rooms/${roomId}/stage-style`, { body: { style: s } });
+    } catch (e) {
+      setErr((e as ApiError).message);
+    }
+  };
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      <small>Kiểu sân khấu (mọi người thấy ngay)</small>
+      <div className="row">
+        <button className={`hud-btn ${style === "glam" ? "primary" : ""}`} aria-pressed={style === "glam"} onClick={() => set("glam")}>
+          🛸 Hành tinh tương lai
+        </button>
+        <button className={`hud-btn ${style === "plain" ? "primary" : ""}`} aria-pressed={style === "plain"} onClick={() => set("plain")}>
+          ◻ Đơn sắc
+        </button>
+        <button className={`hud-btn ${lights ? "primary" : ""}`} aria-pressed={lights} onClick={() => send({ t: "stage_lights", on: !lights })}>
+          {lights ? "💡 Đèn sân khấu: bật" : "🌑 Đèn sân khấu: tắt"}
+        </button>
+      </div>
+      {err && <small>{err}</small>}
+    </div>
+  );
+}
+
 function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) => void; screen: ScreenState; serverNow: () => number; roomId: string }) {
-  const [kind, setKind] = useState<ScreenContent["kind"]>("text");
+  // a YouTube video on screen → open its controls straight away
+  const [kind, setKind] = useState<ScreenContent["kind"]>(screen.content.kind === "youtube" ? "youtube" : "text");
   const [value, setValue] = useState("");
   const [title, setTitle] = useState("");
   const [interval, setIntervalOpt] = useState<ChartInterval>("D");
@@ -66,6 +100,8 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
       <div className="notice">
         Đang chiếu: <strong>{screen.content.kind}</strong>
         {playable && ` · ${screen.playing ? "đang phát" : "tạm dừng"} · ${fmtDuration(pos * 1000)}`}
+        {screen.content.kind === "youtube" && screen.content.endMode === "loop" && " · 🔁 lặp lại"}
+        {screen.content.kind === "youtube" && screen.content.endMode === "next" && ` · ⏭ danh sách ${(screen.content.index ?? 0) + 1}/${screen.content.playlist?.length ?? 1}`}
       </div>
       {playable && (
         <div className="row">
@@ -100,8 +136,9 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
       </label>
       {kind === "text" && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
       {kind === "chart" && <SymbolPicker value={value} onChange={setValue} />}
-      {(kind === "image" || kind === "audio" || kind === "youtube" || kind === "tradingview") && (
-        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "youtube" ? "https://www.youtube.com/watch?v=…" : kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
+      {kind === "youtube" && <YouTubePanel send={send} screen={screen} />}
+      {(kind === "image" || kind === "audio" || kind === "tradingview") && (
+        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
       )}
       {kind === "audio" && <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tiêu đề" />}
       {(kind === "image" || kind === "audio") && (
@@ -155,10 +192,11 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
         </>
       )}
       {kind === "tradingview" && <small>TradingView không cho nhúng mã sàn Việt Nam (HOSE/HNX). Dùng cho cổ phiếu quốc tế, crypto, vàng, ngoại tệ. Ở chế độ “Xem màn hình”, người xem dùng đủ công cụ vẽ/chỉ báo của TradingView.</small>}
-      {kind === "youtube" && <small>Dùng trình phát nhúng chính thức của YouTube. Video bị chủ sở hữu chặn nhúng sẽ báo lỗi trên màn hình.</small>}
-      <button className="hud-btn primary" onClick={show}>
-        Hiển thị lên màn hình
-      </button>
+      {kind !== "youtube" && (
+        <button className="hud-btn primary" onClick={show}>
+          Hiển thị lên màn hình
+        </button>
+      )}
       {err && <p className="notice">{err}</p>}
     </div>
   );
@@ -226,10 +264,13 @@ function PollsTab({ send, polls }: { send: (m: ClientMsg) => void; polls: PollVi
   );
 }
 
-function PeopleTab({ members, send }: { members: PublicMember[]; send: (m: ClientMsg) => void }) {
+function PeopleTab({ members, send, hands, isOwner, selfId, roomId }: { members: PublicMember[]; send: (m: ClientMsg) => void; hands: { userId: string; name: string; at: number }[]; isOwner: boolean; selfId: string; roomId: string }) {
   const count = (s: string) => members.filter((m) => m.status === s).length;
+  const [msg, setMsg] = useState("");
   return (
     <div className="stack">
+      <HandsList hands={hands} send={send} />
+      {msg && <small className="notice">{msg}</small>}
       <div className="row">
         <span className="badge ok">{count("seated")} đang ngồi</span>
         <span className="badge warn">{count("finding") + count("invited")} đang tìm/nhận chỗ</span>
@@ -248,7 +289,23 @@ function PeopleTab({ members, send }: { members: PublicMember[]; send: (m: Clien
                   {m.seatId && ` · ${m.seatId}`}
                 </small>
               </td>
-              <td style={{ textAlign: "right" }}>
+              <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                {isOwner && m.userId !== selfId && (
+                  <button
+                    className="hud-btn"
+                    title="Trợ lý được điều khiển màn hình, bình chọn, hỏi đáp và mời người ra (cần có tài khoản)"
+                    onClick={async () => {
+                      try {
+                        const r = await api<{ name: string }>(`/api/rooms/${roomId}/moderators`, { body: { userId: m.userId } });
+                        setMsg(`${r.name} đã là trợ lý điều hành.`);
+                      } catch (e) {
+                        setMsg((e as ApiError).message);
+                      }
+                    }}
+                  >
+                    Làm trợ lý
+                  </button>
+                )}{" "}
                 <button className="hud-btn" onClick={() => confirm(`Mời ${m.name} ra khỏi phòng?`) && send({ t: "kick", userId: m.userId })}>
                   Mời ra
                 </button>
@@ -351,6 +408,8 @@ function RoomTab({ room, serverNow }: { room: RoomInfoDto; serverNow: () => numb
           {msg && <small>{msg}</small>}
         </div>
       )}
+      <ScheduleSection roomId={room.id} startsAt={room.startsAt} />
+      <HostsSection roomId={room.id} />
       <Link className="hud-btn" href={`/room/${room.id}/logs`} target="_blank">
         Xem log phòng
       </Link>
@@ -377,20 +436,29 @@ export function OwnerPanel(p: {
   members: PublicMember[];
   room: RoomInfoDto;
   chat: ChatLine[];
+  hands: { userId: string; name: string; at: number }[];
+  isOwner: boolean;
+  selfId: string;
   onClose: () => void;
+  live: LiveDto | null;
+  /** Open the camera panel (the owner goes live themself). */
+  onOpenCamera: () => void;
 }) {
-  const [tab, setTab] = useState<"screen" | "polls" | "people" | "chat" | "room">("screen");
+  const [tab, setTab] = useState<"screen" | "live" | "polls" | "people" | "chat" | "stats" | "room">("screen");
+  const liveReq = p.live?.requests.length ?? 0;
   const tabs: [typeof tab, string][] = [
     ["screen", "Màn hình"],
+    ["live", p.live?.onAir ? "🔴 Live" : liveReq ? `Live · 🙋${liveReq}` : "Live"],
     ["polls", "Bình chọn"],
-    ["people", "Người tham dự"],
+    ["people", p.hands.length ? `Người tham dự · ✋${p.hands.length}` : "Người tham dự"],
     ["chat", "Chat"],
-    ["room", "Phòng"],
+    ["stats", "Thống kê"],
+    ...(p.isOwner ? ([["room", "Phòng"]] as [typeof tab, string][]) : []),
   ];
   return (
     <aside className="side-panel" aria-label="Điều khiển chủ phòng">
       <div className="row between">
-        <strong>Điều khiển chủ phòng</strong>
+        <strong>{p.isOwner ? "Điều khiển chủ phòng" : "Điều khiển (trợ lý)"}</strong>
         <button className="hud-btn" onClick={p.onClose} aria-label="Đóng bảng điều khiển">
           ✕
         </button>
@@ -402,9 +470,16 @@ export function OwnerPanel(p: {
           </button>
         ))}
       </div>
-      {tab === "screen" && <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} />}
+      {tab === "screen" && (
+        <>
+          <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} lights={p.room.stageLights} send={p.send} />
+          <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} />
+        </>
+      )}
+      {tab === "live" && <LiveModeration live={p.live} send={p.send} selfId={p.selfId} onOpenCamera={p.onOpenCamera} />}
       {tab === "polls" && <PollsTab send={p.send} polls={p.polls} />}
-      {tab === "people" && <PeopleTab members={p.members} send={p.send} />}
+      {tab === "people" && <PeopleTab members={p.members} send={p.send} hands={p.hands} isOwner={p.isOwner} selfId={p.selfId} roomId={p.room.id} />}
+      {tab === "stats" && <StatsTab roomId={p.room.id} />}
       {tab === "chat" && (
         <div className="stack">
           <small>
@@ -423,7 +498,7 @@ export function OwnerPanel(p: {
           {!p.chat.length && <small>Chưa có tin nhắn ở gần.</small>}
         </div>
       )}
-      {tab === "room" && <RoomTab room={p.room} serverNow={p.serverNow} />}
+      {tab === "room" && p.isOwner && <RoomTab room={p.room} serverNow={p.serverNow} />}
     </aside>
   );
 }

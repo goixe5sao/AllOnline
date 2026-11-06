@@ -6,6 +6,7 @@
  *   - background sweepers (room expiry, payment holds, upload retention)
  * so expiry works even when no browser is open.
  */
+import { LiveMeter, RealtimeClient } from "./live";
 import { createServer } from "node:http";
 import next from "next";
 import { WebSocketServer } from "ws";
@@ -17,14 +18,16 @@ import { createApi } from "./routes";
 import { createStorage } from "./storage";
 import { MarketService } from "./market/service";
 import { StockVnAnalysis } from "./analysis/stockvn";
-import { closeRoom, dueRooms, expireOrders, listPublicRooms } from "./services/rooms";
+import { closeRoom, dueRooms, expireOrders, getRoomByInvite, listPublicRooms } from "./services/rooms";
 import { getPriceTiers, getSettings } from "./services/settings";
 import { openEndedHourlyRate } from "@/core/pricing";
-import { registerHomeData, toHomeRoom } from "@/lib/home-data";
+import { registerHomeData, registerInviteMeta, toHomeRoom } from "@/lib/home-data";
 import type { MapCode } from "@/core/maps";
 import { getUser } from "./services/users";
 import { clientIp } from "./http";
 import path from "node:path";
+import { CaptureSender, ZaloOa } from "./zalo/oa";
+import { ZaloBot } from "./zalo/bot";
 
 async function main() {
   loadEnvFiles();
@@ -39,10 +42,28 @@ async function main() {
   // Market data scheduler: 1-minute bars + daily bars every minute during the VN session.
   const market = new MarketService(db);
   hub.setMarket(market);
+  const rtc = new RealtimeClient(cfg);
+  hub.setLive(rtc, new LiveMeter(db));
+  if (rtc.configured) console.log("> Live camera: Cloudflare Realtime on" + (cfg.turnKeyId ? " (+TURN)" : ""));
   if (process.env.MARKET_DATA !== "off") market.start();
   // Technical analysis is provided by the StockVN service (trendlines, channels, S/R, patterns…).
   const analysis = new StockVnAnalysis(cfg.stockvnUrl, undefined, undefined, cfg.stockvnToken);
-  const api = createApi({ cfg, db, auth, hub, storage, market, analysis });
+  // Zalo OA bot: real OA API when configured, otherwise an in-memory sender (demo simulator).
+  const origin = () => cfg.publicOrigin ?? `http://localhost:${cfg.port}`;
+  const zaloSender = cfg.zaloAppId && cfg.zaloAppSecret && (cfg.zaloOaRefreshToken || cfg.zaloOaId) ? new ZaloOa(cfg, db) : new CaptureSender();
+  const bot = new ZaloBot({
+    cfg,
+    db,
+    auth,
+    storage,
+    sender: zaloSender,
+    origin,
+    onPaid: async ({ roomId, kind }) => {
+      if (roomId && kind === "extend_room") await hub.refreshRoom(roomId);
+    },
+  });
+  setInterval(() => void bot.tick().catch((e) => console.error("[zalo] tick", e)), 60_000);
+  const api = createApi({ cfg, db, auth, hub, storage, market, analysis, bot, rtc });
   // Data for the server-rendered home page (same process as Next.js).
   registerHomeData(async () => {
     const [rows, s, tiers] = await Promise.all([listPublicRooms(db), getSettings(db), getPriceTiers(db)]);
@@ -60,6 +81,20 @@ async function main() {
         durations: s.duration_options,
         openEnded: { enabled: s.open_ended_enabled, deposit: Number(s.open_ended_deposit_vnd), hourlyFrom: openEndedHourlyRate(tiers, 1, 0, 0) },
       },
+    };
+  });
+  // Invite page metadata (title / share image) for the server-rendered layout of /join/[code].
+  registerInviteMeta(async (code) => {
+    const r = await getRoomByInvite(db, code);
+    if (!r || r.status !== "open") return null;
+    const owner = await getUser(db, r.owner_id);
+    return {
+      name: r.name,
+      description: r.description,
+      map: r.map_code,
+      startsAt: r.scheduled_at ? new Date(r.scheduled_at).getTime() : null,
+      isPublic: r.is_public,
+      ownerName: owner?.display_name ?? "",
     };
   });
 
@@ -124,7 +159,7 @@ async function main() {
   });
 
   const onListen = () => {
-    console.log(`> AllOnline ${cfg.mode === "demo" ? "[CHẾ ĐỘ DEMO — PGlite cục bộ, đăng nhập demo, thanh toán giả]" : "[Supabase]"} http://${cfg.host ?? "localhost"}:${cfg.port}`);
+    console.log(`> Sân Khấu Online ${cfg.mode === "demo" ? "[CHẾ ĐỘ DEMO — PGlite cục bộ, đăng nhập demo, thanh toán giả]" : "[Supabase]"} http://${cfg.host ?? "localhost"}:${cfg.port}`);
   };
   if (cfg.host) server.listen(cfg.port, cfg.host, onListen);
   else server.listen(cfg.port, onListen);

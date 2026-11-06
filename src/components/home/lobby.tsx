@@ -6,9 +6,9 @@ import { JoinCode } from "./join-code";
 const SIGNUP = "/login?mode=signup&next=%2Frooms%2Fnew";
 
 export const FEATURES: { icon: string; title: string; text: string }[] = [
-  { icon: "🛸", title: "Một màn hình cho mọi người", text: "YouTube, biểu đồ chứng khoán VN từng phút, hình ảnh, văn bản — đồng bộ theo giờ máy chủ." },
+  { icon: "🛸", title: "Một màn hình cho mọi người", text: "YouTube, live camera (chủ phòng duyệt), biểu đồ chứng khoán VN từng phút, hình ảnh — đồng bộ theo giờ máy chủ." },
   { icon: "🤖", title: "Nhân vật đại diện", text: "Người, động vật hay xe; ngồi ghế, quay nhìn quanh, xem từ phía sau 2 hàng." },
-  { icon: "👽", title: "Chat với người ngồi gần", text: "Chỉ người ở gần nhận được, như thì thầm trong rạp. Không lưu, không voice/webcam." },
+  { icon: "👽", title: "Chat với người ngồi gần", text: "Chỉ người ở gần nhận được, như thì thầm trong rạp. Không lưu lại." },
   { icon: "🗳️", title: "Bình chọn trực tiếp", text: "Kết quả hiện ngay trên sân khấu; có thể chỉ cho tài khoản đã đăng ký." },
   { icon: "📱", title: "Mọi thiết bị", text: "Máy tính, máy tính bảng, điện thoại — chạy trên trình duyệt, không cài đặt." },
   { icon: "∞", title: "Theo giờ hoặc vô thời hạn", text: "Dùng thử, gói giờ, hoặc mở đến khi tắt: cọc trước, tính đúng giờ đã dùng." },
@@ -19,7 +19,7 @@ export const FAQ: { q: string; a: string }[] = [
   { q: "Phòng của tôi có hiện trên trang chủ không?", a: "Tuỳ bạn. Khi tạo phòng có ô “Hiện phòng trên trang chủ”; bật/tắt lại bất cứ lúc nào trong Phòng của tôi hoặc bảng điều khiển phòng. Phòng ẩn chỉ vào được bằng link mời." },
   { q: "Phòng mở vô thời hạn tính tiền thế nào?", a: "Bạn đặt cọc trước (mặc định 1.000.000 ₫). Phòng mở đến khi bạn tắt. Khi tắt, hệ thống tính số giờ đã mở (giờ dở tính tròn 1 giờ) × đơn giá theo sức chứa: còn dư thì hoàn lại cho bạn, thiếu thì thu thêm." },
   { q: "Một phòng chứa được bao nhiêu người?", a: "Bạn chọn số chỗ chính thức khi tạo phòng; có thể bật thêm khu chờ ngoài cổng. Người chờ được mời vào theo thứ tự khi có chỗ trống." },
-  { q: "Dùng được trên điện thoại không?", a: "Được. AllOnline chạy trên trình duyệt của máy tính, máy tính bảng và điện thoại; nút “Xem màn hình” mở riêng màn hình sân khấu toàn màn hình." },
+  { q: "Dùng được trên điện thoại không?", a: "Được. Sân Khấu Online chạy trên trình duyệt của máy tính, máy tính bảng và điện thoại; nút “Xem màn hình” mở riêng màn hình sân khấu toàn màn hình." },
 ];
 
 /** Friendly robot behind the reception desk (original SVG). */

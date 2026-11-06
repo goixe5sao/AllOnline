@@ -7,10 +7,12 @@ export const metadata: Metadata = {
   title: { default: SITE_NAME, template: `%s · ${SITE_SHORT}` },
   description: SITE_DESCRIPTION,
   applicationName: SITE_SHORT,
-  keywords: ["sân khấu 3D", "phòng 3D trực tuyến", "hội trường online", "rạp chiếu online", "xem chung màn hình", "sự kiện trực tuyến", "bình chọn trực tiếp", "AllOnline"],
-  openGraph: { type: "website", locale: "vi_VN", siteName: SITE_SHORT, title: SITE_NAME, description: SITE_DESCRIPTION, url: "/", images: [{ url: "/og.png", width: 1200, height: 630, alt: "Sân khấu 3D của tương lai — AllOnline" }] },
+  keywords: ["sân khấu 3D", "phòng 3D trực tuyến", "hội trường online", "rạp chiếu online", "xem chung màn hình", "sự kiện trực tuyến", "bình chọn trực tiếp", "Sân Khấu Online", "sankhau"],
+  openGraph: { type: "website", locale: "vi_VN", siteName: SITE_SHORT, title: SITE_NAME, description: SITE_DESCRIPTION, url: "/", images: [{ url: "/og.png", width: 1200, height: 630, alt: "Sân khấu 3D của tương lai — Sân Khấu Online" }] },
   twitter: { card: "summary_large_image", title: SITE_NAME, description: SITE_DESCRIPTION, images: ["/og.png"] },
   formatDetection: { telephone: false },
+  // Zalo for Developers asks to verify the domain (webhook / login redirect) with this meta tag.
+  ...(process.env.ZALO_SITE_VERIFICATION ? { other: { "zalo-platform-site-verification": process.env.ZALO_SITE_VERIFICATION } } : {}),
 };
 
 export const viewport: Viewport = {

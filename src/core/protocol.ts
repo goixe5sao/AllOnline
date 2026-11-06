@@ -2,6 +2,7 @@ import type { AvatarGroup, EntryMode, MapCode } from "./maps";
 import type { PersonalState, PublicMember } from "./room-engine";
 import type { ScreenAction, ScreenState } from "./screen";
 import type { Candle } from "./market";
+import type { LiveDto, LiveMode } from "./live";
 
 /** Persistent promo strip shown at the bottom of every stage screen. */
 export interface StageAd {
@@ -10,6 +11,21 @@ export interface StageAd {
 }
 
 export type RoomRole = "owner" | "participant" | "observer";
+
+/** Reactions anyone in the room can send (floating emoji, clap sound). Never stored. */
+export const REACTIONS = ["clap", "heart", "laugh", "fire", "wow", "like"] as const;
+export type Reaction = (typeof REACTIONS)[number];
+export const REACTION_EMOJI: Record<Reaction, string> = { clap: "👏", heart: "❤️", laugh: "😂", fire: "🔥", wow: "😮", like: "👍" };
+
+export interface QuestionDto {
+  id: string;
+  text: string;
+  author: string;
+  authorId: string;
+  votes: number;
+  status: "open" | "answered" | "hidden";
+  createdAt: number;
+}
 
 export interface PollViewDto {
   id: string;
@@ -33,11 +49,19 @@ export interface RoomInfoDto {
   /** Open until closed (no countdown / extension); expiresAt is only a technical far-away date. */
   openEnded: boolean;
   isTrial: boolean;
+  /** Planned start (event schedule), epoch ms; null = no schedule. */
+  startsAt: number | null;
+  /** "glam": alien-future stage (LED light curtain, neon, beams, planets). "plain": single-colour hall. */
+  stageStyle: "glam" | "plain";
+  /** Stage lights on (owner / co-host switch). */
+  stageLights: boolean;
 }
 
 export type ClientMsg =
-  | { t: "join"; roomId: string; pass?: string; avatar?: { group: AvatarGroup; model: string }; asParticipant?: boolean }
+  | { t: "join"; roomId: string; pass?: string; /** reconnect after a drop (not the first join of this page) */ resume?: boolean; avatar?: { group: AvatarGroup; model: string; color?: string }; asParticipant?: boolean }
   | { t: "leave" }
+  /** Sent when the page is being closed / reloaded: the server keeps the place only briefly. */
+  | { t: "bye" }
   | { t: "move"; x: number; z: number; rotY: number }
   | { t: "claim"; seatId: string }
   | { t: "change_seat"; seatId: string }
@@ -45,7 +69,23 @@ export type ClientMsg =
   | { t: "chat"; text: string }
   | { t: "vote"; pollId: string; optionId: string }
   | { t: "ping"; c: number }
-  // owner only
+  | { t: "react"; e: Reaction }
+  | { t: "hand"; up: boolean }
+  | { t: "q_ask"; text: string }
+  | { t: "q_vote"; id: string }
+  /** The YouTube player of this viewer reached the end of the video (fallback, see hub). */
+  | { t: "screen_ended"; rev: number }
+  // owner / co-host only
+  | { t: "hand_lower"; userId: string }
+  | { t: "q_set"; id: string; status: "open" | "answered" | "hidden" }
+  | { t: "q_show"; id: string }
+  | { t: "stage_lights"; on: boolean }
+  /** Live camera: mode (moderators), ask to go live, approve / refuse, stop (self or cut). */
+  | { t: "live_mode"; mode: LiveMode }
+  | { t: "live_ask" }
+  | { t: "live_grant"; userId: string }
+  | { t: "live_deny"; userId: string }
+  | { t: "live_stop"; userId?: string }
   | { t: "observe"; x: number; z: number }
   | ({ t: "screen" } & ScreenAction)
   | { t: "promote_chat"; id: string }
@@ -59,7 +99,7 @@ export type ServerMsg =
   | {
       t: "welcome";
       role: RoomRole;
-      you: { userId: string; name: string; isGuest: boolean; isRoomOwner: boolean };
+      you: { userId: string; name: string; isGuest: boolean; isRoomOwner: boolean; isModerator: boolean };
       room: RoomInfoDto;
       members: PublicMember[];
       screen: ScreenState;
@@ -69,6 +109,10 @@ export type ServerMsg =
       serverNow: number;
       settings: { chatRadius: number; chatMaxLength: number; warningMinutes: number[]; findSeatSeconds: number };
       ad: StageAd | null;
+      hands: { userId: string; name: string; at: number }[];
+      questions: QuestionDto[];
+      myQuestionVotes: string[];
+      live: LiveDto;
     }
   | { t: "members"; upsert: PublicMember[]; remove: { userId: string; reason: string }[] }
   | { t: "you"; personal: PersonalState | null }
@@ -84,6 +128,15 @@ export type ServerMsg =
   | { t: "corrected"; x: number; z: number }
   | { t: "error"; code: string; message: string }
   | { t: "pong"; c: number; s: number }
+  | { t: "react"; from: string; e: Reaction }
+  | { t: "hands"; hands: { userId: string; name: string; at: number }[] }
+  | { t: "question"; q: QuestionDto }
+  | { t: "question_remove"; id: string }
+  | { t: "my_qvote"; id: string; on: boolean }
+  | { t: "mod"; isModerator: boolean }
+  | { t: "stage_style"; style: "glam" | "plain" }
+  | { t: "stage_lights"; on: boolean }
+  | { t: "live"; live: LiveDto }
   /** Latest 1-minute bars incl. the forming one, pushed ~every second during the session. */
   | { t: "market"; symbol: string; bars: Candle[] };
 
@@ -107,5 +160,7 @@ export const ERROR_TEXT: Record<string, string> = {
   AVATAR_NOT_ALLOWED: "Đối tượng đại diện này không được phép trong phòng.",
   IP_LIMIT_PARTICIPANT: "Mạng (IP) bạn đang dùng đã đạt số người tham dự tối đa. Thử lại sau hoặc dùng mạng khác (ví dụ 4G).",
   DEVICE_LIMIT: "Thiết bị/trình duyệt này đã có một người đang tham dự. Mỗi thiết bị chỉ một người vào phòng tại một thời điểm.",
+  QA_RATE: "Bạn hỏi hơi nhanh, đợi 20 giây rồi gửi câu tiếp nhé.",
+  REACT_RATE: "Chậm lại một chút nhé.",
   VERIFIED_ONLY: "Bình chọn này chỉ dành cho người có tài khoản đã đăng ký. Bạn vẫn xem được kết quả.",
 };

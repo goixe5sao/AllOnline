@@ -65,6 +65,7 @@ const cfg = (extra: Partial<RoomConfig> = {}): RoomConfig => ({
   openEnded: true,
   isPublic: false,
   password: "",
+  stageStyle: "plain",
   ...extra,
 });
 
@@ -117,10 +118,10 @@ describe("open-ended rooms", () => {
 
   it("closing after the deposit is used up records what the owner still owes", async () => {
     const { roomId } = await paidOpenRoom();
-    await db.query("update app.rooms set starts_at = now() - interval '200 hours' where id = $1", [roomId]);
+    await db.query("update app.rooms set starts_at = now() - interval '200 hours 1 second' where id = $1", [roomId]);
     await closeRoom(db, roomId, "closed_by_admin", admin);
     const [s] = await listSettlements(db, { status: "collect_due" });
-    expect(s.billed_hours).toBe(201); // 200 h + the seconds of this test → every started hour counts
+    expect(s.billed_hours).toBe(201); // 200 h 1 s → every started hour counts
     expect(s.balance_vnd).toBe(1_000_000 - 201 * s.hourly_rate_vnd);
     expect(s.balance_vnd).toBeLessThan(0);
   });

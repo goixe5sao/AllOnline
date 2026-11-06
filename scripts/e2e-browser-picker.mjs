@@ -1,4 +1,5 @@
 import puppeteer from "puppeteer-core";
+import { closeOrb, orb, orbLabel, react } from "./orb.mjs";
 /**
  * Browser check (real Chrome, headless): room owner picks a stock in the owner panel and shows it.
  * Needs a running DEMO server (market data on), e.g.
@@ -23,7 +24,7 @@ const room = await p.evaluate(async () => (await fetch("/api/rooms", { method: "
 if (!room.roomId) throw new Error("room create failed: " + JSON.stringify(room));
 await p.goto(`${BASE}/room/${room.roomId}`, { waitUntil: "networkidle0" });
 await p.waitForSelector(".hud-top", { timeout: 60000 });
-await p.evaluate(() => [...document.querySelectorAll("button.hud-btn.primary")].find((b) => /điều khiển|chủ phòng/i.test(b.textContent ?? ""))?.click());
+await orb(p, "control");
 await sleep(800);
 await p.evaluate(() => {
   const sel = [...document.querySelectorAll("select")].find((s) => [...s.options].some((o) => o.value === "chart"));
@@ -43,7 +44,7 @@ await sleep(300);
 console.log("note:", await p.evaluate(() => document.querySelector(".symbol-picker > small")?.textContent));
 await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Hiển thị lên màn hình"))?.click());
 await sleep(1500);
-await p.evaluate(() => [...document.querySelectorAll("button.hud-btn.primary")].find((b) => /điều khiển|chủ phòng/i.test(b.textContent ?? ""))?.click());
+await orb(p, "control");
 // Wait for real data in the stage chart (first request waits for the backfill)
 await sleep(25000);
 await p.screenshot({ path: `${OUT}/chon-co-phieu-man-hinh.png` });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { api, ApiError, useApi } from "@/lib/api";
 import { AVATARS, type AvatarGroup, type MapCode } from "@/core/maps";
@@ -20,6 +20,10 @@ interface Catalog {
   openEnded: { enabled: boolean; deposit: number };
 }
 
+/** Same limits as the server (core/screen.ts): checked here so the price box never waits on an error. */
+const SYMBOL_RE = /^[A-Z0-9.]{1,12}$/;
+const SCREEN_TEXT_MAX = 500;
+
 interface Preview {
   waitingCapacity: number;
   totalSlots: number;
@@ -36,13 +40,17 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   const [description, setDescription] = useState("");
   const [map, setMap] = useState<MapCode>(catalog.maps.find((m) => m.enabled)?.code ?? "hall");
   const [groups, setGroups] = useState<AvatarGroup[]>(["people"]);
-  const [capacity, setCapacity] = useState(20);
+  // What the user typed (may be empty while editing) and the number it means.
+  const [capText, setCapText] = useState("20");
+  const capacity = capText.trim() === "" ? NaN : Number(capText);
   const [waitingEnabled, setWaitingEnabled] = useState(true);
   const [entryMode, setEntryMode] = useState<"auto_assign" | "gate_entry">("auto_assign");
   const [hours, setHours] = useState(catalog.durationOptions[0] ?? 6);
   // "Mở vô thời hạn – đến khi tắt": deposit now, settled by hours used when the room is closed.
   const [openEnded, setOpenEnded] = useState(false);
   const [isPublic, setIsPublic] = useState(true);
+  const [startsAt, setStartsAt] = useState("");
+  const [stageStyle, setStageStyle] = useState<"glam" | "plain">("glam");
   const [password, setPassword] = useState("");
   const [screenKind, setScreenKind] = useState<"text" | "youtube" | "chart" | "blank">("text");
   const [screenValue, setScreenValue] = useState("Chào mừng đến với phòng!");
@@ -51,6 +59,10 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   const [promoInput, setPromoInput] = useState("");
   const [promo, setPromo] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
+  // Why the last quote failed (shown instead of an endless "Đang tính…"); null = fine.
+  const [quoteErr, setQuoteErr] = useState<string | null>(null);
+  // Configuration the shown preview / error belongs to: anything else is still being priced.
+  const [answeredKey, setAnsweredKey] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -69,27 +81,60 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   const durationChoices = useTrial ? Array.from(new Set([...catalog.durationOptions.filter((h) => h <= catalog.trial.maxHours), catalog.trial.maxHours])).sort((a, b) => a - b) : catalog.durationOptions;
 
   const initialScreen = useMemo(() => {
-    if (screenKind === "text") return screenValue.trim() ? { kind: "text", text: screenValue.trim() } : undefined;
+    if (screenKind === "text") return screenValue.trim() ? { kind: "text", text: screenValue.trim().slice(0, SCREEN_TEXT_MAX) } : undefined;
     if (screenKind === "youtube") {
       const id = parseYouTubeId(screenValue);
       return id ? { kind: "youtube", videoId: id } : undefined;
     }
-    if (screenKind === "chart") return { kind: "chart", symbol: (screenValue.trim() || "VNINDEX").toUpperCase(), source: "demo", interval: chartInterval, indicators: ["volume", "ma20"] };
+    if (screenKind === "chart") {
+      const symbol = (screenValue.trim() || "VNINDEX").toUpperCase();
+      // same rule as the server; an invalid code is flagged next to the field, not sent
+      return SYMBOL_RE.test(symbol) ? { kind: "chart", symbol, source: "demo", interval: chartInterval, indicators: ["volume", "ma20"] } : undefined;
+    }
     return undefined;
   }, [screenKind, screenValue, chartInterval]);
 
-  const config = { name: name || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen };
+  const symbolBad = screenKind === "chart" && !initialScreen;
+  const config = { name: name.trim() || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen, scheduledAt: startsAt ? new Date(startsAt).getTime() : null, stageStyle };
 
+  // Re-quote on ANY change of the configuration (a fixed mistake must clear the error), debounced;
+  // a late answer to an older request is ignored.
+  const quoteKey = JSON.stringify({ config, promo });
+  const quoteSeq = useRef(0);
+  // Input problems are known without asking the server.
+  const inputErr = !Number.isInteger(capacity) || capacity < 1 ? "Hãy nhập số chỗ chính thức (số nguyên từ 1)." : !groups.length ? "Hãy chọn ít nhất một nhóm đối tượng đại diện." : null;
   useEffect(() => {
+    if (inputErr) return;
+    const seq = ++quoteSeq.current;
+    const key = quoteKey;
     const id = setTimeout(() => {
-      if (!Number.isInteger(capacity) || capacity < 1 || !groups.length) return;
       api<Preview>("/api/rooms/quote", { body: { ...config, promoCode: promo || undefined } })
-        .then(setPreview)
-        .catch(() => setPreview(null));
+        .then((p) => {
+          if (seq !== quoteSeq.current) return;
+          setPreview(p);
+          setQuoteErr(null);
+          setAnsweredKey(key);
+        })
+        .catch((e: ApiError) => {
+          if (seq !== quoteSeq.current) return;
+          setQuoteErr(e?.message || "Không tính được giá, thử lại sau.");
+          setAnsweredKey(key);
+        });
     }, 250);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capacity, waitingEnabled, hours, openEnded, useTrial, map, groups.join(","), promo]);
+  }, [quoteKey]);
+
+  /** Trial on: shorten the duration to what a trial allows; a too-large room is explained below. */
+  const chooseTrial = (on: boolean) => {
+    setUseTrial(on);
+    if (on && hours > catalog.trial.maxHours) {
+      const ok = catalog.durationOptions.filter((h) => h <= catalog.trial.maxHours);
+      setHours(ok.length ? Math.max(...ok) : catalog.trial.maxHours);
+    }
+  };
+  const tooBig = capacity > catalog.maxRoomCapacity;
+  const trialTooBig = useTrial && capacity > catalog.trial.maxCapacity;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -108,6 +153,9 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
 
   const b = preview?.budget;
   const over = preview && b ? preview.totalSlots > b.remaining : false;
+  const quoting = !inputErr && answeredKey !== quoteKey;
+  const shownErr = inputErr ?? (quoting ? null : quoteErr);
+  const blocked = !!shownErr || quoting || tooBig || trialTooBig || symbolBad;
 
   return (
     <form className="grid grid-2" onSubmit={submit} style={{ alignItems: "start" }}>
@@ -147,7 +195,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
         </div>
         <label className="field">
           Số chỗ chính thức
-          <input type="number" min={1} max={catalog.maxRoomCapacity} value={capacity} onChange={(e) => setCapacity(Math.floor(Number(e.target.value)))} required />
+          <input type="number" min={1} max={catalog.maxRoomCapacity} value={capText} onChange={(e) => setCapText(e.target.value)} required />
         </label>
         <label className="check">
           <input type="checkbox" checked={waitingEnabled} onChange={(e) => setWaitingEnabled(e.target.checked)} /> Cho người chờ ngoài cổng (tỷ lệ {Math.round(catalog.waitingRatio * 100)}%)
@@ -168,7 +216,28 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
           </div>
         </div>
         <label className="check">
-          <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Hiện phòng trên trang chủ AllOnline (ai cũng thấy và bấm vào được; đổi lại bất cứ lúc nào)
+          <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Hiện phòng trên trang chủ Sân Khấu Online (ai cũng thấy và bấm vào được; đổi lại bất cứ lúc nào)
+        </label>
+        <div className="field">
+          Kiểu sân khấu <small>(đổi được bất cứ lúc nào trong phòng)</small>
+          <div className="row" role="radiogroup" aria-label="Kiểu sân khấu">
+            {(
+              [
+                ["glam", "🛸 Hành tinh tương lai", "Rèm đèn LED, vòm hologram, đèn quét, bầu trời hành tinh & cực quang — bật/tắt đèn trong phòng"],
+                ["plain", "◻ Đơn sắc", "Hội trường sáng, gọn, nhẹ máy"],
+              ] as const
+            ).map(([v, t, d]) => (
+              <button key={v} type="button" role="radio" aria-checked={stageStyle === v} className={`choice ${stageStyle === v ? "on" : ""}`} onClick={() => setStageStyle(v)}>
+                <strong>{t}</strong>
+                <br />
+                <small>{d}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="field">
+          Giờ bắt đầu sự kiện <small>(không bắt buộc — trang mời hiện đếm ngược, khách bấm “Nhắc tôi” để bot Zalo nhắc)</small>
+          <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
         </label>
         <label className="field">
           Mật mã phòng <small>(không bắt buộc)</small>
@@ -203,11 +272,22 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
             )}
           </div>
           {screenKind === "youtube" && screenValue && !initialScreen && <small style={{ color: "var(--danger)" }}>Link YouTube không hợp lệ.</small>}
+          {symbolBad && <small style={{ color: "var(--danger)" }}>Mã chứng khoán chỉ gồm chữ A–Z, số và dấu chấm, tối đa 12 ký tự (ví dụ VNINDEX, FPT).</small>}
+          {screenKind === "text" && screenValue.trim().length > SCREEN_TEXT_MAX && <small>Chỉ hiện {SCREEN_TEXT_MAX} ký tự đầu.</small>}
         </div>
       </div>
 
       <div className="card stack" style={{ position: "sticky", top: 70 }}>
-        <h2>Slot & giá</h2>
+        <h2>
+          Slot & giá {quoting && <small className="muted">· đang tính…</small>}
+        </h2>
+        {shownErr && (
+          <p className="notice error" role="alert">
+            {shownErr}
+          </p>
+        )}
+        {tooBig && <p className="notice error">Tối đa {catalog.maxRoomCapacity} chỗ chính thức mỗi phòng.</p>}
+        {trialTooBig && <p className="notice error">Dùng thử tối đa {catalog.trial.maxCapacity} chỗ chính thức — giảm số chỗ hoặc bỏ dùng thử.</p>}
         {preview && b ? (
           <>
             <table className="data">
@@ -215,13 +295,13 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
                 <tr>
                   <td>Chỗ chính thức</td>
                   <td>
-                    <strong>{capacity}</strong>
+                    <strong>{Number.isFinite(capacity) ? capacity : "—"}</strong>
                   </td>
                 </tr>
                 <tr>
                   <td>Chỗ chờ ngoài cổng</td>
                   <td>
-                    <strong>{preview.waitingCapacity}</strong> <small>= làm tròn xuống({capacity} × {Math.round(preview.waitingRatio * 100)}%)</small>
+                    <strong>{preview.waitingCapacity}</strong> <small>= làm tròn xuống({Number.isFinite(capacity) ? capacity : "—"} × {Math.round(preview.waitingRatio * 100)}%)</small>
                   </td>
                 </tr>
                 <tr>
@@ -287,7 +367,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
             )}
             {preview.trial.eligible && !(openEnded && !useTrial) ? (
               <label className="check">
-                <input type="checkbox" checked={useTrial} onChange={(e) => setUseTrial(e.target.checked)} /> Dùng thử miễn phí (tối đa {catalog.trial.maxCapacity} chỗ, {catalog.trial.maxHours} giờ)
+                <input type="checkbox" checked={useTrial} onChange={(e) => chooseTrial(e.target.checked)} /> Dùng thử miễn phí (tối đa {catalog.trial.maxCapacity} chỗ, {catalog.trial.maxHours} giờ)
               </label>
             ) : openEnded && !useTrial ? (
               <small>Dùng thử không áp dụng cho phòng vô thời hạn.</small>
@@ -338,10 +418,10 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
             </small>
           </>
         ) : (
-          <p className="muted">Đang tính…</p>
+          !shownErr && <p className="muted">Đang tính…</p>
         )}
         {err && <p className="notice error">{err}</p>}
-        <button className="btn primary" disabled={busy || over || !groups.length || (!useTrial && !preview?.quote)}>
+        <button className="btn primary" disabled={busy || blocked || over || !groups.length || (!useTrial && !preview?.quote)}>
           {busy ? "Đang xử lý…" : useTrial ? "Tạo phòng dùng thử" : preview?.quote?.amount === 0 ? "Tạo phòng (miễn phí với mã)" : preview?.quote?.openEnded ? "Tạo đơn & đặt cọc" : "Tạo đơn & thanh toán"}
         </button>
       </div>

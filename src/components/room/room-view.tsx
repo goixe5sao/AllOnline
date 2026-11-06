@@ -9,7 +9,10 @@ import { hourIndex, ringBell, unlockAudio, vnHourLabel } from "./bell";
 import { PITCH_RANGE, RoomScene, type Controls } from "./scene";
 import { ScreenContent } from "./screen-content";
 import { OwnerPanel } from "./owner-panel";
+import { QaPanel, ReactionStream } from "./engage";
+import { AlienOrb } from "./orb-menu";
 import { useRoom } from "./use-room";
+import { LiveAudio, LivePanel, useLivePublisher, useLiveViewer } from "./live";
 
 function readSession<T>(key: string): T | null {
   try {
@@ -131,17 +134,45 @@ function ParticipantPoll({ poll, myVote, onVote, isGuest }: { poll: PollViewDto;
 export function RoomView({ roomId }: { roomId: string }) {
   const [boot] = useState(() => ({
     pass: typeof window === "undefined" ? null : sessionStorage.getItem(`ao-pass-${roomId}`),
-    avatar: typeof window === "undefined" ? null : readSession<{ group: AvatarGroup; model: string }>(`ao-avatar-${roomId}`),
+    avatar: typeof window === "undefined" ? null : readSession<{ group: AvatarGroup; model: string; color?: string }>(`ao-avatar-${roomId}`),
     // The room owner chose "attend as a participant" on the invite page.
     asParticipant: typeof window !== "undefined" && sessionStorage.getItem(`ao-mode-${roomId}`) === "participant",
   }));
   const { session: s, store, send, serverNow, leave } = useRoom(roomId, boot);
+  // Live camera: watching whoever is on air, and this device's own camera when broadcasting.
+  const selfId = s.you?.userId ?? "";
+  const liveView = useLiveViewer(roomId, s.live, selfId);
+  const pub = useLivePublisher(roomId, send);
+  const onAirSelf = !!s.live?.onAir && s.live.onAir.userId === selfId;
+  // Cut by a moderator / replaced / live switched off: stop the camera here too.
+  const pubLive = pub.state === "live";
+  const pubStop = pub.stop;
+  useEffect(() => {
+    if (pubLive && s.live && !onAirSelf) pubStop(false);
+  }, [pubLive, onAirSelf, s.live, pubStop]);
   const controls = useRef<Controls>({ yaw: 0, pitch: 0, fov: 60, keys: new Set(), joy: { x: 0, y: 0 } });
   const [wrap, setWrap] = useState<HTMLDivElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [fullView, setFullView] = useState(false);
-  const [panel, setPanel] = useState<"owner" | "seats" | null>(null);
-  const [lite, setLite] = useState(false);
+  const [panel, setPanel] = useState<"owner" | "seats" | "qa" | "live" | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [gfx, setGfx] = useState<"lite" | "full" | "ultra">("full");
+  // Graphics levels only exist for the "Hành tinh tương lai" stage; a "Đơn sắc" room is one simple
+  // look for everyone (the viewer's saved choice comes back when the owner switches the stage).
+  const glamRoom = s.room?.stageStyle === "glam";
+  const gfxOn = glamRoom ? gfx : "full";
+  const lite = gfxOn === "lite";
+  // After an automatic fall-back, choosing "Siêu đẹp" again means "keep it": no more watchdog.
+  const [gfxDropped, setGfxDropped] = useState(false);
+  const [gfxForced, setGfxForced] = useState(false);
+  const chooseGfx = (v: "lite" | "full" | "ultra") => {
+    if (v === "ultra" && gfxDropped) setGfxForced(true);
+    setGfx(v);
+    try {
+      localStorage.setItem("ao-gfx", v);
+    } catch {}
+  };
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(true);
   const [chatText, setChatText] = useState("");
@@ -217,7 +248,9 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   useEffect(() => {
     try {
-      setLite(localStorage.getItem("ao-lite") === "1");
+      const g = localStorage.getItem("ao-gfx");
+      if (g === "lite" || g === "full" || g === "ultra") setGfx(g);
+      else if (localStorage.getItem("ao-lite") === "1") setGfx("lite"); // older setting
     } catch {}
     setTouch(window.matchMedia("(pointer: coarse)").matches);
     setReduceMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -229,6 +262,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const movable = isParticipant && me && (me.status === "finding" || me.status === "waiting");
   const members = useMemo(() => [...store.map.values()], [s.version]); // eslint-disable-line react-hooks/exhaustive-deps
   const occupied = useMemo(() => new Set(members.filter((m) => m.status === "seated" && m.seatId).map((m) => m.seatId!)), [members]);
+  const handSet = useMemo(() => new Set(s.hands.map((h) => h.userId)), [s.hands]);
 
   // Default: the view from behind (own avatar + screen); ↑ / the HUD button for the own eyes.
   const [behind, setBehind] = useState(true);
@@ -385,11 +419,16 @@ export function RoomView({ roomId }: { roomId: string }) {
     muted,
     reduceMotion,
     ad: s.ad,
+    onEnded: (rev: number) => send({ t: "screen_ended", rev }),
+    live: s.live?.onAir ? (onAirSelf ? (pub.preview ? { stream: pub.preview, name: s.live.onAir.name, mirror: true } : null) : liveView.stream ? { stream: liveView.stream, name: s.live.onAir.name } : null) : null,
   };
   const p = s.personal;
   const remaining = s.room.openEnded ? Infinity : s.room.expiresAt - (now + (serverNow() - Date.now()));
   const warnWindow = Math.max(0, ...(s.settings?.warningMinutes ?? [30])) * 60_000;
   const openPoll = [...s.polls].reverse().find((x) => x.status === "open") ?? null;
+  const canModerate = s.you.isRoomOwner || s.you.isModerator;
+  const handUp = handSet.has(s.you.userId);
+  const openQuestions = s.questions.filter((q) => q.status === "open").length;
 
   return (
     <div className="room-root">
@@ -410,6 +449,16 @@ export function RoomView({ roomId }: { roomId: string }) {
           controls={controls}
           send={send}
           lite={lite}
+          ultra={gfxOn === "ultra"}
+          onSlow={
+            gfxForced
+              ? undefined
+              : () => {
+                  setGfx("full"); // not saved: the viewer's choice stays for next time
+                  setGfxDropped(true);
+                  setNote("Máy hơi chậm với đồ hoạ Siêu đẹp — đã tạm chuyển về Đầy đủ. Bấm Siêu đẹp lần nữa để giữ nguyên.");
+                }
+          }
           paused={fullView}
           domElement={wrap}
           portal={wrapRef}
@@ -417,93 +466,33 @@ export function RoomView({ roomId }: { roomId: string }) {
           ad={s.ad}
           selectedSeat={seatPick?.id ?? goingTo}
           behindView={isParticipant && behind}
+          hands={handSet}
+          stageStyle={s.room.stageStyle}
+          stageLights={s.room.stageLights}
           onSeatClick={onSeatClick}
           onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
           screen={<ScreenContent {...screenProps} active={!fullView} />}
         />
       </div>
 
-      <div className="hud-top">
-        <Link className="hud-btn" href="/" onClick={() => leave()} aria-label="Rời phòng">
-          ← Rời phòng
-        </Link>
-        <span className="title">{s.room.name}</span>
-        <span className="hud-chip hide-mobile">{MAP_INFO[s.room.map].name}</span>
-        {s.conn === "reconnecting" && <span className="hud-chip" style={{ color: "#f0b860" }}>Mất kết nối — đang thử lại, chỗ của bạn được giữ tạm</span>}
-        {s.room.isTrial && <span className="hud-chip hide-mobile">Dùng thử</span>}
-        {remaining < warnWindow && <span className="hud-chip" style={{ color: "#ff9a8f" }}>Còn {fmtDuration(remaining)}</span>}
-        <span style={{ flex: 1 }} />
-        <button className="hud-btn" onClick={() => setMuted(!muted)}>
-          {muted ? "🔇 Bật tiếng" : "🔊 Tắt tiếng"}
-        </button>
-        <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Âm lượng" className="hide-mobile" style={{ width: 90 }} />
-        <button className="hud-btn primary" onClick={openFull}>
-          Xem màn hình
-        </button>
-        <button
-          className="hud-btn"
-          onClick={() => {
-            const v = !lite;
-            setLite(v);
-            try {
-              localStorage.setItem("ao-lite", v ? "1" : "0");
-            } catch {}
-          }}
-          aria-pressed={lite}
-        >
-          {lite ? "Đồ hoạ: nhẹ" : "Đồ hoạ: đầy đủ"}
-        </button>
-        <button
-          className="hud-btn hide-mobile"
-          aria-pressed={bellOn}
-          title="Chuông tỉnh thức mỗi giờ (xx:00)"
-          onClick={() => {
-            const v = !bellOn;
-            setBellOn(v);
-            try {
-              localStorage.setItem("ao-bell", v ? "1" : "0");
-            } catch {}
-            if (v) {
-              unlockAudio();
-              setTimeout(() => ringBell(volume / 100), 50); // preview
-            }
-          }}
-        >
-          {bellOn ? "🔔 Chuông: bật" : "🔕 Chuông: tắt"}
-        </button>
-        {s.you.isRoomOwner && (
-          <button className="hud-btn primary" onClick={() => setPanel(panel === "owner" ? null : "owner")}>
-            Điều khiển
-          </button>
+      {/* Over the 3D view only a small status pill; every function lives in the alien orb. */}
+      <div className="hud-top hud-status">
+        <span className="hud-pill" title={MAP_INFO[s.room.map].name}>
+          <b className="title">{s.room.name}</b>
+          {isParticipant && me?.status === "seated" && <span className="hud-pill-sub">· Chỗ {me.seatId}</span>}
+          {s.room.isTrial && <span className="hud-pill-sub hide-mobile">· Dùng thử</span>}
+        </span>
+        {s.conn === "reconnecting" && (
+          <span className="hud-chip" style={{ color: "#f0b860" }} title="Mất kết nối — đang thử lại, chỗ của bạn được giữ tạm">
+            ⚠ Đang kết nối lại
+          </span>
         )}
-        {s.you.isRoomOwner && (
-          <button
-            className="hud-btn"
-            onClick={async () => {
-              if (isParticipant) {
-                // Back to the owner's free camera.
-                sessionStorage.removeItem(`ao-mode-${roomId}`);
-                leave();
-                window.location.reload();
-              } else {
-                const r = await api<{ room: { invite_code: string } }>(`/api/rooms/${roomId}`);
-                window.location.href = `/join/${r.room.invite_code}`;
-              }
-            }}
-          >
-            {isParticipant ? "Chế độ chủ phòng" : "Ngồi như khách"}
-          </button>
+        {remaining < warnWindow && (
+          <span className="hud-chip" style={{ color: "#ff9a8f" }}>
+            ⏳ {fmtDuration(remaining)}
+          </span>
         )}
-        {isParticipant && (
-          <button className="hud-btn" aria-pressed={behind} onClick={() => setBehind(!behind)} title={movable ? "Xem từ phía sau 2 hàng" : "Phím ↓: xem từ phía sau 2 hàng · ↑: về chỗ mình"}>
-            {behind ? "👁 Góc của tôi" : "🎥 Xem từ phía sau"}
-          </button>
-        )}
-        {isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" && (
-          <button className="hud-btn" onClick={() => setPanel(panel === "seats" ? null : "seats")}>
-            Đổi chỗ
-          </button>
-        )}
+        {s.role === "observer" && <span className="hud-chip">Quan sát</span>}
       </div>
 
       {isParticipant && p && p.status !== "seated" && (
@@ -546,36 +535,152 @@ export function RoomView({ roomId }: { roomId: string }) {
       {movable && touch && <Joystick controls={controls} />}
 
       <div className="hud-bottom">
-        <div className="chat-box">
-          <div className="chat-log" aria-live="polite">
-            {s.chat.slice(-8).map((c) => (
-              <div className="msg" key={c.id}>
-                <b>{c.name}</b>
-                {c.text}
-              </div>
-            ))}
+        {chatOpen ? (
+          <div className="chat-box">
+            <div className="row between" style={{ alignItems: "center" }}>
+              <small style={{ opacity: 0.8 }}>Chat với người trong bán kính {s.settings?.chatRadius ?? 8} m · không lưu</small>
+              <button className="hud-btn chat-close" onClick={() => setChatOpen(false)} aria-label="Đóng chat">
+                ✕
+              </button>
+            </div>
+            <div className="chat-log" aria-live="polite">
+              {s.chat.slice(-8).map((c) => (
+                <div className="msg" key={c.id}>
+                  <b>{c.name}</b>
+                  {c.text}
+                </div>
+              ))}
+            </div>
+            <form
+              className="chat-input"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (chatText.trim()) send({ t: "chat", text: chatText });
+                setChatText("");
+              }}
+            >
+              <input autoFocus value={chatText} onChange={(e) => setChatText(e.target.value)} maxLength={s.settings?.chatMaxLength ?? 200} placeholder="Chat với người ở gần…" aria-label="Tin nhắn chat gần" />
+              <button className="hud-btn">Gửi</button>
+            </form>
           </div>
-          <form
-            className="chat-input"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (chatText.trim()) send({ t: "chat", text: chatText });
-              setChatText("");
-            }}
-          >
-            <input value={chatText} onChange={(e) => setChatText(e.target.value)} maxLength={s.settings?.chatMaxLength ?? 200} placeholder="Chat với người ở gần…" aria-label="Tin nhắn chat gần" />
-            <button className="hud-btn">Gửi</button>
-          </form>
-          <span className="chat-note">
-            Chỉ người trong bán kính {s.settings?.chatRadius ?? 8} m nhận được. Tin nhắn không được lưu. Không có voice/webcam.
-          </span>
-        </div>
+        ) : (
+          // closed chat: new messages float up briefly, then fade
+          <div className="chat-toasts" aria-live="polite">
+            {s.chat
+              .filter((c) => now - c.at < 8000)
+              .slice(-3)
+              .map((c) => (
+                <div className="msg" key={c.id}>
+                  <b>{c.name}</b>
+                  {c.text}
+                </div>
+              ))}
+          </div>
+        )}
         <span style={{ flex: 1 }} />
         {isParticipant && openPoll && <ParticipantPoll poll={openPoll} myVote={s.myVotes[openPoll.id]} onVote={(o) => send({ t: "vote", pollId: openPoll.id, optionId: o })} isGuest={s.you.isGuest} />}
-        {isParticipant && me?.status === "seated" && <span className="hud-chip">Chỗ {me.seatId}</span>}
-        {s.role === "owner" && <span className="hud-chip">Camera tự do: kéo để xoay, chuột phải/hai ngón để di chuyển, cuộn để zoom, nhấn đúp để đến vị trí</span>}
-        {s.role === "observer" && <span className="hud-chip">Chủ ứng dụng — chế độ quan sát</span>}
       </div>
+      {moreOpen && (
+        <div className="hud-menu orb-settings" role="dialog" aria-label="Cài đặt">
+          <div className="row between" style={{ alignItems: "center" }}>
+            <strong>Cài đặt</strong>
+            <button className="hud-btn chat-close" onClick={() => setMoreOpen(false)} aria-label="Đóng cài đặt">
+              ✕
+            </button>
+          </div>
+          <label className="hud-menu-row">
+            <span>🔊 Âm lượng</span>
+            <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Âm lượng" />
+          </label>
+          {glamRoom && (
+          <div className="hud-menu-row" role="radiogroup" aria-label="Đồ hoạ">
+            <span>✨ Đồ hoạ</span>
+            <span className="gfx-seg">
+              {(
+                [
+                  ["lite", "Nhẹ", "Ít hiệu ứng, cho máy yếu"],
+                  ["full", "Đầy đủ", "Mặc định"],
+                  ["ultra", "Siêu đẹp", "Đèn toả sáng thật — cần máy khoẻ, tự hạ về Đầy đủ nếu máy quá chậm"],
+                ] as const
+              ).map(([v, t, d]) => (
+                <button key={v} type="button" role="radio" aria-checked={gfx === v} className={gfx === v ? "on" : ""} title={d} onClick={() => chooseGfx(v)}>
+                  {t}
+                </button>
+              ))}
+            </span>
+          </div>
+          )}
+          <button
+            role="menuitemcheckbox"
+            aria-checked={bellOn}
+            className="hud-menu-row"
+            onClick={() => {
+              const v = !bellOn;
+              setBellOn(v);
+              try {
+                localStorage.setItem("ao-bell", v ? "1" : "0");
+              } catch {}
+              if (v) {
+                unlockAudio();
+                setTimeout(() => ringBell(volume / 100), 50); // preview
+              }
+            }}
+          >
+            <span>{bellOn ? "🔔" : "🔕"} Chuông mỗi giờ</span>
+            <b>{bellOn ? "Bật" : "Tắt"}</b>
+          </button>
+          {s.you.isRoomOwner && (
+            <button
+              className="hud-menu-row"
+              onClick={async () => {
+                if (isParticipant) {
+                  sessionStorage.removeItem(`ao-mode-${roomId}`);
+                  leave();
+                  window.location.reload();
+                } else {
+                  const r = await api<{ room: { invite_code: string } }>(`/api/rooms/${roomId}`);
+                  window.location.href = `/join/${r.room.invite_code}`;
+                }
+              }}
+            >
+              <span>{isParticipant ? "🎥 Về chế độ chủ phòng (camera tự do)" : "🪑 Ngồi như khách"}</span>
+            </button>
+          )}
+          <small className="hud-menu-note">
+            Phím: M mở quả cầu · ↑ góc của tôi · ↓ xem từ sau
+            {s.role === "owner" ? " · Camera tự do: kéo để xoay, chuột phải để dời, cuộn để zoom, nhấn đúp để đến vị trí" : ""}
+          </small>
+        </div>
+      )}
+      {!fullView && (
+        <AlienOrb
+          badge={canModerate ? s.hands.length : 0}
+          onReact={s.role !== "observer" ? (e) => send({ t: "react", e }) : undefined}
+          items={[
+            { id: "chat", icon: "💬", label: "Chat", onClick: () => setChatOpen(!chatOpen), active: chatOpen },
+            ...(isParticipant ? [{ id: "hand", icon: "✋", label: handUp ? "Hạ tay" : "Giơ tay", onClick: () => send({ t: "hand", up: !handUp }), active: handUp }] : []),
+            { id: "qa", icon: "❓", label: "Hỏi đáp", onClick: () => setPanel(panel === "qa" ? null : "qa"), active: panel === "qa", badge: openQuestions },
+            { id: "screen", icon: "📺", label: "Xem màn hình", onClick: openFull },
+            ...(isParticipant ? [{ id: "view", icon: behind ? "👁" : "🎥", label: behind ? "Góc của tôi" : "Xem từ sau", onClick: () => setBehind(!behind), active: !behind, stay: true }] : []),
+            { id: "sound", icon: muted ? "🔇" : "🔊", label: muted ? "Bật tiếng" : "Tắt tiếng", onClick: () => setMuted(!muted), active: !muted, stay: true },
+            ...(canModerate ? [{ id: "lights", icon: s.room.stageLights ? "💡" : "🌑", label: s.room.stageLights ? "Tắt đèn sân khấu" : "Bật đèn sân khấu", onClick: () => send({ t: "stage_lights", on: !s.room!.stageLights }), active: s.room.stageLights, stay: true }] : []),
+            ...(s.live && (s.live.mode !== "off" || canModerate) && (isParticipant || canModerate) ? [{ id: "live", icon: onAirSelf ? "🔴" : "🎥", label: onAirSelf ? "Đang live" : "Live camera", onClick: () => setPanel(panel === "live" ? null : "live"), active: panel === "live" || onAirSelf }] : []),
+            ...(canModerate ? [{ id: "control", icon: "🎬", label: "Điều khiển", onClick: () => setPanel(panel === "owner" ? null : "owner"), active: panel === "owner", badge: s.hands.length }] : []),
+            ...(isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" ? [{ id: "seats", icon: "💺", label: "Đổi chỗ", onClick: () => setPanel(panel === "seats" ? null : "seats"), active: panel === "seats" }] : []),
+            { id: "settings", icon: "⚙️", label: "Cài đặt", onClick: () => setMoreOpen(!moreOpen), active: moreOpen },
+            {
+              id: "leave",
+              icon: "🚪",
+              label: "Rời phòng",
+              onClick: () => {
+                leave();
+                window.location.href = "/";
+              },
+            },
+          ]}
+        />
+      )}
+      <ReactionStream store={store} muted={muted} volume={volume} reduceMotion={reduceMotion} />
 
       {seatPick && (
         <div className="status-card" style={{ top: Math.max(56, seatPick.y - 110), left: seatPick.x, transform: "translateX(-50%)", width: 220 }} role="dialog" aria-label="Chọn chỗ">
@@ -610,8 +715,35 @@ export function RoomView({ roomId }: { roomId: string }) {
         </div>
       )}
 
-      {panel === "owner" && s.you.isRoomOwner && (
-        <OwnerPanel send={send} screen={s.screen} serverNow={serverNow} polls={s.polls} members={members} room={s.room} chat={s.chat} onClose={() => setPanel(null)} />
+      {panel === "owner" && canModerate && (
+        <OwnerPanel
+          send={send}
+          screen={s.screen}
+          serverNow={serverNow}
+          polls={s.polls}
+          members={members}
+          room={s.room}
+          chat={s.chat}
+          hands={s.hands}
+          isOwner={s.you.isRoomOwner}
+          selfId={s.you.userId}
+          onClose={() => setPanel(null)}
+          live={s.live}
+          onOpenCamera={() => setPanel("live")}
+        />
+      )}
+      {panel === "live" && s.live && <LivePanel live={s.live} selfId={s.you.userId} isMod={canModerate} send={send} pub={pub} onClose={() => setPanel(null)} />}
+      <LiveAudio stream={onAirSelf ? null : liveView.stream} volume={volume} muted={muted} />
+      {panel === "qa" && (
+        <QaPanel
+          questions={s.questions}
+          myVotes={s.myQuestionVotes}
+          selfId={s.you.userId}
+          canAsk={s.role !== "observer"}
+          isMod={canModerate}
+          send={send}
+          onClose={() => setPanel(null)}
+        />
       )}
       {panel === "seats" && me && (
         <SeatPicker

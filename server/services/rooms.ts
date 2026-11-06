@@ -1,3 +1,5 @@
+import { formatVnd } from "@/core/pricing";
+import type { LiveMode } from "@/core/live";
 import { randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { Db, Queryable } from "../db";
@@ -34,6 +36,10 @@ export const roomConfigSchema = z.object({
   isPublic: z.boolean().optional().default(false),
   password: z.string().max(64).optional().default(""),
   initialScreen: screenContentSchema.optional(),
+  /** Planned start of the event (epoch ms), shown on the invite page with reminders. */
+  scheduledAt: z.number().int().positive().nullable().optional(),
+  /** Stage look: "glam" (neon, curtains, beams) or "plain". */
+  stageStyle: z.enum(["glam", "plain"]).optional().default("glam"),
 });
 export type RoomConfig = z.infer<typeof roomConfigSchema>;
 
@@ -53,6 +59,11 @@ export interface RoomRow {
   status: "open" | "closed" | "expired";
   is_trial: boolean;
   starts_at: Date;
+  /** Planned start of the event (optional schedule). */
+  scheduled_at: Date | null;
+  stage_style: "plain" | "glam";
+  /** Who may go live with their camera (see core/live). */
+  live_mode: LiveMode;
   expires_at: Date;
   closed_at: Date | null;
   slots_released_at: Date | null;
@@ -66,7 +77,7 @@ export interface RoomRow {
 
 export function roomColumns(alias = "") {
   const p = alias ? alias + "." : "";
-  return ["id", "owner_id", "name", "description", "map_code", "avatar_groups", "official_capacity", "waiting_enabled", "waiting_capacity", "total_slots", "entry_mode", "invite_code", "status", "is_trial", "starts_at", "expires_at", "closed_at", "slots_released_at", "screen_state", "is_public", "open_ended", "created_at"]
+  return ["id", "owner_id", "name", "description", "map_code", "avatar_groups", "official_capacity", "waiting_enabled", "waiting_capacity", "total_slots", "entry_mode", "invite_code", "status", "is_trial", "starts_at", "expires_at", "closed_at", "slots_released_at", "screen_state", "is_public", "open_ended", "scheduled_at", "stage_style", "live_mode", "created_at"]
     .map((c) => p + c)
     .concat(`${p}hourly_rate_vnd::float8 as hourly_rate_vnd`, `(${p}password_hash is not null) as has_password`)
     .join(", ");
@@ -164,9 +175,9 @@ async function insertRoom(q: Queryable, ownerId: string, cfg: RoomConfig, s: Set
       await q.query<RoomRow>(
         `insert into app.rooms (owner_id, created_by, name, description, map_code, avatar_groups, official_capacity, waiting_enabled,
           waiting_ratio, waiting_capacity, total_slots, entry_mode, invite_code, password_hash, is_trial, order_id, expires_at, screen_state,
-          is_public, open_ended, hourly_rate_vnd)
+          is_public, open_ended, hourly_rate_vnd, scheduled_at, stage_style)
          values ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          now() + case when $19 then make_interval(years => ${OPEN_ENDED_YEARS}) else make_interval(hours => $16) end, $17, $18, $19, $20)
+          now() + case when $19 then make_interval(years => ${OPEN_ENDED_YEARS}) else make_interval(hours => $16) end, $17, $18, $19, $20, $21, $22)
          on conflict (invite_code) do nothing
          returning ${ROOM_COLUMNS}`,
         [
@@ -190,6 +201,8 @@ async function insertRoom(q: Queryable, ownerId: string, cfg: RoomConfig, s: Set
           !!cfg.isPublic,
           !!cfg.openEnded,
           cfg.openEnded ? (opts.hourlyRate ?? 0) : null,
+          cfg.scheduledAt ? new Date(cfg.scheduledAt) : null,
+          cfg.stageStyle ?? "glam",
         ],
       )
     ).rows;
@@ -357,7 +370,7 @@ export type PaymentOutcome = "fulfilled" | "fulfilled_late" | "duplicate" | "alr
  */
 export async function confirmPayment(
   db: Db,
-  p: { orderCode: string; provider: "manual" | "webhook" | "demo" | "promo"; txnId: string | null; amount: number; actorId: string | null; raw?: unknown },
+  p: { orderCode: string; provider: "manual" | "webhook" | "demo" | "promo" | "sepay" | "receipt"; txnId: string | null; amount: number; actorId: string | null; raw?: unknown },
 ): Promise<{ outcome: PaymentOutcome; order: OrderRow | null; roomId?: string }> {
   return db.tx(async (q) => {
     await lockSlots(q);
@@ -391,13 +404,17 @@ export async function confirmPayment(
       await q.query("update app.orders set review_note = $2, updated_at = now() where id = $1", [order.id, `Nhận thêm thanh toán ${p.amount} (đơn đã thanh toán) — cần kiểm tra hoàn tiền.`]);
       return { outcome: "already_paid", order };
     }
-    if (p.amount < Number(order.amount_vnd)) {
+    // Bank transfers: a short payment can be topped up later (same transfer content) — add them up.
+    const earlier = await paidTowards(q, order.id);
+    const received = earlier + p.amount;
+    if (received < Number(order.amount_vnd)) {
       await record("underpaid");
-      await setOrder("underpaid", `Thiếu tiền: nhận ${p.amount}, cần ${order.amount_vnd}.`);
+      await setOrder("underpaid", `Thiếu tiền: đã nhận ${formatVnd(received)}, cần ${formatVnd(Number(order.amount_vnd))}. Chuyển thêm ${formatVnd(Number(order.amount_vnd) - received)} với cùng nội dung ${order.code}.`);
       return { outcome: "underpaid", order };
     }
+    // a short transfer keeps the slots held until the hold ends (the customer is topping up)
 
-    const holdValid = order.status === "pending" && new Date(order.hold_expires_at).getTime() > Date.now();
+    const holdValid = (order.status === "pending" || order.status === "underpaid") && new Date(order.hold_expires_at).getTime() > Date.now();
     const s = await getSettings(q);
 
     if (order.kind === "create_room") {
@@ -421,7 +438,7 @@ export async function confirmPayment(
       if (cfg.passwordHashed && cfg.password) await q.query("update app.rooms set password_hash = $2 where id = $1", [room.id, cfg.password]);
       const outcome = holdValid ? "fulfilled" : "fulfilled_late";
       await record(outcome);
-      await setOrder(holdValid ? "paid" : "paid_late", p.amount > Number(order.amount_vnd) ? `Thừa tiền: nhận ${p.amount}.` : null, room.id);
+      await setOrder(holdValid ? "paid" : "paid_late", received > Number(order.amount_vnd) ? `Thừa tiền: đã nhận ${formatVnd(received)} (đơn ${formatVnd(Number(order.amount_vnd))}).` : earlier ? `Đã nhận đủ sau ${formatVnd(earlier)} + ${formatVnd(p.amount)}.` : null, room.id);
       return { outcome, order, roomId: room.id };
     }
 
@@ -447,6 +464,12 @@ export async function confirmPayment(
     await setOrder(holdValid ? "paid" : "paid_late", null);
     return { outcome, order, roomId: order.room_id! };
   });
+}
+
+/** Money already received for an order that was short (underpaid transfers, to be topped up). */
+export async function paidTowards(q: Queryable, orderId: string): Promise<number> {
+  const r = await q.query<{ s: number }>("select coalesce(sum(amount_vnd), 0)::float8 as s from app.payments where order_id = $1 and outcome = 'underpaid'", [orderId]);
+  return Number(r.rows[0]?.s ?? 0);
 }
 
 export async function cancelOrder(db: Db, userId: string, orderId: string) {
@@ -580,6 +603,7 @@ export interface PublicRoomRow {
   open_ended: boolean;
   expires_at: Date;
   created_at: Date;
+  scheduled_at: Date | null;
   has_password: boolean;
   owner_name: string;
 }
@@ -588,7 +612,7 @@ export async function listPublicRooms(q: Queryable): Promise<PublicRoomRow[]> {
   return (
     await q.query<PublicRoomRow>(
       `select r.id, r.name, r.description, r.map_code, r.official_capacity, r.waiting_capacity, r.entry_mode, r.invite_code, r.open_ended,
-        r.expires_at, r.created_at, (r.password_hash is not null) as has_password, u.display_name as owner_name
+        r.expires_at, r.created_at, r.scheduled_at, (r.password_hash is not null) as has_password, u.display_name as owner_name
        from app.rooms r join app.users u on u.id = r.owner_id
        where r.is_public and r.status = 'open' and r.slots_released_at is null and r.expires_at > now()
        order by r.created_at desc limit 60`,

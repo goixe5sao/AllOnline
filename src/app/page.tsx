@@ -17,7 +17,7 @@ const display = Exo_2({ subsets: ["latin", "vietnamese"], weight: ["600", "800"]
 const body = Be_Vietnam_Pro({ subsets: ["latin", "vietnamese"], weight: ["400", "500", "700"], variable: "--f-body", display: "swap" });
 
 export const metadata: Metadata = {
-  title: { absolute: "AllOnline — Sân khấu 3D của tương lai | Phòng đang mở" },
+  title: { absolute: "Sân Khấu Online — Sân khấu 3D của tương lai | Phòng đang mở" },
   description: SITE_DESCRIPTION,
   alternates: { canonical: "/" },
 };
@@ -28,7 +28,7 @@ function JsonLd({ rooms }: { rooms: { name: string; inviteCode: string }[] }) {
     {
       "@context": "https://schema.org",
       "@type": "WebApplication",
-      name: "AllOnline",
+      name: "Sân Khấu Online",
       url: SITE_URL,
       applicationCategory: "MultimediaApplication",
       operatingSystem: "Web (Windows, macOS, Android, iOS)",
@@ -135,7 +135,7 @@ export default async function Home() {
 
       <footer className="foot">
         <span>
-          © {new Date().getFullYear()} AllOnline · <a href={SITE_URL}>{SITE_URL.replace(/^https?:\/\//, "")}</a>
+          © {new Date().getFullYear()} Sân Khấu Online · <a href={SITE_URL}>{SITE_URL.replace(/^https?:\/\//, "")}</a>
         </span>
         <nav aria-label="Liên kết cuối trang">
           <a href="#phong-dang-mo">Phòng đang mở</a>

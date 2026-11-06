@@ -37,7 +37,8 @@ export interface RoomEngineConfig {
 export interface Member {
   userId: string;
   name: string;
-  avatar: { group: AvatarGroup; model: string };
+  /** color: car paint chosen from CAR_COLORS (cars only; others use the model's colour). */
+  avatar: { group: AvatarGroup; model: string; color?: string };
   status: MemberStatus;
   seatId: string | null;
   x: number;
@@ -45,6 +46,10 @@ export interface Member {
   rotY: number;
   connected: boolean;
   disconnectedAt: number | null;
+  /** Place kept this long after the disconnect (shorter when the tab was closed on purpose). */
+  holdMs: number | null;
+  /** Why the connection went away (see DisconnectReason). */
+  offReason: DisconnectReason | null;
   /** Seat-finding (finding) or invitation-claim (invited) deadline, server ms. */
   deadline: number | null;
   cooldownUntil: number;
@@ -52,7 +57,16 @@ export interface Member {
   lastMoveAt: number;
 }
 
-export type PublicMember = Pick<Member, "userId" | "name" | "avatar" | "status" | "seatId" | "x" | "z" | "rotY" | "connected">;
+/**
+ * closed_tab: the page was closed / reloaded (the browser said goodbye) — short hold;
+ * no_response: the device stopped answering (phone screen off, app switched, weak signal);
+ * network: the connection dropped without a goodbye (network change, browser killed);
+ * replaced: the same account opened the room in another tab / device.
+ */
+export type DisconnectReason = "closed_tab" | "no_response" | "network" | "replaced";
+
+/** offAt / holdUntil (server ms) only while disconnected: when it happened, place kept until. */
+export type PublicMember = Pick<Member, "userId" | "name" | "avatar" | "status" | "seatId" | "x" | "z" | "rotY" | "connected"> & { offAt?: number; holdUntil?: number; offReason?: DisconnectReason };
 
 export interface PersonalState {
   status: MemberStatus;
@@ -140,15 +154,19 @@ export class RoomEngine {
 
   // ---------- membership ----------
 
-  join(userId: string, name: string, avatar: Member["avatar"], now: number): JoinResult {
+  join(userId: string, name: string, avatar: Member["avatar"], now: number, note?: Record<string, unknown>): JoinResult {
     if (this.banned.has(userId)) return { ok: false, code: "BANNED" };
     const existing = this.members.get(userId);
     if (existing) {
       // Reconnect inside the grace period: same seat / queue place.
+      const away = existing.disconnectedAt !== null ? Math.round((now - existing.disconnectedAt) / 1000) : 0;
+      const reason = existing.offReason;
       existing.connected = true;
       existing.disconnectedAt = null;
+      existing.holdMs = null;
+      existing.offReason = null;
       this.touch(existing);
-      this.log("reconnected", userId, { status: existing.status, seatId: existing.seatId });
+      this.log("reconnected", userId, { status: existing.status, seatId: existing.seatId, awaySec: away, reason });
       this.processQueue(now);
       return { ok: true, member: existing, resumed: true };
     }
@@ -168,6 +186,8 @@ export class RoomEngine {
       rotY: 0,
       connected: true,
       disconnectedAt: null,
+      holdMs: null,
+      offReason: null,
       deadline: null,
       cooldownUntil: 0,
       queueSeq: ++this.seq,
@@ -181,27 +201,43 @@ export class RoomEngine {
     } else {
       this.toWaiting(m, now, false);
     }
-    this.log("joined", userId, { status: m.status, seatId: m.seatId, avatar });
+    this.log("joined", userId, { status: m.status, seatId: m.seatId, avatar, ...note });
     this.touch(m);
     return { ok: true, member: m, resumed: false };
   }
 
-  disconnect(userId: string, now: number) {
+  disconnect(userId: string, now: number, reason: DisconnectReason = "network", holdMs?: number) {
     const m = this.members.get(userId);
     if (!m || !m.connected) return;
     m.connected = false;
     m.disconnectedAt = now;
+    m.offReason = reason;
+    m.holdMs = Math.min(holdMs ?? this.settings.reconnectGraceMs, this.settings.reconnectGraceMs);
     this.touch(m);
+    this.log("disconnected", userId, { reason, holdSec: Math.round(m.holdMs / 1000), status: m.status, seatId: m.seatId });
   }
 
-  leave(userId: string, now: number, reason = "left") {
+  /**
+   * The page's goodbye arrived (HTTP beacon) just after the socket had already dropped: it was a
+   * closed tab after all → short hold. Only right after the drop, and only once.
+   */
+  markClosed(userId: string, now: number, holdMs: number) {
+    const m = this.members.get(userId);
+    if (!m || m.connected || m.disconnectedAt === null || now - m.disconnectedAt > 5000 || m.offReason === "closed_tab") return;
+    m.offReason = "closed_tab";
+    m.holdMs = Math.min(holdMs, this.settings.reconnectGraceMs);
+    this.touch(m);
+    this.log("disconnected", userId, { reason: "closed_tab", holdSec: Math.round(m.holdMs / 1000), status: m.status, seatId: m.seatId });
+  }
+
+  leave(userId: string, now: number, reason = "left", extra?: Record<string, unknown>) {
     const m = this.members.get(userId);
     if (!m) return;
     if (m.seatId) this.seatOccupant.delete(m.seatId);
     this.members.delete(userId);
     this.dirty.delete(userId);
     this.removed.push({ userId, reason });
-    this.log(reason, userId, { status: m.status, seatId: m.seatId });
+    this.log(reason, userId, { status: m.status, seatId: m.seatId, ...extra });
     this.processQueue(now);
   }
 
@@ -341,8 +377,8 @@ export class RoomEngine {
 
   tick(now: number) {
     for (const m of [...this.members.values()]) {
-      if (!m.connected && m.disconnectedAt !== null && now - m.disconnectedAt >= this.settings.reconnectGraceMs) {
-        this.leave(m.userId, now, "grace_expired");
+      if (!m.connected && m.disconnectedAt !== null && now - m.disconnectedAt >= (m.holdMs ?? this.settings.reconnectGraceMs)) {
+        this.leave(m.userId, now, "grace_expired", { reason: m.offReason });
         continue;
       }
       if (m.deadline !== null && now >= m.deadline) {
@@ -430,7 +466,13 @@ export class RoomEngine {
   }
 
   publicMember(m: Member): PublicMember {
-    return { userId: m.userId, name: m.name, avatar: m.avatar, status: m.status, seatId: m.seatId, x: m.x, z: m.z, rotY: m.rotY, connected: m.connected };
+    const pm: PublicMember = { userId: m.userId, name: m.name, avatar: m.avatar, status: m.status, seatId: m.seatId, x: m.x, z: m.z, rotY: m.rotY, connected: m.connected };
+    if (!m.connected && m.disconnectedAt !== null) {
+      pm.offAt = m.disconnectedAt;
+      pm.holdUntil = m.disconnectedAt + (m.holdMs ?? this.settings.reconnectGraceMs);
+      if (m.offReason) pm.offReason = m.offReason;
+    }
+    return pm;
   }
 
   publicMembers(): PublicMember[] {
