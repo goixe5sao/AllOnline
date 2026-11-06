@@ -1,5 +1,6 @@
 "use client";
 
+import { WebPanel } from "./web-panel";
 import { DEMO_IMAGES, DEMO_TEXTS } from "@/core/demo";
 import { DemoMissions, type Mission } from "./demo";
 import type { LiveDto } from "@/core/live";
@@ -51,7 +52,7 @@ function StageStyleSwitch({ roomId, style, lights, send }: { roomId: string; sty
 
 function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: ClientMsg) => void; screen: ScreenState; serverNow: () => number; roomId: string; demo?: boolean }) {
   // a YouTube video on screen → open its controls straight away
-  const [kind, setKind] = useState<ScreenContent["kind"]>(screen.content.kind === "youtube" ? "youtube" : "text");
+  const [kind, setKind] = useState<ScreenContent["kind"]>(screen.content.kind === "youtube" || screen.content.kind === "web" ? screen.content.kind : "text");
   const [value, setValue] = useState("");
   const [title, setTitle] = useState("");
   const [interval, setIntervalOpt] = useState<ChartInterval>("D");
@@ -95,7 +96,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
     }
   };
 
-  const playable = screen.content.kind === "youtube" || screen.content.kind === "audio";
+  const playable = screen.content.kind === "youtube" || screen.content.kind === "audio" || screen.content.kind === "web";
   const pos = currentPosition(screen, serverNow());
   return (
     <div className="stack">
@@ -130,6 +131,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
           <option value="text">{demo ? "Văn bản (thư viện mẫu)" : "Văn bản"}</option>
           <option value="image">{demo ? "Hình ảnh (thư viện mẫu)" : "Hình ảnh (https hoặc tải lên)"}</option>
           <option value="youtube">Video YouTube</option>
+          {!demo && <option value="web">Trang web (tự cuộn từ đầu đến cuối)</option>}
           {!demo && <option value="audio">Âm thanh (https hoặc tải lên)</option>}
           <option value="chart">Biểu đồ chứng khoán VN kiểu TradingView</option>
           <option value="tradingview">TradingView chính thức — mã quốc tế (dữ liệu thật)</option>
@@ -160,6 +162,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
       {kind === "text" && !demo && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
       {kind === "chart" && <SymbolPicker value={value} onChange={setValue} />}
       {kind === "youtube" && <YouTubePanel send={send} screen={screen} />}
+      {kind === "web" && <WebPanel send={send} screen={screen} roomId={roomId} />}
       {((kind === "image" && !demo) || kind === "audio" || kind === "tradingview") && (
         <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
       )}
@@ -215,7 +218,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
         </>
       )}
       {kind === "tradingview" && <small>TradingView không cho nhúng mã sàn Việt Nam (HOSE/HNX). Dùng cho cổ phiếu quốc tế, crypto, vàng, ngoại tệ. Ở chế độ “Xem màn hình”, người xem dùng đủ công cụ vẽ/chỉ báo của TradingView.</small>}
-      {kind !== "youtube" && (
+      {kind !== "youtube" && kind !== "web" && (
         <button className="hud-btn primary" onClick={show}>
           Hiển thị lên màn hình
         </button>

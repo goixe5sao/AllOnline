@@ -44,6 +44,7 @@ export function demoContentAllowed(c: ScreenContent): boolean {
       return DEMO_IMAGES.some((i) => i.url === c.url);
     case "audio":
     case "chat":
+    case "web":
       return false;
     default:
       return true;

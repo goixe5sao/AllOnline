@@ -1,3 +1,4 @@
+import { captureWebPage } from "./webshot";
 import { createDemoRoom, ensureDemoRooms } from "./services/demo";
 import type { RealtimeClient } from "./live";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
@@ -547,6 +548,34 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     await db.query("update app.uploads set storage_path = $2 where id = $1", [row.id, cfg.mode === "supabase" ? key : row.id]);
     await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'file_uploaded', $3)", [room.id, u.id, JSON.stringify({ uploadId: row.id, mime, size: data.length })]);
     return { url: `/api/uploads/${row.id}`, mime };
+  });
+
+  /** "Trang web tự cuộn": photograph a page for the stage screen (owner / co-host, 1 per 8 s per room). */
+  const webshotAt = new Map<string, number>();
+  route("POST", "/api/rooms/:id/webshot", async (ctx) => {
+    const { u, room } = await moderatedRoom(ctx, ctx.params[0]);
+    if (room.is_demo && room.owner_id !== u.id) throw new AppError("DEMO_LIMITED", "Bản trải nghiệm chưa có trang web tự cuộn.", 403);
+    const b = z.object({ url: z.string().trim().min(3).max(1000) }).parse(await readJson(ctx.req));
+    const last = webshotAt.get(room.id) ?? 0;
+    if (Date.now() - last < 8000) throw new AppError("TOO_MANY_ATTEMPTS", "Đợi vài giây rồi chụp lại nhé.", 429);
+    webshotAt.set(room.id, Date.now());
+    const shot = await captureWebPage(b.url);
+    const s = await getSettings(db);
+    const shots: string[] = [];
+    for (const tile of shot.tiles) {
+      const row = (
+        await db.query<{ id: string }>(
+          "insert into app.uploads (room_id, owner_id, storage_path, mime, size_bytes, delete_after) values ($1, $2, '', 'image/jpeg', $3, now() + make_interval(days => $4)) returning id",
+          [room.id, u.id, tile.length, s.upload_retention_days],
+        )
+      ).rows[0];
+      const key = cfg.mode === "supabase" ? `${room.id}/${row.id}` : row.id;
+      await storage.put(key, tile, "image/jpeg");
+      await db.query("update app.uploads set storage_path = $2 where id = $1", [row.id, key]);
+      shots.push(`/api/uploads/${row.id}`);
+    }
+    await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'webshot', $3)", [room.id, u.id, JSON.stringify({ url: shot.finalUrl, height: shot.height })]);
+    return { shots, url: shot.finalUrl, w: shot.width, h: shot.height, title: shot.title, takenAt: Date.now() };
   });
 
   route(
