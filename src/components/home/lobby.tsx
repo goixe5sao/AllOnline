@@ -50,6 +50,9 @@ export const FEATURES: { icon: string; title: string; text: string; demo?: boole
   },
 ];
 
+/** This many answers are shown open; questions after them start folded (click to open). */
+export const FAQ_OPEN = 6;
+
 export const FAQ: { q: string; a: string }[] = [
   { q: "Khách có cần tạo tài khoản để vào phòng không?", a: "Không. Khách chỉ cần link mời (hoặc bấm vào phòng công khai trên màn hình sân khấu), nhập tên và chọn nhân vật. Tài khoản chỉ cần cho người tạo phòng." },
   { q: "Phòng của tôi có hiện trên trang chủ không?", a: "Tuỳ bạn. Khi tạo phòng có ô “Hiện phòng trên trang chủ”; bật/tắt lại bất cứ lúc nào trong Phòng của tôi hoặc bảng điều khiển phòng. Phòng ẩn chỉ vào được bằng link mời." },
@@ -163,8 +166,9 @@ export function Lobby({ pricing }: { pricing: HomePricing | null }) {
             </div>
             <div className="faq">
               <h3 className="faq-title">Câu hỏi thường gặp</h3>
-              {FAQ.map((f) => (
-                <details key={f.q}>
+              {FAQ.map((f, i) => (
+                // answers shown; only when the list grows long are the later ones folded
+                <details key={f.q} open={i < FAQ_OPEN}>
                   <summary>{f.q}</summary>
                   <p>{f.a}</p>
                 </details>
