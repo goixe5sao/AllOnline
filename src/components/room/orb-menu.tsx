@@ -14,6 +14,8 @@ export interface OrbItem {
   badge?: number;
   /** Keep the orb open after the click (toggles). */
   stay?: boolean;
+  /** The main thing for this person (the owner's "Điều khiển"): bigger, gold, glowing, next to the orb. */
+  featured?: boolean;
 }
 
 /**
@@ -157,7 +159,7 @@ export function AlienOrb({ items, onReact, badge }: { items: OrbItem[]; onReact?
           <button
             key={it.id}
             type="button"
-            className={`orb-item ${it.active ? "active" : ""}`}
+            className={`orb-item ${it.active ? "active" : ""} ${it.featured ? "featured" : ""}`}
             style={style}
             aria-label={it.label}
             title={it.label}
