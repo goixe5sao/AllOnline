@@ -2,6 +2,7 @@ import Link from "next/link";
 import { formatVnd } from "@/core/pricing";
 import type { HomePricing } from "@/lib/home-data";
 import { JoinCode } from "./join-code";
+import { Receptionist } from "./robot";
 
 const SIGNUP = "/login?mode=signup&next=%2Frooms%2Fnew";
 
@@ -56,33 +57,6 @@ export const FAQ: { q: string; a: string }[] = [
   { q: "Một phòng chứa được bao nhiêu người?", a: "Bạn chọn số chỗ chính thức khi tạo phòng; có thể bật thêm khu chờ ngoài cổng. Người chờ được mời vào theo thứ tự khi có chỗ trống." },
   { q: "Dùng được trên điện thoại không?", a: "Được. Sân Khấu Online chạy trên trình duyệt của máy tính, máy tính bảng và điện thoại; nút “Xem màn hình” mở riêng màn hình sân khấu toàn màn hình." },
 ];
-
-/** Friendly robot behind the reception desk (original SVG). */
-function Receptionist() {
-  return (
-    <svg className="rcp" viewBox="0 0 160 150" aria-hidden focusable="false">
-      <defs>
-        <linearGradient id="rcp-body" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#2a3570" />
-          <stop offset="1" stopColor="#141a3a" />
-        </linearGradient>
-      </defs>
-      <line x1="80" y1="18" x2="80" y2="4" stroke="#3df5ff" strokeWidth="3" />
-      <circle className="au-blink" cx="80" cy="4" r="4" fill="#ff4fd8" />
-      <rect x="44" y="18" width="72" height="56" rx="18" fill="url(#rcp-body)" stroke="#3df5ff" strokeWidth="2.5" />
-      <rect x="54" y="32" width="52" height="26" rx="13" fill="#05060f" />
-      <g className="rcp-eyes">
-        <circle cx="70" cy="45" r="5" fill="#3df5ff" />
-        <circle cx="90" cy="45" r="5" fill="#3df5ff" />
-      </g>
-      <path d="M70 64 Q80 70 90 64" stroke="#b6ff3d" strokeWidth="3" fill="none" strokeLinecap="round" />
-      <rect x="40" y="80" width="80" height="70" rx="20" fill="url(#rcp-body)" stroke="#8b5cff" strokeWidth="2" />
-      <circle cx="80" cy="104" r="9" fill="none" stroke="#ffd38a" strokeWidth="2.5" />
-      <path className="rcp-wave" d="M120 96 Q146 84 150 60" stroke="#3df5ff" strokeWidth="9" strokeLinecap="round" fill="none" />
-      <path d="M40 100 Q24 112 30 130" stroke="#3df5ff" strokeWidth="9" strokeLinecap="round" fill="none" />
-    </svg>
-  );
-}
 
 /** The lobby below the seats: ticket booth, reception desk and information desk. */
 export function Lobby({ pricing }: { pricing: HomePricing | null }) {

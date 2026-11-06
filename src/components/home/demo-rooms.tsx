@@ -38,9 +38,12 @@ export function DemoRooms() {
   const out = data.leftSec <= 0;
   return (
     <section className="hs-section demo-sec" id="trai-nghiem" aria-labelledby="demo-h">
-      <div className="sec-head">
-        <h2 id="demo-h">🎪 Trải nghiệm ngay — không cần tài khoản</h2>
+      <div className="frame frame-demo">
+      <div className="desk-sign">
+        <span>TRẢI NGHIỆM NGAY</span>
       </div>
+      <div className="frame-window">
+      <h2 id="demo-h" className="frame-title">🎪 Thử Sân Khấu Online ngay — không cần tài khoản</h2>
       <p className="muted-x demo-lead">
         Vào phòng mẫu và tự tay làm <b>chủ phòng</b> (chiếu YouTube, đưa biểu đồ chứng khoán lên màn hình, tạo bình chọn, bật tắt đèn sân khấu, thử camera) hoặc làm <b>khách</b> (ngồi ghế, chat với người bên cạnh, thả cảm xúc, giơ tay, đặt câu hỏi).
         Mỗi người <b>{Math.round(data.limitSec / 60)} phút mỗi ngày</b>
@@ -93,6 +96,8 @@ export function DemoRooms() {
           </Link>
         </p>
       )}
+      </div>
+      </div>
     </section>
   );
 }
