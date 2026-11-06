@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { DemoDto } from "@/core/demo";
 
-export const DEMO_OVER_TEXT = "Bạn đã dùng hết thời gian trải nghiệm hôm nay (5 phút mỗi ngày) — nhường chỗ cho người tiếp theo nhé.";
+export const DEMO_OVER_TEXT = "Hết lượt trải nghiệm. Bạn vào lại ngay được — không giới hạn số lượt.";
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, Math.floor(s % 60))).padStart(2, "0")}`;
 
@@ -24,18 +24,21 @@ export function DemoClock({ demo, waiting, isHost }: { demo: DemoDto; waiting: b
   }, [waiting, demo.unlimited]);
   if (demo.unlimited) return null;
   return (
-    <span className={`hud-chip demo-clock ${left <= 60 ? "low" : ""}`} title="Thời gian trải nghiệm còn lại hôm nay">
+    <span className={`hud-chip demo-clock ${left <= 60 ? "low" : ""}`} title="Thời gian còn lại của lượt trải nghiệm này (hết lượt thì vào lại)">
       {isHost ? "👑 Chủ phòng trải nghiệm · " : "🎟 Trải nghiệm · "}⏳ {waiting ? "tạm dừng khi chờ" : `còn ${mmss(left)}`}
     </span>
   );
 }
 
-/** Shown when the day's minutes are used up: what next. */
+/** Shown when a visit's minutes are used up: come back in, or open your own room. */
 export function DemoOver() {
   return (
     <div className="stack demo-over">
-      <p>Hy vọng bạn đã thấy Sân Khấu Online hoạt động thế nào! Để dùng không giới hạn:</p>
-      <Link className="btn primary" href="/login?mode=signup&next=%2Frooms%2Fnew">
+      <button className="btn primary" onClick={() => window.location.reload()}>
+        🔄 Vào lại phòng trải nghiệm
+      </button>
+      <p>Muốn dùng liền mạch, không bị ngắt giữa chừng? Mở phòng của riêng bạn:</p>
+      <Link className="btn" href="/login?mode=signup&next=%2Frooms%2Fnew">
         🎁 Mở phòng dùng thử miễn phí của riêng bạn
       </Link>
       <Link className="btn" href="/#trai-nghiem">

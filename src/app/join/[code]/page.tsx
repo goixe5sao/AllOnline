@@ -195,7 +195,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
         <div className="notice demo-intro stack" style={{ gap: 8 }}>
           <b>🎪 Phòng trải nghiệm — không cần tài khoản</b>
           <span>
-            Mỗi người được trải nghiệm <b>{Math.round(demo.limitSec / 60)} phút mỗi ngày</b> (chỉ tính lúc ở trong phòng, không tính lúc chờ). Hôm nay bạn còn <b>{mmss(demo.leftSec)}</b>. Phòng có {r.name.includes("Bãi") ? "3 chỗ đỗ" : "3 ghế"}: {demo.seated}/3 đang có người{demo.waiting ? `, ${demo.waiting} người chờ` : ""}.
+            Mỗi lượt trải nghiệm <b>{Math.round(demo.limitSec / 60)} phút</b> (chỉ tính lúc ở trong phòng, không tính lúc chờ). Hết lượt bạn vào lại ngay được — <b>không giới hạn số lượt</b>. Phòng có {r.name.includes("Bãi") ? "3 chỗ đỗ" : "3 ghế"}: {demo.seated}/3 đang có người{demo.waiting ? `, ${demo.waiting} người chờ` : ""}.
           </span>
           {demo.leftSec > 0 && (
             <div className="demo-roles" role="radiogroup" aria-label="Vào với vai trò">

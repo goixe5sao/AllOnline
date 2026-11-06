@@ -806,7 +806,7 @@ function DemoRoomsCard({ minutes, onMinutes }: { minutes: number; onMinutes: (v:
     <div className="card stack">
       <h2>🎪 Phòng trải nghiệm (trang chủ)</h2>
       <label className="field">
-        Số phút trải nghiệm mỗi người mỗi ngày (0 = ẩn phòng trải nghiệm)
+        Số phút mỗi lượt trải nghiệm — hết lượt vào lại được, không giới hạn số lượt (0 = ẩn phòng trải nghiệm)
         <input type="number" min={0} max={1440} value={minutes} onChange={(e) => onMinutes(Number(e.target.value))} />
       </label>
       <small>Tính theo thiết bị (và theo mạng, tối đa 6 người/mạng/ngày) để mở tab ẩn danh không lách được. Phòng trải nghiệm không tính tiền, không trừ slot hệ thống.</small>

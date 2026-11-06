@@ -46,8 +46,7 @@ export function DemoRooms() {
       <h2 id="demo-h" className="frame-title">🎪 Thử Sân Khấu Online ngay — không cần tài khoản</h2>
       <p className="muted-x demo-lead">
         Vào phòng mẫu và tự tay làm <b>chủ phòng</b> (chiếu YouTube, đưa biểu đồ chứng khoán lên màn hình, tạo bình chọn, bật tắt đèn sân khấu, thử camera) hoặc làm <b>khách</b> (ngồi ghế, chat với người bên cạnh, thả cảm xúc, giơ tay, đặt câu hỏi).
-        Mỗi người <b>{Math.round(data.limitSec / 60)} phút mỗi ngày</b>
-        {out ? " — hôm nay bạn đã dùng hết, mai quay lại nhé." : ` — hôm nay bạn còn ${mmss(data.leftSec)}.`}
+        Mỗi lượt <b>{Math.round(data.limitSec / 60)} phút</b> — hết lượt vào lại ngay, <b>không giới hạn số lượt</b>.
       </p>
       <div className="demo-grid">
         {data.rooms.map((r) => {

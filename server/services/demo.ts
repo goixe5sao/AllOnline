@@ -9,6 +9,7 @@ import { getRoom, insertRoom, type RoomRow } from "./rooms";
 import { getSettings } from "./settings";
 
 export const DEMO_SEATS = 3;
+const DEMO_DESCRIPTION = "Phòng mẫu để trải nghiệm Sân Khấu Online trước khi đăng ký. Mỗi lượt vài phút, vào lại không giới hạn.";
 const DEMO_WAITING = 6;
 
 const DEFAULT_DEMOS: { map: MapCode; name: string }[] = [
@@ -37,7 +38,7 @@ export async function createDemoRoom(db: Db, ownerId: string, map: MapCode, name
       ownerId,
       {
         name,
-        description: "Phòng mẫu để trải nghiệm Sân Khấu Online trước khi đăng ký. Mỗi người được vào vài phút mỗi ngày.",
+        description: DEMO_DESCRIPTION,
         map,
         avatarGroups: map === "drive_in" ? ["vehicles"] : ["people", "animals"],
         officialCapacity: DEMO_SEATS,
@@ -73,6 +74,8 @@ export async function ensureDemoRooms(db: Db): Promise<RoomRow[]> {
       const s = await getSettings(db);
       const owner = (await db.query<{ id: string }>("select id from app.users where role = 'app_owner' order by created_at limit 1")).rows[0];
       if (s.demo_minutes_per_day <= 0 || !owner) return void (ensuring = null); // try again later
+      // the rule changed from "N minutes a day" to "N minutes a visit, come back any time"
+      await db.query("update app.rooms set description = $1 where is_demo and description like '%mỗi ngày%'", [DEMO_DESCRIPTION]);
       for (const d of DEFAULT_DEMOS) {
         const ever = (await db.query("select 1 from app.rooms where is_demo and map_code = $1 limit 1", [d.map])).rows.length > 0;
         if (!ever) await createDemoRoom(db, owner.id, d.map, d.name);

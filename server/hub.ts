@@ -17,8 +17,8 @@ import { askQuestion, getQuestion, listModerators, listQuestions, myQuestionVote
 import type { MarketService } from "./market/service";
 import { askLive, denyLive, goOnAir, grantLive, initialLive, LIVE_MODES, mayPublish, setLiveMode, stopLive, type LiveDto, type LiveState } from "@/core/live";
 import type { LiveMeter, RealtimeClient } from "./live";
-import { DEMO_SHOWCASE, DEMO_SHOWCASE_MS, demoContentAllowed, demoSecondsLeft, type DemoDto } from "@/core/demo";
-import { addDemoUsage, demoUsage } from "./services/demo";
+import { DEMO_SHOWCASE, DEMO_SHOWCASE_MS, demoContentAllowed, type DemoDto } from "@/core/demo";
+import { addDemoUsage } from "./services/demo";
 
 /** Place kept after the page was closed / reloaded on purpose (a reload comes back within it). */
 const CLOSED_TAB_HOLD_MS = 15_000;
@@ -448,11 +448,10 @@ export class Hub {
     return { seated, waiting, hostName: room.demo?.hostName ?? null, hostLeftSec: host?.demo ? Math.max(0, host.demo.left0 - host.demo.used) : null }; // null: no limit (room / app owner) or reconnecting
   }
 
-  /** Seconds this device / network has left today (for the home page / invite page). */
-  async demoLeft(deviceKey: string, ipKey: string) {
+  /** One visit's length (for the home page / invite page): every visit gets the full time. */
+  async demoLeft(_deviceKey: string, _ipKey: string) {
     const limitSec = (this.settings.demo_minutes_per_day ?? 5) * 60;
-    const u = await demoUsage(this.db, [deviceKey, ipKey]);
-    return { leftSec: demoSecondsLeft(limitSec, u[deviceKey] + this.unsavedDemo(deviceKey), u[ipKey] + this.unsavedDemo(ipKey)), limitSec };
+    return { leftSec: limitSec, limitSec };
   }
 
   // ---------- live camera ----------
@@ -985,12 +984,12 @@ export class Hub {
       const cap = this.settings.ip_max_participants;
       if (cap > 0 && sameIp >= cap) return this.error(c, "IP_LIMIT_PARTICIPANT", ERROR_TEXT.IP_LIMIT_PARTICIPANT);
       if (room.row.is_demo && !isOwner) {
+        // Unlimited visits, each one at most N minutes: when it runs out you leave and may come back
+        // at once (minutes are still counted per device / network for the statistics).
         const limitSec = (this.settings.demo_minutes_per_day ?? 5) * 60;
         const keys = [`dev:${c.deviceId}`, `ip:${c.ipHash}`];
-        const used = await demoUsage(this.db, keys);
-        const left = demoSecondsLeft(limitSec, used[keys[0]] + this.unsavedDemo(keys[0]), used[keys[1]] + this.unsavedDemo(keys[1]));
-        if (limitSec <= 0 || left <= 0) return this.error(c, "DEMO_QUOTA", "Bạn đã dùng hết thời gian trải nghiệm hôm nay. Mai quay lại nhé — hoặc mở phòng dùng thử miễn phí của riêng bạn.");
-        c.demo = { keys, used: 0, saved: 0, left0: left };
+        if (limitSec <= 0) return this.error(c, "DEMO_QUOTA", "Phòng trải nghiệm đang tạm tắt.");
+        c.demo = { keys, used: 0, saved: 0, left0: limitSec };
       }
       this.participantIp.set(uid, { ip: c.ipHash, device: c.deviceId });
       const r = room.engine.join(uid, c.user.display_name, { group: m.avatar.group as AvatarGroup, model: m.avatar.model, color: validAvatarColor(m.avatar.group, m.avatar.color) }, Date.now(), m.resume ? { after: process.uptime() < 300 ? "server_restart" : "hold_expired" } : undefined);
