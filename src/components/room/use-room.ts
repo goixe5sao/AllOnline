@@ -8,6 +8,7 @@ import type { PersonalState, PublicMember } from "@/core/room-engine";
 import { BLANK_SCREEN, type ScreenState } from "@/core/screen";
 import type { LiveDto } from "@/core/live";
 import type { DemoDto } from "@/core/demo";
+import type { VoiceDto, VoiceSource } from "@/core/voice";
 import { DEMO_OVER_TEXT } from "./demo";
 import type { AvatarGroup } from "@/core/maps";
 
@@ -33,6 +34,12 @@ export interface RoomSession {
   live: LiveDto | null;
   /** Demo room: host, your minutes left today. */
   demo: DemoDto | null;
+  /** Voice chat: room mode + open mics; the voices this listener should hear; bumps when my mic was turned off. */
+  voice: VoiceDto | null;
+  voiceSources: VoiceSource[] | null;
+  voiceForced: number;
+  /** Bumps on every "welcome" (first join and each reconnect): the mic is published again. */
+  joins: number;
   room: RoomInfoDto | null;
   screen: ScreenState;
   polls: PollViewDto[];
@@ -81,6 +88,10 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
     myQuestionVotes: [],
     live: null,
     demo: null,
+    voice: null,
+    voiceSources: null,
+    voiceForced: 0,
+    joins: 0,
   });
   const wsRef = useRef<WebSocket | null>(null);
   const offsetRef = useRef(0);
@@ -144,6 +155,9 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
             myQuestionVotes: m.myQuestionVotes,
             live: m.live,
             demo: m.demo,
+            voice: m.voice,
+            voiceSources: [],
+            joins: p.joins + 1,
             version: p.version + 1,
           }));
           return;
@@ -171,6 +185,16 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
           return;
         case "live":
           setS((p) => ({ ...p, live: m.live }));
+          return;
+        case "voice":
+          setS((p) => ({ ...p, voice: m.voice }));
+          return;
+        case "voice_sources":
+          setS((p) => ({ ...p, voiceSources: m.sources }));
+          return;
+        case "voice_forced":
+          setS((p) => ({ ...p, voiceForced: p.voiceForced + 1 }));
+          toast(m.message);
           return;
         case "demo":
           setS((p) => ({ ...p, demo: m.demo, you: p.you ? { ...p.you, isModerator: p.you.isModerator || m.demo.hostId === p.you.userId } : p.you }));

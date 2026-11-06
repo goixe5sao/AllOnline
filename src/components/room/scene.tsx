@@ -17,6 +17,7 @@ import { GlamStage } from "./stage-fx";
 import { UltraFx } from "./ultra-fx";
 import { CarModel, carSize } from "./cars";
 import { ROOM_KITS } from "./kits";
+import { VoiceSync, type VoiceEngine } from "./voice";
 
 /** Participants may only tilt the view a little (±12°) — they turn around themselves instead. */
 export const PITCH_RANGE = 0.21;
@@ -820,6 +821,8 @@ export interface SceneProps {
   onSeatClick?: (seatId: string, x: number, y: number) => void;
   /** Room owner attending as a participant: double-click a free seat to go there at once. */
   onSeatDoubleClick?: (seatId: string) => void;
+  /** Voice chat: the listener is the camera, voices at the avatars. */
+  voice?: VoiceEngine | null;
 }
 
 export function RoomScene(p: SceneProps) {
@@ -852,6 +855,7 @@ export function RoomScene(p: SceneProps) {
       </World>
       {p.ultra && !p.lite && <UltraFx onSlow={p.onSlow} />}
       <AdClickTarget layout={p.layout} ad={p.ad} domElement={p.domElement} />
+      <VoiceSync engine={p.voice ?? null} store={p.store} layout={p.layout} />
       {p.role === "participant" && <SeatClickTarget layout={p.layout} domElement={p.domElement} occupied={occupied} onSeatClick={p.onSeatClick} onSeatDoubleClick={p.onSeatDoubleClick} />}
       {p.role === "participant" ? (
         <ParticipantRig layout={p.layout} store={p.store} selfId={p.selfId} controls={p.controls} send={p.send} entryMode={p.entryMode} />

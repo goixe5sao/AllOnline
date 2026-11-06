@@ -13,6 +13,7 @@ import { QaPanel, ReactionStream } from "./engage";
 import { AlienOrb } from "./orb-menu";
 import { useRoom } from "./use-room";
 import { LiveAudio, LivePanel, useLivePublisher, useLiveViewer } from "./live";
+import { useVoice, VoiceSettings } from "./voice";
 import { DEMO_OVER_TEXT, DemoClock, DemoOver, type Mission } from "./demo";
 
 function readSession<T>(key: string): T | null {
@@ -201,6 +202,10 @@ export function RoomView({ roomId }: { roomId: string }) {
   };
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(true);
+  // Voice chat with the people around: mic, the voices near me, stage turned down while they talk.
+  const voice = useVoice(roomId, send, { voice: s.voice, sources: s.voiceSources, forced: s.voiceForced, joins: s.joins, isGuest: !!s.you?.isGuest, isMod: !!(s.you?.isRoomOwner || s.you?.isModerator), muted, volume });
+  const stageVolume = voice.duck ? Math.round(volume * 0.35) : volume;
+  const voiceName = (id: string) => store.map.get(id)?.name ?? "Ai đó";
   const [chatText, setChatText] = useState("");
   const [nearSeat, setNearSeat] = useState<string | null>(null);
   const [touch, setTouch] = useState(false);
@@ -442,7 +447,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     roomName: s.room.name,
     expiresAt: s.room.openEnded ? null : s.room.expiresAt,
     warningMinutes: s.settings?.warningMinutes ?? [30, 10, 1],
-    volume,
+    volume: stageVolume,
     muted,
     reduceMotion,
     ad: s.ad,
@@ -496,6 +501,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           hands={handSet}
           stageStyle={s.room.stageStyle}
           stageLights={s.room.stageLights}
+          voice={voice.engine}
           onSeatClick={onSeatClick}
           onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
           screen={<ScreenContent {...screenProps} active={!fullView} />}
@@ -521,6 +527,21 @@ export function RoomView({ roomId }: { roomId: string }) {
         )}
         {s.role === "observer" && <span className="hud-chip">Quan sát</span>}
         {s.demo && <DemoClock demo={s.demo} waiting={me?.status === "waiting"} isHost={isDemoHost} />}
+        {voice.micOn && (
+          <button type="button" className="hud-chip voice-on" onClick={() => void voice.toggleMic()} title="Mic đang bật — người ngồi gần nghe được bạn. Bấm để tắt.">
+            🎙️ Mic đang bật
+          </button>
+        )}
+        {muted && voice.nearTalking && (
+          <button type="button" className="hud-chip voice-hint" onClick={() => setMuted(false)}>
+            🔇 Người gần bạn đang nói — bấm để nghe
+          </button>
+        )}
+        {voice.error && (
+          <button type="button" className="hud-chip voice-err" onClick={voice.clearError} title="Bấm để ẩn">
+            ⚠ {voice.error}
+          </button>
+        )}
       </div>
 
       {isParticipant && p && p.status !== "seated" && (
@@ -620,6 +641,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             <span>🔊 Âm lượng</span>
             <input type="range" min={0} max={100} value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Âm lượng" />
           </label>
+          {s.voice && s.voice.mode !== "off" && <VoiceSettings voice={voice} names={voiceName} />}
           {glamRoom && (
           <div className="hud-menu-row" role="radiogroup" aria-label="Đồ hoạ">
             <span>✨ Đồ hoạ</span>
@@ -693,6 +715,22 @@ export function RoomView({ roomId }: { roomId: string }) {
             { id: "screen", icon: "📺", label: "Xem màn hình", onClick: openFull },
             ...(isParticipant ? [{ id: "view", icon: behind ? "👁" : "🎥", label: behind ? "Góc của tôi" : "Xem từ sau", onClick: () => setBehind(!behind), active: !behind, stay: true }] : []),
             { id: "sound", icon: muted ? "🔇" : "🔊", label: muted ? "Bật tiếng" : "Tắt tiếng", onClick: () => setMuted(!muted), active: !muted, stay: true },
+            ...(voice.canTalk
+              ? [
+                  {
+                    id: "mic",
+                    icon: voice.micOn ? "🎙️" : "🎤",
+                    label: voice.busy ? "Đang bật mic…" : voice.micOn ? "Tắt mic" : "Bật mic",
+                    onClick: () => {
+                      // talking with people means hearing them too
+                      if (!voice.micOn && muted) setMuted(false);
+                      void voice.toggleMic();
+                    },
+                    active: voice.micOn,
+                    stay: true,
+                  },
+                ]
+              : []),
             ...(canModerate ? [{ id: "lights", icon: s.room.stageLights ? "💡" : "🌑", label: `${s.room.stageLights ? "Tắt" : "Bật"} đèn ${MAP_INFO[s.room.map].furnished ? "phòng" : "sân khấu"}`, onClick: () => send({ t: "stage_lights", on: !s.room!.stageLights }), active: s.room.stageLights, stay: true }] : []),
             ...(s.live && (s.live.mode !== "off" || canModerate) && (isParticipant || canModerate) ? [{ id: "live", icon: onAirSelf ? "🔴" : "🎥", label: onAirSelf ? "Đang live" : "Live camera", onClick: () => setPanel(panel === "live" ? null : "live"), active: panel === "live" || onAirSelf }] : []),
             ...(isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" ? [{ id: "seats", icon: "💺", label: "Đổi chỗ", onClick: () => setPanel(panel === "seats" ? null : "seats"), active: panel === "seats" }] : []),
@@ -758,12 +796,14 @@ export function RoomView({ roomId }: { roomId: string }) {
           selfId={s.you.userId}
           onClose={() => setPanel(null)}
           live={s.live}
+          voice={s.voice}
+          voiceName={voiceName}
           onOpenCamera={() => setPanel("live")}
           demo={isDemoHost && !s.you.isRoomOwner ? { missions } : null}
         />
       )}
       {panel === "live" && s.live && <LivePanel live={s.live} selfId={s.you.userId} isMod={canModerate} send={send} pub={pub} onClose={() => setPanel(null)} previewOnly={!!s.demo && !s.you.isRoomOwner} />}
-      <LiveAudio stream={onAirSelf ? null : liveView.stream} volume={volume} muted={muted} />
+      <LiveAudio stream={onAirSelf ? null : liveView.stream} volume={stageVolume} muted={muted} />
       {panel === "qa" && (
         <QaPanel
           questions={s.questions}

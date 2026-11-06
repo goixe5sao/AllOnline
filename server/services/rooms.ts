@@ -1,5 +1,6 @@
 import { formatVnd } from "@/core/pricing";
 import type { LiveMode } from "@/core/live";
+import type { VoiceMode } from "@/core/voice";
 import { randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { Db, Queryable } from "../db";
@@ -64,6 +65,7 @@ export interface RoomRow {
   stage_style: "plain" | "glam";
   /** Who may go live with their camera (see core/live). */
   live_mode: LiveMode;
+  voice_mode: VoiceMode;
   /** "Phòng trải nghiệm": always open, not billed, no slots, minutes per person per day. */
   is_demo: boolean;
   expires_at: Date;
@@ -79,7 +81,7 @@ export interface RoomRow {
 
 export function roomColumns(alias = "") {
   const p = alias ? alias + "." : "";
-  return ["id", "owner_id", "name", "description", "map_code", "avatar_groups", "official_capacity", "waiting_enabled", "waiting_capacity", "total_slots", "entry_mode", "invite_code", "status", "is_trial", "starts_at", "expires_at", "closed_at", "slots_released_at", "screen_state", "is_public", "open_ended", "scheduled_at", "stage_style", "live_mode", "is_demo", "created_at"]
+  return ["id", "owner_id", "name", "description", "map_code", "avatar_groups", "official_capacity", "waiting_enabled", "waiting_capacity", "total_slots", "entry_mode", "invite_code", "status", "is_trial", "starts_at", "expires_at", "closed_at", "slots_released_at", "screen_state", "is_public", "open_ended", "scheduled_at", "stage_style", "live_mode", "voice_mode", "is_demo", "created_at"]
     .map((c) => p + c)
     .concat(`${p}hourly_rate_vnd::float8 as hourly_rate_vnd`, `(${p}password_hash is not null) as has_password`)
     .join(", ");

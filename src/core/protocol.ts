@@ -1,4 +1,5 @@
 import type { AvatarGroup, EntryMode, MapCode } from "./maps";
+import type { VoiceDto, VoiceMode, VoiceSource } from "./voice";
 import type { PersonalState, PublicMember } from "./room-engine";
 import type { ScreenAction, ScreenState } from "./screen";
 import type { Candle } from "./market";
@@ -87,6 +88,11 @@ export type ClientMsg =
   | { t: "live_grant"; userId: string }
   | { t: "live_deny"; userId: string }
   | { t: "live_stop"; userId?: string }
+  /** Voice chat: my mic on/off and whether I am talking right now (sent on change only). */
+  | { t: "voice_state"; mic: boolean; speaking: boolean }
+  /** Moderators: who may talk; turn one person's mic off (or everyone's, without userId). */
+  | { t: "voice_mode"; mode: VoiceMode }
+  | { t: "voice_mute"; userId?: string }
   | { t: "observe"; x: number; z: number }
   | ({ t: "screen" } & ScreenAction)
   | { t: "promote_chat"; id: string }
@@ -115,6 +121,7 @@ export type ServerMsg =
       myQuestionVotes: string[];
       live: LiveDto;
       demo: DemoDto | null;
+      voice: VoiceDto;
     }
   | { t: "members"; upsert: PublicMember[]; remove: { userId: string; reason: string }[] }
   | { t: "you"; personal: PersonalState | null }
@@ -138,6 +145,10 @@ export type ServerMsg =
   | { t: "mod"; isModerator: boolean }
   | { t: "stage_style"; style: "glam" | "plain" }
   | { t: "stage_lights"; on: boolean }
+  /** Voice chat: room state; the voices this listener should hear now; "your mic was turned off". */
+  | { t: "voice"; voice: VoiceDto }
+  | { t: "voice_sources"; sources: VoiceSource[] }
+  | { t: "voice_forced"; message: string }
   | { t: "live"; live: LiveDto }
   | { t: "demo"; demo: DemoDto }
   /** Latest 1-minute bars incl. the forming one, pushed ~every second during the session. */

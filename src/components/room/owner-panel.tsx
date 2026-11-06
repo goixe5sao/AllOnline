@@ -6,6 +6,8 @@ import { DEMO_IMAGES, DEMO_TEXTS } from "@/core/demo";
 import { DemoMissions, type Mission } from "./demo";
 import type { LiveDto } from "@/core/live";
 import { LiveModeration } from "./live";
+import { VoiceModeration } from "./voice";
+import type { VoiceDto } from "@/core/voice";
 import { useState } from "react";
 import Link from "next/link";
 import { api, ApiError, fmtDuration, fmtTime, useApi } from "@/lib/api";
@@ -472,6 +474,9 @@ export function OwnerPanel(p: {
   selfId: string;
   onClose: () => void;
   live: LiveDto | null;
+  /** Voice chat: mode + open mics (moderators turn mics off); names of the people. */
+  voice?: VoiceDto | null;
+  voiceName?: (id: string) => string;
   /** Open the camera panel (the owner goes live themself). */
   onOpenCamera: () => void;
   /** Demo host ("Phòng trải nghiệm"): to-do list, library-only text / pictures, no kick / promote / live broadcast. */
@@ -522,6 +527,7 @@ export function OwnerPanel(p: {
           <LiveModeration live={p.live} send={p.send} selfId={p.selfId} onOpenCamera={p.onOpenCamera} />
         ))}
       {tab === "polls" && <PollsTab send={p.send} polls={p.polls} />}
+      {tab === "people" && <VoiceModeration voice={p.voice ?? null} send={p.send} names={p.voiceName ?? ((id) => p.members.find((m) => m.userId === id)?.name ?? "Ai đó")} selfId={p.selfId} />}
       {tab === "people" && <PeopleTab members={p.members} send={p.send} hands={p.hands} isOwner={p.isOwner} selfId={p.selfId} roomId={p.room.id} noKick={!!p.demo} />}
       {tab === "stats" && <StatsTab roomId={p.room.id} />}
       {tab === "chat" && (

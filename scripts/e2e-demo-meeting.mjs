@@ -86,6 +86,11 @@ const minh = w?.members?.find((m) => m.name === "Minh");
 // 3 seats: 2 at the table (S1, S2 nearest the screen) + the chairperson at the head (S3)
 check(lan?.seatId === "S3", `demo host in the chairperson's seat (${lan?.seatId})`);
 check(minh?.seatId && minh.seatId !== "S3", `guest at the table (${minh?.seatId})`);
+// voice chat is on in the demo rooms too
+await host.evaluate(() => document.querySelector(".orb")?.click());
+await sleep(600);
+check(!!(await host.$('[data-orb="mic"]')), "demo room: 🎤 Bật mic in the orb (voice chat on)");
+await host.evaluate(() => document.querySelector(".orb")?.click());
 await host.addStyleTag({ content: ".hud-top,.hud-bottom,.status-card,.demo-ribbon,.side-panel,.orb-root{display:none!important}" });
 await sleep(4000);
 await host.screenshot({ path: `${OUT}/demo-meeting-host.png` });

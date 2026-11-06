@@ -79,6 +79,11 @@ export class RealtimeClient {
     return r;
   }
 
+  /** Stop pulling tracks at once (no SDP exchange): the listener moved away from those voices. */
+  async closeTracks(sessionId: string, mids: string[]) {
+    return this.call<TracksResponse>("PUT", `/sessions/${sessionId}/tracks/close`, { tracks: mids.map((mid) => ({ mid })), force: true });
+  }
+
   async renegotiate(sessionId: string, answer: SessionDescription) {
     return this.call<TracksResponse>("PUT", `/sessions/${sessionId}/renegotiate`, { sessionDescription: answer });
   }
@@ -126,11 +131,11 @@ export class LiveMeter {
     this.loaded = true;
   }
 
-  /** Add `viewers` watching for `seconds`. */
-  async add(viewers: number, seconds: number, now = Date.now()) {
+  /** Add `viewers` watching for `seconds` (voice chat: listeners x voices, at the voice bitrate). */
+  async add(viewers: number, seconds: number, now = Date.now(), bps = LIVE_BITRATE_BPS) {
     await this.ensure(now);
     if (viewers <= 0) return;
-    this.bytes += (viewers * seconds * LIVE_BITRATE_BPS) / 8;
+    this.bytes += (viewers * seconds * bps) / 8;
     this.dirty = true;
   }
 

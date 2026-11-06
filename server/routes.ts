@@ -410,6 +410,64 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { ok: true };
   });
 
+  // ----- voice chat with the people around: mic → Cloudflare, nearby voices ← Cloudflare -----
+
+  /** Talker: their mic track → the SFU (published once per page; turning the mic off only mutes it). */
+  route("POST", "/api/voice/:id/publish", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ offer: sdpSchema, mid: z.string().min(1).max(10) }).parse(await readJson(ctx.req, 300_000));
+    hub.voiceCanPublish(u.id, roomId);
+    const sessionId = await rtc.newSession();
+    const track = `voice-${randomUUID().slice(0, 8)}`;
+    const r = await rtc.publish(sessionId, b.offer, [{ mid: b.mid, trackName: track }]);
+    if (!r.sessionDescription) throw new AppError("LIVE_SFU", "Máy chủ âm thanh không trả lời.", 502);
+    hub.voicePublished(roomId, u.id, sessionId, track);
+    return { sessionId, answer: r.sessionDescription };
+  });
+
+  /** Listener: add voices to their pull session (one per page; created on the first call) → SFU offer. */
+  route("POST", "/api/voice/:id/pull", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z
+      .object({ sessionId: z.string().min(8).max(100).nullable(), tracks: z.array(z.object({ sessionId: z.string().min(8).max(100), track: z.string().min(1).max(40) })).min(1).max(6) })
+      .parse(await readJson(ctx.req, 20_000));
+    hub.voiceMayPull(u.id, roomId, b.tracks);
+    let sessionId = b.sessionId;
+    if (sessionId) {
+      const owner = hub.voicePullOwner(sessionId);
+      if (!owner || owner.userId !== u.id || owner.roomId !== roomId) throw new AppError("FORBIDDEN", "Phiên nghe không hợp lệ.", 403);
+    } else {
+      sessionId = await rtc.newSession();
+      hub.voicePullOpened(sessionId, u.id, roomId);
+    }
+    const r = await rtc.pull(sessionId, b.tracks.map((t) => ({ sessionId: t.sessionId, trackName: t.track })));
+    if (!r.sessionDescription) throw new AppError("LIVE_SFU", "Máy chủ âm thanh không trả lời.", 502);
+    return { sessionId, offer: r.sessionDescription, tracks: (r.tracks ?? []).map((t) => ({ mid: t.mid, track: t.trackName, sessionId: t.sessionId })) };
+  });
+
+  route("POST", "/api/voice/:id/answer", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ sessionId: z.string().min(8).max(100), answer: sdpSchema }).parse(await readJson(ctx.req, 300_000));
+    const owner = hub.voicePullOwner(b.sessionId);
+    if (!owner || owner.userId !== u.id || owner.roomId !== roomId) throw new AppError("FORBIDDEN", "Phiên nghe không hợp lệ.", 403);
+    await rtc.renegotiate(b.sessionId, b.answer);
+    return { ok: true };
+  });
+
+  /** Listener: stop pulling voices that are no longer near (saves bandwidth both ways). */
+  route("POST", "/api/voice/:id/close", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ sessionId: z.string().min(8).max(100), mids: z.array(z.string().min(1).max(10)).min(1).max(20) }).parse(await readJson(ctx.req, 20_000));
+    const owner = hub.voicePullOwner(b.sessionId);
+    if (!owner || owner.userId !== u.id || owner.roomId !== roomId) throw new AppError("FORBIDDEN", "Phiên nghe không hợp lệ.", 403);
+    await rtc.closeTracks(b.sessionId, b.mids);
+    return { ok: true };
+  });
+
   /** App owner: estimated live traffic this month vs the cap. */
   route("GET", "/api/admin/live-usage", async (ctx) => {
     const u = needUser(ctx);

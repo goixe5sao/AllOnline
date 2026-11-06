@@ -442,3 +442,15 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .web-label { position: absolute; left: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 4px 10px; border-radius: 8px; background: rgb(0 0 0 / 0.62); color: #fff; font: 600 15px/1.3 system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fullscreen .web-label { font-size: 13px; }
 
+
+/* voice chat with the people around */
+.hud-chip.voice-on { cursor: pointer; color: #b6ff3d; border-color: rgb(182 255 61 / 0.5); box-shadow: 0 0 12px rgb(182 255 61 / 0.35); }
+.hud-chip.voice-hint { cursor: pointer; color: #ffd38a; border-color: rgb(255 211 138 / 0.55); animation: livepulse 1.4s ease-in-out infinite; }
+.hud-chip.voice-err { cursor: pointer; color: #ff9a8f; }
+.voice-heard { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.voice-heard small { flex-basis: 100%; }
+.voice-person { min-height: 32px; padding: 4px 10px; font-size: 13px; }
+.voice-person.off { opacity: 0.6; text-decoration: line-through; }
+.voice-mics { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.voice-mics li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgb(255 255 255 / 0.05); }
+.voice-mod { padding-bottom: 10px; border-bottom: 1px solid rgb(255 255 255 / 0.08); }
