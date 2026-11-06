@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEMO_IMAGES, DEMO_PEOPLE_PER_NETWORK, DEMO_SHOWCASE, DEMO_TEXTS, demoContentAllowed, demoDay, demoSecondsLeft } from "@/core/demo";
+import { DEMO_IMAGES, DEMO_WEB_URL, DEMO_PEOPLE_PER_NETWORK, DEMO_SHOWCASE, DEMO_TEXTS, demoContentAllowed, demoDay, demoSecondsLeft } from "@/core/demo";
 import { screenContentSchema } from "@/core/screen";
+import { normalizeWebUrl } from "@/core/webscroll";
 
 describe("demo rooms", () => {
   it("5 minutes a day per device; the network caps private-tab tricks", () => {
@@ -25,11 +26,17 @@ describe("demo rooms", () => {
     expect(demoContentAllowed({ kind: "image", url: DEMO_IMAGES[0].url })).toBe(true);
     expect(demoContentAllowed({ kind: "image", url: "https://example.com/x.png" })).toBe(false);
     expect(demoContentAllowed({ kind: "audio", url: "https://example.com/a.mp3", title: "x" })).toBe(false);
+    const web = (url: string) => ({ kind: "web" as const, url, shots: ["/api/uploads/11111111-1111-1111-1111-111111111111"], w: 1280, h: 5000, speed: "normal" as const, takenAt: 1 });
+    expect(demoContentAllowed(web("https://goixe5sao.vn/"))).toBe(true); // the one page a demo room shows
+    expect(demoContentAllowed(web("https://www.goixe5sao.vn/dat-xe"))).toBe(true);
+    expect(demoContentAllowed(web("https://vnexpress.net/"))).toBe(false);
+    expect(demoContentAllowed(web("https://goixe5sao.vn.evil.com/"))).toBe(false);
   });
 
   it("library pictures and the showcase pass the screen schema", () => {
     for (const i of DEMO_IMAGES) expect(screenContentSchema.safeParse({ kind: "image", url: i.url }).success).toBe(true);
     for (const c of DEMO_SHOWCASE) expect(screenContentSchema.safeParse(c).success).toBe(true);
     expect(screenContentSchema.safeParse({ kind: "image", url: "/etc/passwd" }).success).toBe(false);
+    expect(normalizeWebUrl(DEMO_WEB_URL)).toBe(DEMO_WEB_URL);
   });
 });

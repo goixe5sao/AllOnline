@@ -32,19 +32,31 @@ export const DEMO_SHOWCASE: ScreenContent[] = [
 ];
 export const DEMO_SHOWCASE_MS = 25_000;
 
+/** "Trang web tự cuộn" in a demo room always shows this page (no link to type). */
+export const DEMO_WEB_URL = "https://goixe5sao.vn/";
+const isDemoWebHost = (url: string) => {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return h === "goixe5sao.vn" || h.endsWith(".goixe5sao.vn");
+  } catch {
+    return false;
+  }
+};
+
 /** Several people on one office / mobile network can try, but not endlessly from new private tabs. */
 export const DEMO_PEOPLE_PER_NETWORK = 6;
 
-/** Text / pictures on screen come from the library (YouTube links are free, charts are data). */
+/** Text / pictures on screen come from the library (YouTube links are free, charts are data, the web page is goixe5sao.vn). */
 export function demoContentAllowed(c: ScreenContent): boolean {
   switch (c.kind) {
     case "text":
       return DEMO_TEXTS.includes(c.text);
     case "image":
       return DEMO_IMAGES.some((i) => i.url === c.url);
+    case "web":
+      return isDemoWebHost(c.url);
     case "audio":
     case "chat":
-    case "web":
       return false;
     default:
       return true;

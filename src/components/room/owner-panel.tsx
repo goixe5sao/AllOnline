@@ -131,7 +131,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
           <option value="text">{demo ? "Văn bản (thư viện mẫu)" : "Văn bản"}</option>
           <option value="image">{demo ? "Hình ảnh (thư viện mẫu)" : "Hình ảnh (https hoặc tải lên)"}</option>
           <option value="youtube">Video YouTube</option>
-          {!demo && <option value="web">Trang web (tự cuộn từ đầu đến cuối)</option>}
+          <option value="web">{demo ? "Trang web goixe5sao.vn (tự cuộn)" : "Trang web (tự cuộn từ đầu đến cuối)"}</option>
           {!demo && <option value="audio">Âm thanh (https hoặc tải lên)</option>}
           <option value="chart">Biểu đồ chứng khoán VN kiểu TradingView</option>
           <option value="tradingview">TradingView chính thức — mã quốc tế (dữ liệu thật)</option>
@@ -162,7 +162,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
       {kind === "text" && !demo && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
       {kind === "chart" && <SymbolPicker value={value} onChange={setValue} />}
       {kind === "youtube" && <YouTubePanel send={send} screen={screen} />}
-      {kind === "web" && <WebPanel send={send} screen={screen} roomId={roomId} />}
+      {kind === "web" && <WebPanel send={send} screen={screen} roomId={roomId} demo={demo} />}
       {((kind === "image" && !demo) || kind === "audio" || kind === "tradingview") && (
         <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
       )}

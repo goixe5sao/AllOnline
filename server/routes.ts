@@ -12,6 +12,7 @@ import type { Storage } from "./storage";
 import { sniffMime } from "./storage";
 import { clientIp, readBody, readJson, sameOrigin, sendJson } from "./http";
 import { AVATARS, MAP_INFO } from "@/core/maps";
+import { DEMO_WEB_URL } from "@/core/demo";
 import { CHART_INTERVALS, demoMarketProvider, type CandleResult } from "@/core/market";
 import type { MarketService } from "./market/service";
 import { searchSymbols } from "./market/symbols";
@@ -552,30 +553,45 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
 
   /** "Trang web tự cuộn": photograph a page for the stage screen (owner / co-host, 1 per 8 s per room). */
   const webshotAt = new Map<string, number>();
-  route("POST", "/api/rooms/:id/webshot", async (ctx) => {
-    const { u, room } = await moderatedRoom(ctx, ctx.params[0]);
-    if (room.is_demo && room.owner_id !== u.id) throw new AppError("DEMO_LIMITED", "Bản trải nghiệm chưa có trang web tự cuộn.", 403);
-    const b = z.object({ url: z.string().trim().min(3).max(1000) }).parse(await readJson(ctx.req));
-    const last = webshotAt.get(room.id) ?? 0;
-    if (Date.now() - last < 8000) throw new AppError("TOO_MANY_ATTEMPTS", "Đợi vài giây rồi chụp lại nhé.", 429);
-    webshotAt.set(room.id, Date.now());
-    const shot = await captureWebPage(b.url);
+  type ShotDto = { shots: string[]; url: string; w: number; h: number; title: string; takenAt: number };
+  const storeShot = async (roomId: string, userId: string, url: string): Promise<ShotDto> => {
+    const shot = await captureWebPage(url);
     const s = await getSettings(db);
     const shots: string[] = [];
     for (const tile of shot.tiles) {
       const row = (
         await db.query<{ id: string }>(
           "insert into app.uploads (room_id, owner_id, storage_path, mime, size_bytes, delete_after) values ($1, $2, '', 'image/jpeg', $3, now() + make_interval(days => $4)) returning id",
-          [room.id, u.id, tile.length, s.upload_retention_days],
+          [roomId, userId, tile.length, s.upload_retention_days],
         )
       ).rows[0];
-      const key = cfg.mode === "supabase" ? `${room.id}/${row.id}` : row.id;
+      const key = cfg.mode === "supabase" ? `${roomId}/${row.id}` : row.id;
       await storage.put(key, tile, "image/jpeg");
       await db.query("update app.uploads set storage_path = $2 where id = $1", [row.id, key]);
       shots.push(`/api/uploads/${row.id}`);
     }
-    await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'webshot', $3)", [room.id, u.id, JSON.stringify({ url: shot.finalUrl, height: shot.height })]);
+    await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'webshot', $3)", [roomId, userId, JSON.stringify({ url: shot.finalUrl, height: shot.height })]);
     return { shots, url: shot.finalUrl, w: shot.width, h: shot.height, title: shot.title, takenAt: Date.now() };
+  };
+  // Demo rooms always show goixe5sao.vn: one photo shared by every demo room, renewed hourly.
+  let demoShot: { at: number; p: Promise<ShotDto> } | null = null;
+  route("POST", "/api/rooms/:id/webshot", async (ctx) => {
+    const demoRoom = await getRoom(db, ctx.params[0]);
+    const viaDemo = !!demoRoom?.is_demo && !!ctx.user && hub.isDemoHost(demoRoom.id, ctx.user.id);
+    const { u, room } = viaDemo ? { u: ctx.user!, room: demoRoom! } : await moderatedRoom(ctx, ctx.params[0]);
+    if (room.is_demo) {
+      if (!demoShot || Date.now() - demoShot.at > 3600_000) {
+        const p = storeShot(room.id, u.id, DEMO_WEB_URL);
+        demoShot = { at: Date.now(), p };
+        p.catch(() => demoShot?.p === p && (demoShot = null)); // failed: try again next time
+      }
+      return demoShot.p;
+    }
+    const b = z.object({ url: z.string().trim().min(3).max(1000) }).parse(await readJson(ctx.req));
+    const last = webshotAt.get(room.id) ?? 0;
+    if (Date.now() - last < 8000) throw new AppError("TOO_MANY_ATTEMPTS", "Đợi vài giây rồi chụp lại nhé.", 429);
+    webshotAt.set(room.id, Date.now());
+    return storeShot(room.id, u.id, b.url);
   });
 
   route(

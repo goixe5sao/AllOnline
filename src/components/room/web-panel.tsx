@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import type { ScreenState } from "@/core/screen";
 import type { ClientMsg } from "@/core/protocol";
 import { WEB_SPEED_LABEL, WEB_SPEEDS, normalizeWebUrl, type WebSpeed } from "@/core/webscroll";
+import { DEMO_WEB_URL } from "@/core/demo";
 
 interface Shot {
   shots: string[];
@@ -18,10 +19,11 @@ interface Shot {
 /**
  * Owner's "Trang web tự cuộn": paste a link → the server photographs the whole page → the stage
  * scrolls it from the top to the bottom, back up, and again. "Chụp lại" refreshes the photo.
+ * Demo rooms: always goixe5sao.vn, no link to type (the server keeps one shared photo).
  */
-export function WebPanel({ send, screen, roomId }: { send: (m: ClientMsg) => void; screen: ScreenState; roomId: string }) {
+export function WebPanel({ send, screen, roomId, demo }: { send: (m: ClientMsg) => void; screen: ScreenState; roomId: string; demo?: boolean }) {
   const cur = screen.content.kind === "web" ? screen.content : null;
-  const [link, setLink] = useState(cur?.url ?? "");
+  const [link, setLink] = useState(demo ? DEMO_WEB_URL : (cur?.url ?? ""));
   const [speed, setSpeed] = useState<WebSpeed>(cur?.speed ?? "normal");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -46,9 +48,15 @@ export function WebPanel({ send, screen, roomId }: { send: (m: ClientMsg) => voi
 
   return (
     <div className="stack web-panel" style={{ gap: 8 }}>
-      <div className="row">
-        <input type="text" value={link} onChange={(e) => (setLink(e.target.value), setErr(""))} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), void shoot(link))} placeholder="Dán link trang web, ví dụ https://vnexpress.net" style={{ flex: 1 }} aria-label="Link trang web" />
-      </div>
+      {demo ? (
+        <small>
+          Trang chiếu: <b>goixe5sao.vn</b> — bản trải nghiệm dùng trang có sẵn; phòng thật của bạn thì dán link trang nào cũng được.
+        </small>
+      ) : (
+        <div className="row">
+          <input type="text" value={link} onChange={(e) => (setLink(e.target.value), setErr(""))} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), void shoot(link))} placeholder="Dán link trang web, ví dụ https://vnexpress.net" style={{ flex: 1 }} aria-label="Link trang web" />
+        </div>
+      )}
       <div className="row" role="radiogroup" aria-label="Tốc độ cuộn">
         <small>Tốc độ cuộn:</small>
         {WEB_SPEEDS.map((s) => (
@@ -70,9 +78,9 @@ export function WebPanel({ send, screen, roomId }: { send: (m: ClientMsg) => voi
       </div>
       <div className="row">
         <button type="button" className="hud-btn primary" disabled={busy || !link.trim()} onClick={() => void shoot(link)}>
-          {busy ? "⏳ Đang chụp trang… (5–20 giây)" : "📸 Chụp trang & chiếu lên màn hình"}
+          {busy ? "⏳ Đang chụp trang… (5–20 giây)" : demo ? "📸 Chiếu trang goixe5sao.vn lên màn hình" : "📸 Chụp trang & chiếu lên màn hình"}
         </button>
-        {cur && !busy && (
+        {cur && !busy && !demo && (
           <button type="button" className="hud-btn" onClick={() => void shoot(cur.url)} title="Trang đã đổi nội dung? Chụp lại bản mới">
             🔄 Chụp lại
           </button>
