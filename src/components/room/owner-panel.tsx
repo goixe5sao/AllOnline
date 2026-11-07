@@ -1,7 +1,13 @@
 "use client";
 
+import { WebPanel } from "./web-panel";
+import { MAP_INFO } from "@/core/maps";
+import { DEMO_IMAGES, DEMO_TEXTS } from "@/core/demo";
+import { DemoMissions, type Mission } from "./demo";
 import type { LiveDto } from "@/core/live";
 import { LiveModeration } from "./live";
+import { VoiceModeration } from "./voice";
+import type { VoiceDto } from "@/core/voice";
 import { useState } from "react";
 import Link from "next/link";
 import { api, ApiError, fmtDuration, fmtTime, useApi } from "@/lib/api";
@@ -19,7 +25,7 @@ import { YouTubePanel } from "./youtube-panel";
 
 const STATUS_VI: Record<string, string> = { seated: "Đang ngồi", finding: "Đang tìm chỗ", invited: "Được mời vào chỗ", waiting: "Chờ ngoài cổng" };
 
-function StageStyleSwitch({ roomId, style, lights, send }: { roomId: string; style: "glam" | "plain"; lights: boolean; send: (m: ClientMsg) => void }) {
+function StageStyleSwitch({ roomId, style, lights, send, furnished }: { roomId: string; style: "glam" | "plain"; lights: boolean; send: (m: ClientMsg) => void; furnished?: boolean }) {
   const [err, setErr] = useState("");
   const set = async (s: "glam" | "plain") => {
     try {
@@ -30,16 +36,20 @@ function StageStyleSwitch({ roomId, style, lights, send }: { roomId: string; sty
   };
   return (
     <div className="stack" style={{ gap: 4 }}>
-      <small>Kiểu sân khấu (mọi người thấy ngay)</small>
+      <small>{furnished ? "Đèn phòng (tắt đèn = chế độ trình chiếu, mọi người thấy ngay)" : "Kiểu sân khấu (mọi người thấy ngay)"}</small>
       <div className="row">
-        <button className={`hud-btn ${style === "glam" ? "primary" : ""}`} aria-pressed={style === "glam"} onClick={() => set("glam")}>
-          🛸 Hành tinh tương lai
-        </button>
-        <button className={`hud-btn ${style === "plain" ? "primary" : ""}`} aria-pressed={style === "plain"} onClick={() => set("plain")}>
-          ◻ Đơn sắc
-        </button>
+        {!furnished && (
+          <>
+            <button className={`hud-btn ${style === "glam" ? "primary" : ""}`} aria-pressed={style === "glam"} onClick={() => set("glam")}>
+              🛸 Hành tinh tương lai
+            </button>
+            <button className={`hud-btn ${style === "plain" ? "primary" : ""}`} aria-pressed={style === "plain"} onClick={() => set("plain")}>
+              ◻ Đơn sắc
+            </button>
+          </>
+        )}
         <button className={`hud-btn ${lights ? "primary" : ""}`} aria-pressed={lights} onClick={() => send({ t: "stage_lights", on: !lights })}>
-          {lights ? "💡 Đèn sân khấu: bật" : "🌑 Đèn sân khấu: tắt"}
+          {furnished ? (lights ? "💡 Đèn phòng: bật" : "🌑 Đèn phòng: tắt") : lights ? "💡 Đèn sân khấu: bật" : "🌑 Đèn sân khấu: tắt"}
         </button>
       </div>
       {err && <small>{err}</small>}
@@ -47,9 +57,9 @@ function StageStyleSwitch({ roomId, style, lights, send }: { roomId: string; sty
   );
 }
 
-function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) => void; screen: ScreenState; serverNow: () => number; roomId: string }) {
+function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: ClientMsg) => void; screen: ScreenState; serverNow: () => number; roomId: string; demo?: boolean }) {
   // a YouTube video on screen → open its controls straight away
-  const [kind, setKind] = useState<ScreenContent["kind"]>(screen.content.kind === "youtube" ? "youtube" : "text");
+  const [kind, setKind] = useState<ScreenContent["kind"]>(screen.content.kind === "youtube" || screen.content.kind === "web" ? screen.content.kind : "text");
   const [value, setValue] = useState("");
   const [title, setTitle] = useState("");
   const [interval, setIntervalOpt] = useState<ChartInterval>("D");
@@ -93,7 +103,7 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
     }
   };
 
-  const playable = screen.content.kind === "youtube" || screen.content.kind === "audio";
+  const playable = screen.content.kind === "youtube" || screen.content.kind === "audio" || screen.content.kind === "web";
   const pos = currentPosition(screen, serverNow());
   return (
     <div className="stack">
@@ -126,22 +136,45 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
             setValue("");
           }}>
           <option value="text">Văn bản</option>
-          <option value="image">Hình ảnh (https hoặc tải lên)</option>
+          <option value="image">{demo ? "Hình ảnh (dán link https)" : "Hình ảnh (https hoặc tải lên)"}</option>
           <option value="youtube">Video YouTube</option>
-          <option value="audio">Âm thanh (https hoặc tải lên)</option>
+          <option value="web">{demo ? "Trang web goixe5sao.vn (tự cuộn)" : "Trang web (tự cuộn từ đầu đến cuối)"}</option>
+          <option value="audio">{demo ? "Âm thanh (dán link https)" : "Âm thanh (https hoặc tải lên)"}</option>
           <option value="chart">Biểu đồ chứng khoán VN kiểu TradingView</option>
           <option value="tradingview">TradingView chính thức — mã quốc tế (dữ liệu thật)</option>
           <option value="blank">Màn hình trống</option>
         </select>
       </label>
+      {kind === "text" && demo && (
+        <select value="" onChange={(e) => e.target.value && setValue(e.target.value)} aria-label="Văn bản mẫu">
+          <option value="">— Hoặc chọn câu mẫu —</option>
+          {DEMO_TEXTS.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      )}
+      {kind === "image" && demo && (
+        <select value="" onChange={(e) => e.target.value && setValue(e.target.value)} aria-label="Hình mẫu">
+          <option value="">— Hoặc chọn hình mẫu —</option>
+          {DEMO_IMAGES.map((i) => (
+            <option key={i.url} value={i.url}>
+              {i.label}
+            </option>
+          ))}
+        </select>
+      )}
       {kind === "text" && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
       {kind === "chart" && <SymbolPicker value={value} onChange={setValue} />}
       {kind === "youtube" && <YouTubePanel send={send} screen={screen} />}
+      {kind === "web" && <WebPanel send={send} screen={screen} roomId={roomId} demo={demo} />}
       {(kind === "image" || kind === "audio" || kind === "tradingview") && (
         <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
       )}
       {kind === "audio" && <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tiêu đề" />}
-      {(kind === "image" || kind === "audio") && (
+      {demo && (kind === "image" || kind === "audio") && <small>Phòng trải nghiệm: dán link https (tải tệp từ máy lên có ở phòng thật của bạn).</small>}
+      {!demo && (kind === "image" || kind === "audio") && (
         <label className="field">
           <small>Hoặc tải tệp lên (ảnh PNG/JPEG/WebP/GIF, âm thanh MP3/OGG/WAV/M4A; giới hạn dung lượng do chủ ứng dụng cấu hình)</small>
           <input type="file" accept={kind === "image" ? "image/png,image/jpeg,image/webp,image/gif" : "audio/*"} disabled={uploading} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
@@ -192,7 +225,7 @@ function ScreenTab({ send, screen, serverNow, roomId }: { send: (m: ClientMsg) =
         </>
       )}
       {kind === "tradingview" && <small>TradingView không cho nhúng mã sàn Việt Nam (HOSE/HNX). Dùng cho cổ phiếu quốc tế, crypto, vàng, ngoại tệ. Ở chế độ “Xem màn hình”, người xem dùng đủ công cụ vẽ/chỉ báo của TradingView.</small>}
-      {kind !== "youtube" && (
+      {kind !== "youtube" && kind !== "web" && (
         <button className="hud-btn primary" onClick={show}>
           Hiển thị lên màn hình
         </button>
@@ -264,7 +297,7 @@ function PollsTab({ send, polls }: { send: (m: ClientMsg) => void; polls: PollVi
   );
 }
 
-function PeopleTab({ members, send, hands, isOwner, selfId, roomId }: { members: PublicMember[]; send: (m: ClientMsg) => void; hands: { userId: string; name: string; at: number }[]; isOwner: boolean; selfId: string; roomId: string }) {
+function PeopleTab({ members, send, hands, isOwner, selfId, roomId, noKick }: { members: PublicMember[]; send: (m: ClientMsg) => void; hands: { userId: string; name: string; at: number }[]; isOwner: boolean; selfId: string; roomId: string; noKick?: boolean }) {
   const count = (s: string) => members.filter((m) => m.status === s).length;
   const [msg, setMsg] = useState("");
   return (
@@ -306,7 +339,7 @@ function PeopleTab({ members, send, hands, isOwner, selfId, roomId }: { members:
                     Làm trợ lý
                   </button>
                 )}{" "}
-                <button className="hud-btn" onClick={() => confirm(`Mời ${m.name} ra khỏi phòng?`) && send({ t: "kick", userId: m.userId })}>
+                <button className="hud-btn" hidden={noKick} onClick={() => confirm(`Mời ${m.name} ra khỏi phòng?`) && send({ t: "kick", userId: m.userId })}>
                   Mời ra
                 </button>
               </td>
@@ -441,8 +474,13 @@ export function OwnerPanel(p: {
   selfId: string;
   onClose: () => void;
   live: LiveDto | null;
+  /** Voice chat: mode + open mics (moderators turn mics off); names of the people. */
+  voice?: VoiceDto | null;
+  voiceName?: (id: string) => string;
   /** Open the camera panel (the owner goes live themself). */
   onOpenCamera: () => void;
+  /** Demo host ("Phòng trải nghiệm"): to-do list, library-only text / pictures, no kick / promote / live broadcast. */
+  demo?: { missions: Set<Mission> } | null;
 }) {
   const [tab, setTab] = useState<"screen" | "live" | "polls" | "people" | "chat" | "stats" | "room">("screen");
   const liveReq = p.live?.requests.length ?? 0;
@@ -458,11 +496,12 @@ export function OwnerPanel(p: {
   return (
     <aside className="side-panel" aria-label="Điều khiển chủ phòng">
       <div className="row between">
-        <strong>{p.isOwner ? "Điều khiển chủ phòng" : "Điều khiển (trợ lý)"}</strong>
+        <strong>{p.demo ? "👑 Chủ phòng trải nghiệm" : p.isOwner ? "Điều khiển chủ phòng" : "Điều khiển (trợ lý)"}</strong>
         <button className="hud-btn" onClick={p.onClose} aria-label="Đóng bảng điều khiển">
           ✕
         </button>
       </div>
+      {p.demo && <DemoMissions done={p.demo.missions} />}
       <div className="tabs" role="tablist">
         {tabs.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
@@ -472,12 +511,13 @@ export function OwnerPanel(p: {
       </div>
       {tab === "screen" && (
         <>
-          <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} lights={p.room.stageLights} send={p.send} />
-          <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} />
+          <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} lights={p.room.stageLights} send={p.send} furnished={MAP_INFO[p.room.map].furnished} />
+          <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} demo={!!p.demo} />
         </>
       )}
       {tab === "live" && <LiveModeration live={p.live} send={p.send} selfId={p.selfId} onOpenCamera={p.onOpenCamera} />}
       {tab === "polls" && <PollsTab send={p.send} polls={p.polls} />}
+      {tab === "people" && <VoiceModeration voice={p.voice ?? null} send={p.send} names={p.voiceName ?? ((id) => p.members.find((m) => m.userId === id)?.name ?? "Ai đó")} selfId={p.selfId} />}
       {tab === "people" && <PeopleTab members={p.members} send={p.send} hands={p.hands} isOwner={p.isOwner} selfId={p.selfId} roomId={p.room.id} />}
       {tab === "stats" && <StatsTab roomId={p.room.id} />}
       {tab === "chat" && (

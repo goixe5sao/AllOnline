@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { currentPosition, type ScreenState } from "@/core/screen";
 import type { PollViewDto, StageAd } from "@/core/protocol";
 import { StageChart, TradingViewWidget } from "./stage-chart";
+import { webOffset, webViewHeight } from "@/core/webscroll";
 
 export interface ScreenProps {
   state: ScreenState;
@@ -219,6 +220,50 @@ function ExpiryOverlay({ expiresAt, serverNow, warningMinutes }: { expiresAt: nu
   );
 }
 
+/** A photographed web page scrolling top → bottom → top, in step with the screen clock. */
+function WebScroll({ c, state, serverNow, inset }: { c: Extract<ScreenState["content"], { kind: "web" }> } & Pick<ScreenProps, "state" | "serverNow"> & { inset: string | number }) {
+  const box = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let raf = 0;
+    const loop = () => {
+      const b = box.current;
+      const s = strip.current;
+      if (b && s && b.clientWidth) {
+        // page px → screen px; the visible part depends on the screen's shape (ad strip, full screen)
+        const scale = b.clientWidth / c.w;
+        const nominal = c.h - webViewHeight(c.w);
+        const actual = Math.max(0, c.h - b.clientHeight / scale);
+        const off = nominal > 0 ? (webOffset(currentPosition(state, serverNow()), c.w, c.h, c.speed) / nominal) * actual : 0;
+        s.style.transform = `translateY(${-off * scale}px)`;
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [c, state, serverNow]);
+  let host = c.url;
+  try {
+    host = new URL(c.url).hostname.replace(/^www\./, "");
+  } catch {
+    /* keep the raw link */
+  }
+  return (
+    <div className="web-scroll" ref={box} style={{ inset }}>
+      <div className="web-strip" ref={strip}>
+        {c.shots.map((src, i) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={src} src={src} alt={i ? "" : `Trang web ${host}`} draggable={false} />
+        ))}
+      </div>
+      <span className="web-label">
+        🌐 {host}
+        {c.title ? ` · ${c.title}` : ""}
+      </span>
+    </div>
+  );
+}
+
 export function ScreenContent(p: ScreenProps) {
   const c = p.state.content;
   let body: React.ReactNode;
@@ -263,6 +308,9 @@ export function ScreenContent(p: ScreenProps) {
           <div style={{ fontSize: "0.55em", opacity: 0.8, marginTop: "0.5em" }}>— {c.author}</div>
         </div>
       );
+      break;
+    case "web":
+      body = <WebScroll c={c} state={p.state} serverNow={p.serverNow} inset={p.ad ? "0 0 9% 0" : 0} />;
       break;
     case "poll":
       body = <PollOnScreen poll={p.polls.find((x) => x.id === c.pollId)} />;

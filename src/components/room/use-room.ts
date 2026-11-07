@@ -7,6 +7,9 @@ import { ERROR_TEXT, type StageAd, type ClientMsg, type PollViewDto, type Questi
 import type { PersonalState, PublicMember } from "@/core/room-engine";
 import { BLANK_SCREEN, type ScreenState } from "@/core/screen";
 import type { LiveDto } from "@/core/live";
+import type { DemoDto } from "@/core/demo";
+import type { VoiceDto, VoiceSource } from "@/core/voice";
+import { DEMO_OVER_TEXT } from "./demo";
 import type { AvatarGroup } from "@/core/maps";
 
 export interface ChatLine {
@@ -29,6 +32,14 @@ export interface RoomSession {
   myQuestionVotes: string[];
   /** Live camera on the stage: mode, requests, who is on air, monthly quota. */
   live: LiveDto | null;
+  /** Demo room: host, your minutes left today. */
+  demo: DemoDto | null;
+  /** Voice chat: room mode + open mics; the voices this listener should hear; bumps when my mic was turned off. */
+  voice: VoiceDto | null;
+  voiceSources: VoiceSource[] | null;
+  voiceForced: number;
+  /** Bumps on every "welcome" (first join and each reconnect): the mic is published again. */
+  joins: number;
   room: RoomInfoDto | null;
   screen: ScreenState;
   polls: PollViewDto[];
@@ -55,7 +66,7 @@ export class MemberStore {
   correction: { x: number; z: number } | null = null;
 }
 
-export function useRoom(roomId: string, opts: { pass: string | null; avatar: { group: AvatarGroup; model: string; color?: string } | null; asParticipant?: boolean }) {
+export function useRoom(roomId: string, opts: { pass: string | null; avatar: { group: AvatarGroup; model: string; color?: string } | null; asParticipant?: boolean; demoHost?: boolean }) {
   const store = useRef(new MemberStore()).current;
   const [s, setS] = useState<RoomSession>({
     conn: "connecting",
@@ -76,6 +87,11 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
     questions: [],
     myQuestionVotes: [],
     live: null,
+    demo: null,
+    voice: null,
+    voiceSources: null,
+    voiceForced: 0,
+    joins: 0,
   });
   const wsRef = useRef<WebSocket | null>(null);
   const offsetRef = useRef(0);
@@ -138,6 +154,10 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
             questions: m.questions,
             myQuestionVotes: m.myQuestionVotes,
             live: m.live,
+            demo: m.demo,
+            voice: m.voice,
+            voiceSources: [],
+            joins: p.joins + 1,
             version: p.version + 1,
           }));
           return;
@@ -165,6 +185,19 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
           return;
         case "live":
           setS((p) => ({ ...p, live: m.live }));
+          return;
+        case "voice":
+          setS((p) => ({ ...p, voice: m.voice }));
+          return;
+        case "voice_sources":
+          setS((p) => ({ ...p, voiceSources: m.sources }));
+          return;
+        case "voice_forced":
+          setS((p) => ({ ...p, voiceForced: p.voiceForced + 1 }));
+          toast(m.message);
+          return;
+        case "demo":
+          setS((p) => ({ ...p, demo: m.demo, you: p.you ? { ...p.you, isModerator: p.you.isModerator || m.demo.hostId === p.you.userId } : p.you }));
           return;
         case "stage_lights":
           setS((p) => (p.room ? { ...p, room: { ...p.room, stageLights: m.on } } : p));
@@ -217,14 +250,14 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
         case "room_closed":
           return end(m.reason === "expired" ? "Phòng đã hết hạn và được đóng." : "Phòng đã được đóng.");
         case "kicked":
-          return end("Bạn đã được mời ra khỏi phòng.");
+          return end(m.reason === "demo_over" ? DEMO_OVER_TEXT : "Bạn đã được mời ra khỏi phòng.");
         case "session_replaced":
           return end("Tài khoản này vừa mở phòng ở một tab hoặc thiết bị khác, nên phiên ở tab này đã dừng. Mỗi tài khoản chỉ có một phiên trong phòng tại một thời điểm.");
         case "corrected":
           store.correction = { x: m.x, z: m.z };
           return;
         case "error":
-          if (["ROOM_FULL", "BANNED", "ROOM_NOT_OPEN", "NO_PASS", "AVATAR_NOT_ALLOWED", "IP_LIMIT_PARTICIPANT", "DEVICE_LIMIT"].includes(m.code)) return end(m.message || ERROR_TEXT[m.code] || m.code);
+          if (["ROOM_FULL", "BANNED", "ROOM_NOT_OPEN", "NO_PASS", "AVATAR_NOT_ALLOWED", "IP_LIMIT_PARTICIPANT", "DEVICE_LIMIT", "DEMO_QUOTA"].includes(m.code)) return end(m.message || ERROR_TEXT[m.code] || m.code);
           toast(m.message || ERROR_TEXT[m.code] || m.code);
           return;
         case "pong": {
@@ -248,7 +281,7 @@ export function useRoom(roomId: string, opts: { pass: string | null; avatar: { g
         const ws = new WebSocket(`${proto}://${location.host}/ws?ticket=${encodeURIComponent(ticket)}`);
         wsRef.current = ws;
         ws.onopen = () => {
-          ws.send(JSON.stringify({ t: "join", roomId, pass: opts.pass ?? undefined, resume: joinedOnce || undefined, avatar: opts.avatar ?? undefined, asParticipant: opts.asParticipant || undefined } satisfies ClientMsg));
+          ws.send(JSON.stringify({ t: "join", roomId, pass: opts.pass ?? undefined, resume: joinedOnce || undefined, demoHost: opts.demoHost || undefined, avatar: opts.avatar ?? undefined, asParticipant: opts.asParticipant || undefined } satisfies ClientMsg));
           pingTimer = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ t: "ping", c: Date.now() })), 10_000);
         };
         ws.onmessage = (e) => {

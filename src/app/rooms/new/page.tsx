@@ -1,10 +1,11 @@
 "use client";
 
+import { SymbolPicker } from "@/components/room/symbol-picker";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { api, ApiError, useApi } from "@/lib/api";
-import { AVATARS, type AvatarGroup, type MapCode } from "@/core/maps";
+import { AVATARS, MAP_INFO, type AvatarGroup, type MapCode } from "@/core/maps";
 import { formatVnd, type Quote } from "@/core/pricing";
 import { parseYouTubeId } from "@/core/screen";
 import { CHART_INTERVALS, INTERVAL_LABEL, type ChartInterval } from "@/core/market";
@@ -95,7 +96,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
   }, [screenKind, screenValue, chartInterval]);
 
   const symbolBad = screenKind === "chart" && !initialScreen;
-  const config = { name: name.trim() || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen, scheduledAt: startsAt ? new Date(startsAt).getTime() : null, stageStyle };
+  const config = { name: name.trim() || "Phòng mới", description, map, avatarGroups: groups, officialCapacity: capacity, waitingEnabled, entryMode, durationHours: hours, openEnded: openEnded && !useTrial, isPublic, password, initialScreen, scheduledAt: startsAt ? new Date(startsAt).getTime() : null, stageStyle: MAP_INFO[map].furnished ? "plain" : stageStyle };
 
   // Re-quote on ANY change of the configuration (a fixed mistake must clear the error), debounced;
   // a late answer to an older request is ignored.
@@ -218,6 +219,9 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
         <label className="check">
           <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> Hiện phòng trên trang chủ Sân Khấu Online (ai cũng thấy và bấm vào được; đổi lại bất cứ lúc nào)
         </label>
+        {MAP_INFO[map].furnished ? (
+          <small>{MAP_INFO[map].name} có nội thất riêng (không chọn kiểu sân khấu); trong phòng vẫn bật / tắt đèn được.</small>
+        ) : (
         <div className="field">
           Kiểu sân khấu <small>(đổi được bất cứ lúc nào trong phòng)</small>
           <div className="row" role="radiogroup" aria-label="Kiểu sân khấu">
@@ -235,6 +239,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
             ))}
           </div>
         </div>
+        )}
         <label className="field">
           Giờ bắt đầu sự kiện <small>(không bắt buộc — trang mời hiện đếm ngược, khách bấm “Nhắc tôi” để bot Zalo nhắc)</small>
           <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
@@ -246,18 +251,23 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
         <div className="field">
           <strong>Nội dung màn hình ban đầu</strong>
           <div className="row">
-            <select value={screenKind} onChange={(e) => setScreenKind(e.target.value as typeof screenKind)} style={{ width: "auto" }}>
+            <select value={screenKind} onChange={(e) => {
+                const k = e.target.value as typeof screenKind;
+                // each kind keeps its own value: a welcome text is not a stock code
+                setScreenValue(k === "text" ? "Chào mừng đến với phòng!" : k === "chart" ? "VNINDEX" : "");
+                setScreenKind(k);
+              }} style={{ width: "auto" }}>
               <option value="text">Văn bản</option>
               <option value="youtube">Video YouTube</option>
               <option value="chart">Biểu đồ chứng khoán (dữ liệu thật mỗi phút)</option>
               <option value="blank">Để trống</option>
             </select>
-            {screenKind !== "blank" && (
+            {screenKind !== "blank" && screenKind !== "chart" && (
               <input
                 type="text"
                 value={screenValue}
                 onChange={(e) => setScreenValue(e.target.value)}
-                placeholder={screenKind === "youtube" ? "Link YouTube" : screenKind === "chart" ? "Mã, ví dụ VNINDEX" : "Nội dung"}
+                placeholder={screenKind === "youtube" ? "Link YouTube" : "Nội dung"}
                 style={{ flex: 1 }}
               />
             )}
@@ -271,6 +281,8 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
               </select>
             )}
           </div>
+          {/* same stock list as the in-room control panel: search by code or company name */}
+          {screenKind === "chart" && <SymbolPicker value={screenValue} onChange={setScreenValue} />}
           {screenKind === "youtube" && screenValue && !initialScreen && <small style={{ color: "var(--danger)" }}>Link YouTube không hợp lệ.</small>}
           {symbolBad && <small style={{ color: "var(--danger)" }}>Mã chứng khoán chỉ gồm chữ A–Z, số và dấu chấm, tối đa 12 ký tự (ví dụ VNINDEX, FPT).</small>}
           {screenKind === "text" && screenValue.trim().length > SCREEN_TEXT_MAX && <small>Chỉ hiện {SCREEN_TEXT_MAX} ký tự đầu.</small>}

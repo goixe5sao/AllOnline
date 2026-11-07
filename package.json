@@ -12,6 +12,7 @@
     "grant-owner": "tsx scripts/grant-owner.ts"
   },
   "dependencies": {
+    "puppeteer-core": "^23.11.1",
     "@anthropic-ai/sdk": "^1.5.0",
     "@electric-sql/pglite": "^0.5.15",
     "@react-three/drei": "^10.7.9",
@@ -38,7 +39,6 @@
     "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
-    "puppeteer-core": "^23.11.1",
     "typescript": "^5",
     "vitest": "^3.2.4"
   }

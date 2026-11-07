@@ -1,3 +1,4 @@
+import { WEB_SPEEDS, type WebSpeed } from "./webscroll";
 import { z } from "zod";
 import { ANALYSIS_LAYERS, type AnalysisLayer } from "./analysis";
 import { CHART_INTERVALS, CHART_TYPES, INDICATORS, type ChartInterval, type ChartType, type Indicator } from "./market";
@@ -18,6 +19,11 @@ export type ScreenContent =
   /** Official TradingView widget (real data, full tools). TradingView does not serve HOSE/HNX symbols in widgets. */
   | { kind: "tradingview"; symbol: string; interval: ChartInterval }
   | { kind: "chat"; text: string; author: string }
+  /**
+   * A web page shown as a photo of the whole page (taken by the server), scrolled top → bottom →
+   * back up over and over, in step for everyone (position from the screen clock).
+   */
+  | { kind: "web"; url: string; shots: string[]; w: number; h: number; title?: string; speed: WebSpeed; takenAt: number }
   | { kind: "poll"; pollId: string }
   /** A question from the room's Q&A, put on the stage by the owner / a co-host. */
   | { kind: "question"; questionId: string; text: string; author: string; votes: number };
@@ -51,7 +57,8 @@ const httpsUrl = z
 export const screenContentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("blank") }),
   z.object({ kind: z.literal("text"), text: z.string().trim().min(1).max(500) }),
-  z.object({ kind: z.literal("image"), url: z.union([httpsUrl, z.string().regex(/^\/api\/uploads\/[0-9a-f-]{36}$/)]) }),
+  // https links, uploads, or the site's own sample pictures (demo room library)
+  z.object({ kind: z.literal("image"), url: z.union([httpsUrl, z.string().regex(/^\/api\/uploads\/[0-9a-f-]{36}$/), z.string().regex(/^\/(maps\/[a-z_]+\.webp|og\.png)$/)]) }),
   z.object({
     kind: z.literal("youtube"),
     videoId: ytId,
@@ -74,6 +81,17 @@ export const screenContentSchema = z.discriminatedUnion("kind", [
     layers: z.array(z.enum(ANALYSIS_LAYERS)).max(ANALYSIS_LAYERS.length).optional(),
   }),
   z.object({ kind: z.literal("tradingview"), symbol: z.string().trim().toUpperCase().regex(/^[A-Z0-9_]{1,20}:[A-Z0-9_.!]{1,20}$|^[A-Z0-9_.!]{1,20}$/), interval: z.enum(CHART_INTERVALS) }),
+  z.object({
+    kind: z.literal("web"),
+    url: z.string().max(1000).regex(/^https?:\/\//),
+    /** the page photo in strips of WEB_TILE px, top to bottom */
+    shots: z.array(z.string().regex(/^\/api\/uploads\/[0-9a-f-]{36}$/)).min(1).max(8),
+    w: z.number().int().min(320).max(4000),
+    h: z.number().int().min(100).max(20000),
+    title: z.string().max(200).optional(),
+    speed: z.enum(WEB_SPEEDS),
+    takenAt: z.number(),
+  }),
   z.object({ kind: z.literal("poll"), pollId: z.string().uuid() }),
   z.object({ kind: z.literal("question"), questionId: z.string().uuid(), text: z.string().max(300), author: z.string().max(60), votes: z.number().int().min(0) }),
 ]);
@@ -99,7 +117,7 @@ export function parseYouTubeId(input: string): string | null {
 }
 
 export function isPlayable(content: ScreenContent): boolean {
-  return content.kind === "youtube" || content.kind === "audio";
+  return content.kind === "youtube" || content.kind === "audio" || content.kind === "web";
 }
 
 /** Current media position for a client, using the server clock estimate. */

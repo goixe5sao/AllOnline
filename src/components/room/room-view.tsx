@@ -13,6 +13,8 @@ import { QaPanel, ReactionStream } from "./engage";
 import { AlienOrb } from "./orb-menu";
 import { useRoom } from "./use-room";
 import { LiveAudio, LivePanel, useLivePublisher, useLiveViewer } from "./live";
+import { useVoice, VoiceSettings } from "./voice";
+import { DEMO_OVER_TEXT, DemoClock, DemoOver, type Mission } from "./demo";
 
 function readSession<T>(key: string): T | null {
   try {
@@ -137,6 +139,8 @@ export function RoomView({ roomId }: { roomId: string }) {
     avatar: typeof window === "undefined" ? null : readSession<{ group: AvatarGroup; model: string; color?: string }>(`ao-avatar-${roomId}`),
     // The room owner chose "attend as a participant" on the invite page.
     asParticipant: typeof window !== "undefined" && sessionStorage.getItem(`ao-mode-${roomId}`) === "participant",
+    // "Phòng trải nghiệm": the visitor chose "Vào làm chủ phòng" on the invite page
+    demoHost: typeof window !== "undefined" && sessionStorage.getItem(`ao-demo-host-${roomId}`) === "1",
   }));
   const { session: s, store, send, serverNow, leave } = useRoom(roomId, boot);
   // Live camera: watching whoever is on air, and this device's own camera when broadcasting.
@@ -144,6 +148,29 @@ export function RoomView({ roomId }: { roomId: string }) {
   const liveView = useLiveViewer(roomId, s.live, selfId);
   const pub = useLivePublisher(roomId, send);
   const onAirSelf = !!s.live?.onAir && s.live.onAir.userId === selfId;
+  // Demo host: the to-do list ticks as things get done
+  const isDemoHost = !!s.demo && s.demo.hostId === selfId && !!selfId;
+  const [missions, setMissions] = useState<Set<Mission>>(() => new Set());
+  const tick = (k: Mission) => setMissions((m) => (m.has(k) ? m : new Set([...m, k])));
+  const scrKind = s.screen.content.kind;
+  const lightsNow = s.room?.stageLights;
+  const [lights0, setLights0] = useState<boolean | undefined>(undefined);
+  useEffect(() => {
+    if (!isDemoHost) return;
+    if (scrKind === "youtube") tick("youtube");
+    if (scrKind === "chart") tick("chart");
+  }, [isDemoHost, scrKind]);
+  useEffect(() => {
+    if (!isDemoHost || lightsNow === undefined) return;
+    if (lights0 === undefined) setLights0(lightsNow);
+    else if (lights0 !== lightsNow) tick("lights");
+  }, [isDemoHost, lightsNow, lights0]);
+  useEffect(() => {
+    if (isDemoHost && s.polls.length) tick("poll");
+  }, [isDemoHost, s.polls.length]);
+  useEffect(() => {
+    if (isDemoHost && pub.state === "live") tick("camera");
+  }, [isDemoHost, pub.state]);
   // Cut by a moderator / replaced / live switched off: stop the camera here too.
   const pubLive = pub.state === "live";
   const pubStop = pub.stop;
@@ -156,11 +183,12 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [fullView, setFullView] = useState(false);
   const [panel, setPanel] = useState<"owner" | "seats" | "qa" | "live" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [gfx, setGfx] = useState<"lite" | "full" | "ultra">("full");
   // Graphics levels only exist for the "Hành tinh tương lai" stage; a "Đơn sắc" room is one simple
   // look for everyone (the viewer's saved choice comes back when the owner switches the stage).
-  const glamRoom = s.room?.stageStyle === "glam";
+  const glamRoom = s.room?.stageStyle === "glam" && !(s.room && MAP_INFO[s.room.map].furnished);
   const gfxOn = glamRoom ? gfx : "full";
   const lite = gfxOn === "lite";
   // After an automatic fall-back, choosing "Siêu đẹp" again means "keep it": no more watchdog.
@@ -175,6 +203,10 @@ export function RoomView({ roomId }: { roomId: string }) {
   };
   const [volume, setVolume] = useState(80);
   const [muted, setMuted] = useState(true);
+  // Voice chat with the people around: mic, the voices near me, stage turned down while they talk.
+  const voice = useVoice(roomId, send, { voice: s.voice, sources: s.voiceSources, forced: s.voiceForced, joins: s.joins, isGuest: !!s.you?.isGuest, isMod: !!(s.you?.isRoomOwner || s.you?.isModerator), muted, volume });
+  const stageVolume = voice.duck ? Math.round(volume * 0.35) : volume;
+  const voiceName = (id: string) => store.map.get(id)?.name ?? "Ai đó";
   const [chatText, setChatText] = useState("");
   const [nearSeat, setNearSeat] = useState<string | null>(null);
   const [touch, setTouch] = useState(false);
@@ -389,6 +421,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         <div className="card stack">
           <h1>Phiên tham dự đã kết thúc</h1>
           <p>{s.endReason}</p>
+          {(s.endReason === DEMO_OVER_TEXT || s.endReason?.includes("thời gian trải nghiệm")) && <DemoOver />}
           {s.endReason?.includes("tab hoặc thiết bị khác") && (
             <button className="btn primary" onClick={() => window.location.reload()}>
               Dùng ở tab này (tab kia sẽ dừng)
@@ -415,7 +448,7 @@ export function RoomView({ roomId }: { roomId: string }) {
     roomName: s.room.name,
     expiresAt: s.room.openEnded ? null : s.room.expiresAt,
     warningMinutes: s.settings?.warningMinutes ?? [30, 10, 1],
-    volume,
+    volume: stageVolume,
     muted,
     reduceMotion,
     ad: s.ad,
@@ -469,6 +502,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           hands={handSet}
           stageStyle={s.room.stageStyle}
           stageLights={s.room.stageLights}
+          voice={voice.engine}
           onSeatClick={onSeatClick}
           onSeatDoubleClick={s.you.isRoomOwner ? goToSeat : undefined}
           screen={<ScreenContent {...screenProps} active={!fullView} />}
@@ -493,6 +527,27 @@ export function RoomView({ roomId }: { roomId: string }) {
           </span>
         )}
         {s.role === "observer" && <span className="hud-chip">Quan sát</span>}
+        {s.demo && <DemoClock demo={s.demo} waiting={me?.status === "waiting"} isHost={isDemoHost} />}
+        {voice.micOn && (
+          <button type="button" className="hud-chip voice-on" onClick={() => void voice.toggleMic()} title="Mic đang bật — người ngồi gần nghe được bạn. Bấm để tắt.">
+            🎙️ Mic đang bật
+          </button>
+        )}
+        {voice.group.size > 0 && (
+          <button type="button" className="hud-chip voice-group-chip" onClick={() => voice.setGroup([])} title={`Chỉ ${[...voice.group].map(voiceName).join(", ")} nghe bạn, và bạn chỉ nghe họ. Bấm để nói với mọi người xung quanh.`}>
+            🔒 Nói riêng với {voice.group.size} người
+          </button>
+        )}
+        {muted && voice.nearTalking && (
+          <button type="button" className="hud-chip voice-hint" onClick={() => setMuted(false)}>
+            🔇 Người gần bạn đang nói — bấm để nghe
+          </button>
+        )}
+        {voice.error && (
+          <button type="button" className="hud-chip voice-err" onClick={voice.clearError} title="Bấm để ẩn">
+            ⚠ {voice.error}
+          </button>
+        )}
       </div>
 
       {isParticipant && p && p.status !== "seated" && (
@@ -580,6 +635,17 @@ export function RoomView({ roomId }: { roomId: string }) {
         <span style={{ flex: 1 }} />
         {isParticipant && openPoll && <ParticipantPoll poll={openPoll} myVote={s.myVotes[openPoll.id]} onVote={(o) => send({ t: "vote", pollId: openPoll.id, optionId: o })} isGuest={s.you.isGuest} />}
       </div>
+      {voiceOpen && s.voice && s.voice.mode !== "off" && (
+        <div className="hud-menu orb-settings voice-panel" role="dialog" aria-label="Người nói chuyện">
+          <div className="row between" style={{ alignItems: "center" }}>
+            <strong>👥 Người nói chuyện</strong>
+            <button className="hud-btn chat-close" onClick={() => setVoiceOpen(false)} aria-label="Đóng">
+              ✕
+            </button>
+          </div>
+          <VoiceSettings voice={voice} names={voiceName} store={store} selfId={s.you.userId} />
+        </div>
+      )}
       {moreOpen && (
         <div className="hud-menu orb-settings" role="dialog" aria-label="Cài đặt">
           <div className="row between" style={{ alignItems: "center" }}>
@@ -656,18 +722,41 @@ export function RoomView({ roomId }: { roomId: string }) {
         <AlienOrb
           badge={canModerate ? s.hands.length : 0}
           onReact={s.role !== "observer" ? (e) => send({ t: "react", e }) : undefined}
+          // Most used nearest the orb: ring 1 = talk / listen / chat (the owner's controls first),
+          // ring 2 = talking with people (who you hear, reactions, hand, Q&A), ring 3 = view & move,
+          // outer ring = lights, settings, leave.
+          reactAfter={s.voice && s.voice.mode !== "off" ? "voice" : "chat"}
           items={[
+            ...(canModerate ? [{ id: "control", icon: "🎬", label: "Điều khiển", onClick: () => setPanel(panel === "owner" ? null : "owner"), active: panel === "owner", badge: s.hands.length, featured: true }] : []),
+            ...(voice.canTalk
+              ? [
+                  {
+                    id: "mic",
+                    icon: voice.micOn ? "🎙️" : "🎤",
+                    label: voice.busy ? "Đang bật mic…" : voice.micOn ? "Tắt mic" : "Bật mic",
+                    onClick: () => {
+                      // talking with people means hearing them too
+                      if (!voice.micOn && muted) setMuted(false);
+                      void voice.toggleMic();
+                    },
+                    active: voice.micOn,
+                    stay: true,
+                  },
+                ]
+              : []),
+            { id: "sound", icon: muted ? "🔇" : "🔊", label: muted ? "Bật tiếng" : "Tắt tiếng", onClick: () => setMuted(!muted), active: !muted, stay: true },
             { id: "chat", icon: "💬", label: "Chat", onClick: () => setChatOpen(!chatOpen), active: chatOpen },
+            ...(s.voice && s.voice.mode !== "off"
+              ? [{ id: "voice", icon: "👥", label: voice.group.size ? `Nói riêng (${voice.group.size})` : "Người nói chuyện", onClick: () => (setVoiceOpen(!voiceOpen), setMoreOpen(false)), active: voiceOpen || voice.group.size > 0 }]
+              : []),
             ...(isParticipant ? [{ id: "hand", icon: "✋", label: handUp ? "Hạ tay" : "Giơ tay", onClick: () => send({ t: "hand", up: !handUp }), active: handUp }] : []),
             { id: "qa", icon: "❓", label: "Hỏi đáp", onClick: () => setPanel(panel === "qa" ? null : "qa"), active: panel === "qa", badge: openQuestions },
             { id: "screen", icon: "📺", label: "Xem màn hình", onClick: openFull },
             ...(isParticipant ? [{ id: "view", icon: behind ? "👁" : "🎥", label: behind ? "Góc của tôi" : "Xem từ sau", onClick: () => setBehind(!behind), active: !behind, stay: true }] : []),
-            { id: "sound", icon: muted ? "🔇" : "🔊", label: muted ? "Bật tiếng" : "Tắt tiếng", onClick: () => setMuted(!muted), active: !muted, stay: true },
-            ...(canModerate ? [{ id: "lights", icon: s.room.stageLights ? "💡" : "🌑", label: s.room.stageLights ? "Tắt đèn sân khấu" : "Bật đèn sân khấu", onClick: () => send({ t: "stage_lights", on: !s.room!.stageLights }), active: s.room.stageLights, stay: true }] : []),
-            ...(s.live && (s.live.mode !== "off" || canModerate) && (isParticipant || canModerate) ? [{ id: "live", icon: onAirSelf ? "🔴" : "🎥", label: onAirSelf ? "Đang live" : "Live camera", onClick: () => setPanel(panel === "live" ? null : "live"), active: panel === "live" || onAirSelf }] : []),
-            ...(canModerate ? [{ id: "control", icon: "🎬", label: "Điều khiển", onClick: () => setPanel(panel === "owner" ? null : "owner"), active: panel === "owner", badge: s.hands.length }] : []),
             ...(isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" ? [{ id: "seats", icon: "💺", label: "Đổi chỗ", onClick: () => setPanel(panel === "seats" ? null : "seats"), active: panel === "seats" }] : []),
-            { id: "settings", icon: "⚙️", label: "Cài đặt", onClick: () => setMoreOpen(!moreOpen), active: moreOpen },
+            ...(s.live && (s.live.mode !== "off" || canModerate) && (isParticipant || canModerate) ? [{ id: "live", icon: onAirSelf ? "🔴" : "📹", label: onAirSelf ? "Đang live" : "Live camera", onClick: () => setPanel(panel === "live" ? null : "live"), active: panel === "live" || onAirSelf }] : []),
+            ...(canModerate ? [{ id: "lights", icon: s.room.stageLights ? "💡" : "🌑", label: `${s.room.stageLights ? "Tắt" : "Bật"} đèn ${MAP_INFO[s.room.map].furnished ? "phòng" : "sân khấu"}`, onClick: () => send({ t: "stage_lights", on: !s.room!.stageLights }), active: s.room.stageLights, stay: true }] : []),
+            { id: "settings", icon: "⚙️", label: "Cài đặt", onClick: () => (setMoreOpen(!moreOpen), setVoiceOpen(false)), active: moreOpen },
             {
               id: "leave",
               icon: "🚪",
@@ -729,11 +818,14 @@ export function RoomView({ roomId }: { roomId: string }) {
           selfId={s.you.userId}
           onClose={() => setPanel(null)}
           live={s.live}
+          voice={s.voice}
+          voiceName={voiceName}
           onOpenCamera={() => setPanel("live")}
+          demo={isDemoHost && !s.you.isRoomOwner ? { missions } : null}
         />
       )}
       {panel === "live" && s.live && <LivePanel live={s.live} selfId={s.you.userId} isMod={canModerate} send={send} pub={pub} onClose={() => setPanel(null)} />}
-      <LiveAudio stream={onAirSelf ? null : liveView.stream} volume={volume} muted={muted} />
+      <LiveAudio stream={onAirSelf ? null : liveView.stream} volume={stageVolume} muted={muted} />
       {panel === "qa" && (
         <QaPanel
           questions={s.questions}

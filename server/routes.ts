@@ -1,3 +1,5 @@
+import { captureWebPage } from "./webshot";
+import { createDemoRoom, ensureDemoRooms } from "./services/demo";
 import type { RealtimeClient } from "./live";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -9,7 +11,8 @@ import type { Hub } from "./hub";
 import type { Storage } from "./storage";
 import { sniffMime } from "./storage";
 import { clientIp, readBody, readJson, sameOrigin, sendJson } from "./http";
-import { AVATARS, MAP_INFO } from "@/core/maps";
+import { AVATARS, MAP_CODES, MAP_INFO } from "@/core/maps";
+import { DEMO_WEB_URL } from "@/core/demo";
 import { CHART_INTERVALS, demoMarketProvider, type CandleResult } from "@/core/market";
 import type { MarketService } from "./market/service";
 import { searchSymbols } from "./market/symbols";
@@ -407,11 +410,100 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { ok: true };
   });
 
+  // ----- voice chat with the people around: mic → Cloudflare, nearby voices ← Cloudflare -----
+
+  /** Talker: their mic track → the SFU (published once per page; turning the mic off only mutes it). */
+  route("POST", "/api/voice/:id/publish", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ offer: sdpSchema, mid: z.string().min(1).max(10) }).parse(await readJson(ctx.req, 300_000));
+    hub.voiceCanPublish(u.id, roomId);
+    const sessionId = await rtc.newSession();
+    const track = `voice-${randomUUID().slice(0, 8)}`;
+    const r = await rtc.publish(sessionId, b.offer, [{ mid: b.mid, trackName: track }]);
+    if (!r.sessionDescription) throw new AppError("LIVE_SFU", "Máy chủ âm thanh không trả lời.", 502);
+    hub.voicePublished(roomId, u.id, sessionId, track);
+    return { sessionId, answer: r.sessionDescription };
+  });
+
+  /** Listener: add voices to their pull session (one per page; created on the first call) → SFU offer. */
+  route("POST", "/api/voice/:id/pull", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z
+      .object({ sessionId: z.string().min(8).max(100).nullable(), tracks: z.array(z.object({ sessionId: z.string().min(8).max(100), track: z.string().min(1).max(40) })).min(1).max(6) })
+      .parse(await readJson(ctx.req, 20_000));
+    hub.voiceMayPull(u.id, roomId, b.tracks);
+    let sessionId = b.sessionId;
+    if (sessionId) {
+      const owner = hub.voicePullOwner(sessionId);
+      if (!owner || owner.userId !== u.id || owner.roomId !== roomId) throw new AppError("FORBIDDEN", "Phiên nghe không hợp lệ.", 403);
+    } else {
+      sessionId = await rtc.newSession();
+      hub.voicePullOpened(sessionId, u.id, roomId);
+    }
+    const r = await rtc.pull(sessionId, b.tracks.map((t) => ({ sessionId: t.sessionId, trackName: t.track })));
+    if (!r.sessionDescription) throw new AppError("LIVE_SFU", "Máy chủ âm thanh không trả lời.", 502);
+    return { sessionId, offer: r.sessionDescription, tracks: (r.tracks ?? []).map((t) => ({ mid: t.mid, track: t.trackName, sessionId: t.sessionId })) };
+  });
+
+  route("POST", "/api/voice/:id/answer", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ sessionId: z.string().min(8).max(100), answer: sdpSchema }).parse(await readJson(ctx.req, 300_000));
+    const owner = hub.voicePullOwner(b.sessionId);
+    if (!owner || owner.userId !== u.id || owner.roomId !== roomId) throw new AppError("FORBIDDEN", "Phiên nghe không hợp lệ.", 403);
+    await rtc.renegotiate(b.sessionId, b.answer);
+    return { ok: true };
+  });
+
+  /** Listener: stop pulling voices that are no longer near (saves bandwidth both ways). */
+  route("POST", "/api/voice/:id/close", async (ctx) => {
+    const u = needAttendee(ctx);
+    const roomId = roomIdOf(ctx);
+    const b = z.object({ sessionId: z.string().min(8).max(100), mids: z.array(z.string().min(1).max(10)).min(1).max(20) }).parse(await readJson(ctx.req, 20_000));
+    const owner = hub.voicePullOwner(b.sessionId);
+    if (!owner || owner.userId !== u.id || owner.roomId !== roomId) throw new AppError("FORBIDDEN", "Phiên nghe không hợp lệ.", 403);
+    await rtc.closeTracks(b.sessionId, b.mids);
+    return { ok: true };
+  });
+
   /** App owner: estimated live traffic this month vs the cap. */
   route("GET", "/api/admin/live-usage", async (ctx) => {
     const u = needUser(ctx);
     if (u.role !== "app_owner") throw new AppError("FORBIDDEN", "Chỉ chủ ứng dụng.", 403);
     return hub.liveUsage();
+  });
+
+  // ----- "Phòng trải nghiệm": demo rooms anyone can try for a few minutes a day -----
+  const demoKeys = (req: IncomingMessage) => ({ dev: `dev:${auth.deviceId(req) ?? "none"}`, ip: `ip:${auth.ipHash(clientIp(req))}` });
+
+  route(
+    "GET",
+    "/api/demo",
+    async ({ req }) => {
+      const s = await getSettings(db);
+      if (s.demo_minutes_per_day <= 0) return { enabled: false, rooms: [], leftSec: 0, limitSec: 0 };
+      const rooms = await ensureDemoRooms(db);
+      const k = demoKeys(req);
+      const me = await hub.demoLeft(k.dev, k.ip);
+      return {
+        enabled: rooms.length > 0,
+        leftSec: me.leftSec,
+        limitSec: me.limitSec,
+        rooms: rooms.map((r) => ({ id: r.id, name: r.name, map: r.map_code, inviteCode: r.invite_code, seats: r.official_capacity, ...hub.demoInfo(r.id) })),
+      };
+    },
+    { public: true },
+  );
+
+  /** App owner: add a demo room on a map (the two defaults are created automatically). */
+  route("POST", "/api/admin/demo-rooms", async (ctx) => {
+    const u = needUser(ctx);
+    if (u.role !== "app_owner") throw new AppError("FORBIDDEN", "Chỉ chủ ứng dụng.", 403);
+    const b = z.object({ map: z.enum(MAP_CODES), name: z.string().trim().min(1).max(80) }).parse(await readJson(ctx.req));
+    const r = await createDemoRoom(db, u.id, b.map, b.name);
+    return { id: r.id, inviteCode: r.invite_code };
   });
 
   /** Page closed / reloaded (navigator.sendBeacon): keep the place only briefly. */
@@ -424,7 +516,9 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   });
 
   route("POST", "/api/rooms/:id/stage-style", async (ctx) => {
-    const { u, room } = await moderatedRoom(ctx, ctx.params[0]);
+    const demoRoom = await getRoom(db, ctx.params[0]);
+    const viaDemo = !!demoRoom?.is_demo && !!ctx.user && hub.isDemoHost(demoRoom.id, ctx.user.id);
+    const { u, room } = viaDemo ? { u: ctx.user!, room: demoRoom! } : await moderatedRoom(ctx, ctx.params[0]);
     const b = z.object({ style: z.enum(["glam", "plain"]) }).parse(await readJson(ctx.req));
     await db.query("update app.rooms set stage_style = $2 where id = $1", [room.id, b.style]);
     await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'stage_style', $3)", [room.id, u.id, JSON.stringify({ style: b.style })]);
@@ -515,6 +609,49 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { url: `/api/uploads/${row.id}`, mime };
   });
 
+  /** "Trang web tự cuộn": photograph a page for the stage screen (owner / co-host, 1 per 8 s per room). */
+  const webshotAt = new Map<string, number>();
+  type ShotDto = { shots: string[]; url: string; w: number; h: number; title: string; takenAt: number };
+  const storeShot = async (roomId: string, userId: string, url: string): Promise<ShotDto> => {
+    const shot = await captureWebPage(url);
+    const s = await getSettings(db);
+    const shots: string[] = [];
+    for (const tile of shot.tiles) {
+      const row = (
+        await db.query<{ id: string }>(
+          "insert into app.uploads (room_id, owner_id, storage_path, mime, size_bytes, delete_after) values ($1, $2, '', 'image/jpeg', $3, now() + make_interval(days => $4)) returning id",
+          [roomId, userId, tile.length, s.upload_retention_days],
+        )
+      ).rows[0];
+      const key = cfg.mode === "supabase" ? `${roomId}/${row.id}` : row.id;
+      await storage.put(key, tile, "image/jpeg");
+      await db.query("update app.uploads set storage_path = $2 where id = $1", [row.id, key]);
+      shots.push(`/api/uploads/${row.id}`);
+    }
+    await db.query("insert into app.room_events (room_id, actor_id, type, data) values ($1, $2, 'webshot', $3)", [roomId, userId, JSON.stringify({ url: shot.finalUrl, height: shot.height })]);
+    return { shots, url: shot.finalUrl, w: shot.width, h: shot.height, title: shot.title, takenAt: Date.now() };
+  };
+  // Demo rooms always show goixe5sao.vn: one photo shared by every demo room, renewed hourly.
+  let demoShot: { at: number; p: Promise<ShotDto> } | null = null;
+  route("POST", "/api/rooms/:id/webshot", async (ctx) => {
+    const demoRoom = await getRoom(db, ctx.params[0]);
+    const viaDemo = !!demoRoom?.is_demo && !!ctx.user && hub.isDemoHost(demoRoom.id, ctx.user.id);
+    const { u, room } = viaDemo ? { u: ctx.user!, room: demoRoom! } : await moderatedRoom(ctx, ctx.params[0]);
+    if (room.is_demo) {
+      if (!demoShot || Date.now() - demoShot.at > 3600_000) {
+        const p = storeShot(room.id, u.id, DEMO_WEB_URL);
+        demoShot = { at: Date.now(), p };
+        p.catch(() => demoShot?.p === p && (demoShot = null)); // failed: try again next time
+      }
+      return demoShot.p;
+    }
+    const b = z.object({ url: z.string().trim().min(3).max(1000) }).parse(await readJson(ctx.req));
+    const last = webshotAt.get(room.id) ?? 0;
+    if (Date.now() - last < 8000) throw new AppError("TOO_MANY_ATTEMPTS", "Đợi vài giây rồi chụp lại nhé.", 429);
+    webshotAt.set(room.id, Date.now());
+    return storeShot(room.id, u.id, b.url);
+  });
+
   route(
     "GET",
     "/api/uploads/:id",
@@ -537,7 +674,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   route(
     "GET",
     "/api/invite/:code",
-    async ({ params, user }) => {
+    async ({ params, user, req }) => {
       const r = await getRoomByInvite(db, params[0]);
       if (!r || r.status !== "open") throw new AppError("NOT_FOUND", "Link mời không hợp lệ hoặc phòng đã đóng.", 404);
       const account = user && !user.is_guest ? user : null;
@@ -554,9 +691,11 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
           openEnded: r.open_ended,
           startsAt: r.scheduled_at ? new Date(r.scheduled_at).getTime() : null,
           isPublic: r.is_public,
+          isDemo: r.is_demo,
         },
         isOwner: !!user && user.id === r.owner_id,
-        guestJoinEnabled: (await getSettings(db)).guest_join_enabled,
+        guestJoinEnabled: r.is_demo || (await getSettings(db)).guest_join_enabled,
+        demo: r.is_demo ? { ...hub.demoInfo(r.id), ...(await hub.demoLeft(demoKeys(req).dev, demoKeys(req).ip)) } : null,
         reminded: account ? (await db.query("select 1 from app.room_reminders where room_id = $1 and user_id = $2", [r.id, account.id])).rows.length > 0 : false,
         zaloLinked: account ? await hasZalo(db, account.id) : false,
         zaloBot: zaloBotInfo(),
@@ -595,7 +734,6 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
 
   route("POST", "/api/join", async (ctx) => {
     const u = needAttendee(ctx);
-    if (u.is_guest && !(await getSettings(db)).guest_join_enabled) throw new AppError("GUEST_DISABLED", "Phòng yêu cầu đăng nhập tài khoản.", 403);
     const b = z.object({ inviteCode: z.string().max(20), password: z.string().max(64).default("") }).parse(await readJson(ctx.req));
     const lim = joinLimiter.get(u.id);
     const now = Date.now();
@@ -603,6 +741,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     joinLimiter.set(u.id, lim && now - lim.at < 60_000 ? { n: lim.n + 1, at: lim.at } : { n: 1, at: now });
     const r = await getRoomByInvite(db, b.inviteCode);
     if (!r || r.status !== "open") throw new AppError("NOT_FOUND", "Link mời không hợp lệ hoặc phòng đã đóng.", 404);
+    if (u.is_guest && !r.is_demo && !(await getSettings(db)).guest_join_enabled) throw new AppError("GUEST_DISABLED", "Phòng yêu cầu đăng nhập tài khoản.", 403);
     // The room owner does not need the room password to attend their own room.
     if (r.owner_id !== u.id && r.password_hash && !verifyPassword(b.password, r.password_hash)) throw new AppError("INVALID_ROOM_PASSWORD", "Mật mã phòng không đúng.", 403);
     return { roomId: r.id, pass: auth.roomPass(u.id, r.id) };

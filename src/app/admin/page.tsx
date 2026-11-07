@@ -193,6 +193,7 @@ function SettingsForm({ data, reload, msg, setMsg }: { data: { settings: Setting
         receipt_auto_approve_max_vnd: Math.max(0, Math.floor(Number(form.receipt_auto_approve_max_vnd) || 0)),
         reminder_minutes_before: Math.min(1440, Math.max(5, Math.floor(Number(form.reminder_minutes_before) || 60))),
         live_monthly_cap_gb: Math.min(100000, Math.max(0, Math.floor(Number(form.live_monthly_cap_gb ?? 800) || 0))),
+        demo_minutes_per_day: Math.min(1440, Math.max(0, Math.floor(Number(form.demo_minutes_per_day ?? 5) || 0))),
         guest_join_enabled: !!form.guest_join_enabled,
         stage_ad_enabled: !!form.stage_ad_enabled,
         device_limit_room_creator: !!form.device_limit_room_creator,
@@ -325,6 +326,7 @@ function SettingsForm({ data, reload, msg, setMsg }: { data: { settings: Setting
             <input type="number" min={5} max={1440} value={Number(form.reminder_minutes_before ?? 60)} onChange={(e) => set("reminder_minutes_before", Number(e.target.value))} />
           </label>
         </div>
+        <DemoRoomsCard minutes={Number(form.demo_minutes_per_day ?? 5)} onMinutes={(v) => set("demo_minutes_per_day", v)} />
         <LiveUsageCard cap={Number(form.live_monthly_cap_gb ?? 800)} onCap={(v) => set("live_monthly_cap_gb", v)} />
         <div className="card stack">
           <h2>Nhận thanh toán QR (VietQR)</h2>
@@ -791,6 +793,80 @@ function LiveUsageCard({ cap, onCap }: { cap: number; onCap: (v: number) => void
       <small>
         Cloudflare miễn phí 1.000 GB mỗi tháng, vượt mức khoảng 0,05 USD/GB. Khi chạm trần, không mở được lượt live mới (lượt đang phát vẫn tiếp tục). Ước tính: 1 người xem × 1 giờ ≈ 0,8 GB.
       </small>
+    </div>
+  );
+}
+
+/** "Phòng trải nghiệm": minutes per person per day, the demo rooms, add / close. */
+function DemoRoomsCard({ minutes, onMinutes }: { minutes: number; onMinutes: (v: number) => void }) {
+  const { data, reload } = useApi<{ enabled: boolean; rooms: { id: string; name: string; map: string; inviteCode: string; seated: number; seats: number; hostName: string | null }[] }>("/api/demo", 15_000);
+  const [map, setMap] = useState<MapCode>("tables");
+  const [msg, setMsg] = useState("");
+  return (
+    <div className="card stack">
+      <h2>🎪 Phòng trải nghiệm (trang chủ)</h2>
+      <label className="field">
+        Số phút mỗi lượt trải nghiệm — hết lượt vào lại được, không giới hạn số lượt (0 = ẩn phòng trải nghiệm)
+        <input type="number" min={0} max={1440} value={minutes} onChange={(e) => onMinutes(Number(e.target.value))} />
+      </label>
+      <small>Tính theo thiết bị (và theo mạng, tối đa 6 người/mạng/ngày) để mở tab ẩn danh không lách được. Phòng trải nghiệm không tính tiền, không trừ slot hệ thống.</small>
+      {data?.rooms.length ? (
+        <table className="data">
+          <tbody>
+            {data.rooms.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  <Link href={`/join/${r.inviteCode}`}>{r.name}</Link>
+                </td>
+                <td>
+                  {r.seated}/{r.seats} chỗ · {r.hostName ? `chủ phòng: ${r.hostName}` : "chưa có chủ phòng"}
+                </td>
+                <td>
+                  <Link href={`/room/${r.id}/logs`}>Log</Link>
+                </td>
+                <td>
+                  <button
+                    className="btn"
+                    onClick={async () => {
+                      if (!confirm(`Đóng “${r.name}”?`)) return;
+                      await api(`/api/rooms/${r.id}/close`, { body: {} }).catch((e) => setMsg((e as ApiError).message));
+                      reload();
+                    }}
+                  >
+                    Đóng
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="muted">Chưa có phòng trải nghiệm nào đang mở.</p>
+      )}
+      <div className="row">
+        <select value={map} onChange={(e) => setMap(e.target.value as MapCode)} aria-label="Bản đồ">
+          {(Object.keys(MAP_INFO) as MapCode[]).map((m) => (
+            <option key={m} value={m}>
+              {MAP_INFO[m].name}
+            </option>
+          ))}
+        </select>
+        <button
+          className="btn"
+          onClick={async () => {
+            setMsg("");
+            try {
+              await api("/api/admin/demo-rooms", { body: { map, name: `Phòng trải nghiệm · ${MAP_INFO[map].name}` } });
+              reload();
+            } catch (e) {
+              setMsg((e as ApiError).message);
+            }
+          }}
+        >
+          + Thêm phòng trải nghiệm
+        </button>
+      </div>
+      {msg && <p className="notice error">{msg}</p>}
     </div>
   );
 }

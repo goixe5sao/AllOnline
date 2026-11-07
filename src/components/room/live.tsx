@@ -266,9 +266,10 @@ function Devices({ pub }: { pub: LivePublisher }) {
 }
 
 /** Everyone's live panel: ask to go live / camera preview / go on air / stop. */
-export function LivePanel({ live, selfId, isMod, send, pub, onClose }: { live: LiveDto; selfId: string; isMod: boolean; send: (m: ClientMsg) => void; pub: LivePublisher; onClose: () => void }) {
+export function LivePanel({ live, selfId, isMod, send, pub, onClose, previewOnly }: { live: LiveDto; selfId: string; isMod: boolean; send: (m: ClientMsg) => void; pub: LivePublisher; onClose: () => void; previewOnly?: boolean }) {
   const mine = live.onAir?.userId === selfId;
-  const allowed = live.mode !== "off" && (isMod || mine || (live.mode !== "mods" && live.granted === selfId));
+  // demo room: everyone may try the camera preview; nobody broadcasts
+  const allowed = previewOnly || (live.mode !== "off" && (isMod || mine || (live.mode !== "mods" && live.granted === selfId)));
   const asked = live.requests.some((r) => r.userId === selfId);
   const blocked = live.quota.blocked && !mine;
   return (
@@ -284,10 +285,11 @@ export function LivePanel({ live, selfId, isMod, send, pub, onClose }: { live: L
           🔴 <b>{live.onAir.name}</b> đang live trên màn hình.
         </p>
       )}
-      {!live.configured && <p className="notice warn">Máy chủ chưa bật dịch vụ video (Cloudflare Realtime) nên chưa live được.</p>}
-      {live.mode === "off" ? (
+      {!live.configured && !previewOnly && <p className="notice warn">Máy chủ chưa bật dịch vụ video (Cloudflare Realtime) nên chưa live được.</p>}
+      {previewOnly && <p className="notice">Phòng trải nghiệm: bạn <b>xem trước camera của chính mình</b> (chỉ bạn thấy). Ở phòng thật, bấm “Lên sóng” là cả phòng thấy và nghe bạn trên màn hình sân khấu.</p>}
+      {live.mode === "off" && !previewOnly ? (
         <p className="notice">Chủ phòng đang tắt live trong phòng này.</p>
-      ) : blocked ? (
+      ) : blocked && !previewOnly ? (
         <p className="notice warn">Hệ thống đã dùng hết hạn mức live của tháng này.</p>
       ) : !allowed ? (
         live.mode === "mods" ? (
@@ -330,7 +332,7 @@ export function LivePanel({ live, selfId, isMod, send, pub, onClose }: { live: L
                 </button>
               </div>
               {pub.state === "preview" && (
-                <button className="hud-btn primary live-go" disabled={!live.configured} onClick={() => void pub.goLive()}>
+                <button className="hud-btn primary live-go" disabled={!live.configured || previewOnly} title={previewOnly ? "Chỉ có ở phòng thật" : undefined} onClick={() => void pub.goLive()}>
                   🔴 Lên sóng{live.onAir && !mine ? ` (thay ${live.onAir.name})` : ""}
                 </button>
               )}

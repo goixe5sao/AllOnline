@@ -1,8 +1,10 @@
 import type { AvatarGroup, EntryMode, MapCode } from "./maps";
+import type { VoiceDto, VoiceMode, VoiceSource } from "./voice";
 import type { PersonalState, PublicMember } from "./room-engine";
 import type { ScreenAction, ScreenState } from "./screen";
 import type { Candle } from "./market";
 import type { LiveDto, LiveMode } from "./live";
+import type { DemoDto } from "./demo";
 
 /** Persistent promo strip shown at the bottom of every stage screen. */
 export interface StageAd {
@@ -58,7 +60,7 @@ export interface RoomInfoDto {
 }
 
 export type ClientMsg =
-  | { t: "join"; roomId: string; pass?: string; /** reconnect after a drop (not the first join of this page) */ resume?: boolean; avatar?: { group: AvatarGroup; model: string; color?: string }; asParticipant?: boolean }
+  | { t: "join"; roomId: string; pass?: string; /** reconnect after a drop (not the first join of this page) */ resume?: boolean; /** demo room: try being the host */ demoHost?: boolean; avatar?: { group: AvatarGroup; model: string; color?: string }; asParticipant?: boolean }
   | { t: "leave" }
   /** Sent when the page is being closed / reloaded: the server keeps the place only briefly. */
   | { t: "bye" }
@@ -86,6 +88,13 @@ export type ClientMsg =
   | { t: "live_grant"; userId: string }
   | { t: "live_deny"; userId: string }
   | { t: "live_stop"; userId?: string }
+  /** Voice chat: my mic on/off and whether I am talking right now (sent on change only). */
+  | { t: "voice_state"; mic: boolean; speaking: boolean }
+  /** Moderators: who may talk; turn one person's mic off (or everyone's, without userId). */
+  | { t: "voice_mode"; mode: VoiceMode }
+  | { t: "voice_mute"; userId?: string }
+  /** "Talk only with these people" (empty = everyone around). */
+  | { t: "voice_group"; ids: string[] }
   | { t: "observe"; x: number; z: number }
   | ({ t: "screen" } & ScreenAction)
   | { t: "promote_chat"; id: string }
@@ -113,6 +122,8 @@ export type ServerMsg =
       questions: QuestionDto[];
       myQuestionVotes: string[];
       live: LiveDto;
+      demo: DemoDto | null;
+      voice: VoiceDto;
     }
   | { t: "members"; upsert: PublicMember[]; remove: { userId: string; reason: string }[] }
   | { t: "you"; personal: PersonalState | null }
@@ -123,7 +134,7 @@ export type ServerMsg =
   | { t: "room"; expiresAt: number }
   | { t: "ad"; ad: StageAd | null }
   | { t: "room_closed"; reason: string }
-  | { t: "kicked" }
+  | { t: "kicked"; reason?: "demo_over" }
   | { t: "session_replaced" }
   | { t: "corrected"; x: number; z: number }
   | { t: "error"; code: string; message: string }
@@ -136,7 +147,12 @@ export type ServerMsg =
   | { t: "mod"; isModerator: boolean }
   | { t: "stage_style"; style: "glam" | "plain" }
   | { t: "stage_lights"; on: boolean }
+  /** Voice chat: room state; the voices this listener should hear now; "your mic was turned off". */
+  | { t: "voice"; voice: VoiceDto }
+  | { t: "voice_sources"; sources: VoiceSource[] }
+  | { t: "voice_forced"; message: string }
   | { t: "live"; live: LiveDto }
+  | { t: "demo"; demo: DemoDto }
   /** Latest 1-minute bars incl. the forming one, pushed ~every second during the session. */
   | { t: "market"; symbol: string; bars: Candle[] };
 
@@ -146,6 +162,7 @@ export const ERROR_TEXT: Record<string, string> = {
   ROOM_NOT_OPEN: "Phòng đã đóng hoặc hết hạn.",
   NO_PASS: "Bạn cần vào phòng qua link mời.",
   SEAT_TAKEN: "Chỗ này vừa có người khác ngồi.",
+  CHAIR_RESERVED: "Ghế chủ tọa dành cho chủ phòng / trợ lý.",
   TOO_FAR: "Hãy đến gần chỗ trống hơn rồi bấm “Vào chỗ”.",
   NOT_FINDING: "Bạn chưa được vào khu chính.",
   FIND_TIME_OVER: "Đã hết thời gian tìm chỗ.",

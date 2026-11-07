@@ -26,6 +26,7 @@ export function HomeNav() {
         <span aria-hidden>☰</span>
       </button>
       <nav id="hn-menu" className={`hn-menu ${open ? "open" : ""}`} aria-label="Điều hướng chính" onClick={() => setOpen(false)}>
+        <a href="#trai-nghiem">Trải nghiệm</a>
         <a href="#phong-dang-mo">Phòng đang mở</a>
         <a href="#kieu-san-khau">Kiểu sân khấu</a>
         <a href="#quay-ve">Quầy vé</a>

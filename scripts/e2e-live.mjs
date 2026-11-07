@@ -101,6 +101,13 @@ if (!REAL) {
   check(await waitFor(() => owner.evaluate(() => [...document.querySelectorAll(".live-on-screen video")].some((v) => v.videoWidth > 0)), 30000), "owner: the stage screen shows the guest's camera (via Cloudflare)");
   check(/LIVE · Ca sĩ Mai/.test(await text(owner, ".live-badge")), "owner: “LIVE · Ca sĩ Mai” badge");
   await owner.screenshot({ path: `${OUT}/live-owner-screen.png` });
+  // the whole camera picture fits the screen (a 4:3 camera used to show only its top part)
+  const fit = await owner.evaluate(() => {
+    const v = document.querySelector(".live-on-screen video");
+    const box = document.querySelector(".live-on-screen");
+    return { v: v.offsetHeight, box: box.offsetHeight, w: v.videoWidth, h: v.videoHeight, fit: getComputedStyle(v).objectFit };
+  });
+  check(fit.v <= fit.box + 1 && fit.fit === "contain", `whole camera picture on the screen (${fit.w}×${fit.h} camera, video ${fit.v}px in a ${fit.box}px screen)`);
   await clickText(owner, ".side-panel button", "Cắt sóng");
   check(await waitFor(async () => !(await guest.$(".live-panel .live-preview:not(.empty)"))), "owner cuts → guest's camera stops");
   check(await waitFor(async () => !(await owner.$(".live-on-screen"))), "owner: screen back to normal content");

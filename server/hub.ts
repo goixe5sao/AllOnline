@@ -16,7 +16,10 @@ import type { AppUser } from "./services/users";
 import { askQuestion, getQuestion, listModerators, listQuestions, myQuestionVotes, setQuestionStatus, toggleVote } from "./services/qa";
 import type { MarketService } from "./market/service";
 import { askLive, denyLive, goOnAir, grantLive, initialLive, LIVE_MODES, mayPublish, setLiveMode, stopLive, type LiveDto, type LiveState } from "@/core/live";
+import { canHear, mayTalk, pickSources, sameList, VOICE_BITRATE_BPS, VOICE_GROUP_MAX, VOICE_MODES, type VoiceDto, type VoiceMode, type VoiceSource } from "@/core/voice";
 import type { LiveMeter, RealtimeClient } from "./live";
+import { DEMO_SHOWCASE, DEMO_SHOWCASE_MS, demoContentAllowed, type DemoDto } from "@/core/demo";
+import { addDemoUsage } from "./services/demo";
 
 /** Place kept after the page was closed / reloaded on purpose (a reload comes back within it). */
 const CLOSED_TAB_HOLD_MS = 15_000;
@@ -39,6 +42,8 @@ interface Client {
   msgWindowStart: number;
   ipHash: string;
   deviceId: string;
+  /** Demo room visitor: usage keys (device, network), seconds counted / saved, seconds left at join. */
+  demo?: { keys: string[]; used: number; saved: number; left0: number };
 }
 
 interface LiveRoom {
@@ -63,11 +68,29 @@ interface LiveRoom {
   live: LiveState;
   /** Broadcaster's socket gone since (ms) — taken off air if they do not come back. */
   liveGoneAt?: number;
+  /** Demo room: the visitor trying the owner controls, and the showcase loop shown without one. */
+  demo?: { hostId: string | null; hostName: string | null; showIdx: number; showAt: number };
+  /** Voice chat: who may talk, everyone's published mic, whom each listener hears. */
+  voice: RoomVoice;
+}
+
+interface RoomVoice {
+  mode: VoiceMode;
+  /** Published mics (Cloudflare session + track), on or off, talking or not. */
+  talkers: Map<string, { sessionId: string; track: string; mic: boolean; speaking: boolean; lastSpokeAt: number }>;
+  /** The list last sent to each listener (user ids, sorted). */
+  heard: Map<string, string[]>;
+  /** "Talk only with": the people each person chose (both ways: heard only by them, hears only them). */
+  groups: Map<string, Set<string>>;
+  /** Tracks a listener may pull: talker id -> until (ms); a little longer than "heard" (requests in flight). */
+  allowed: Map<string, Map<string, number>>;
+  /** A quick re-pick is scheduled (someone started talking / turned the mic on / left). */
+  soon?: ReturnType<typeof setTimeout>;
 }
 
 const num = z.number().finite();
 const msgSchema = z.union([
-  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), resume: z.boolean().optional(), avatar: z.object({ group: z.string(), model: z.string(), color: z.string().max(16).optional() }).optional(), asParticipant: z.boolean().optional() }),
+  z.object({ t: z.literal("join"), roomId: z.string().uuid(), pass: z.string().max(2000).optional(), resume: z.boolean().optional(), demoHost: z.boolean().optional(), avatar: z.object({ group: z.string(), model: z.string(), color: z.string().max(16).optional() }).optional(), asParticipant: z.boolean().optional() }),
   z.object({ t: z.literal("leave") }),
   z.object({ t: z.literal("bye") }),
   z.object({ t: z.literal("move"), x: num, z: num, rotY: num }),
@@ -103,6 +126,10 @@ const msgSchema = z.union([
   z.object({ t: z.literal("live_grant"), userId: z.string().uuid() }),
   z.object({ t: z.literal("live_deny"), userId: z.string().uuid() }),
   z.object({ t: z.literal("live_stop"), userId: z.string().uuid().optional() }),
+  z.object({ t: z.literal("voice_state"), mic: z.boolean(), speaking: z.boolean() }),
+  z.object({ t: z.literal("voice_mode"), mode: z.enum(VOICE_MODES) }),
+  z.object({ t: z.literal("voice_mute"), userId: z.string().uuid().optional() }),
+  z.object({ t: z.literal("voice_group"), ids: z.array(z.string().uuid()).max(VOICE_GROUP_MAX) }),
 ] as const) as unknown as z.ZodType<ClientMsg>;
 
 export class Hub {
@@ -130,6 +157,9 @@ export class Hub {
   private liveUsedGb = 0;
   /** Viewer SFU sessions → who opened them (only they may answer the SFU's offer). */
   private livePulls = new Map<string, { userId: string; roomId: string; at: number }>();
+  /** Voice chat: listeners' pull sessions (one per page), and a per-user request counter. */
+  private voicePulls = new Map<string, { userId: string; roomId: string; at: number }>();
+  private voiceCalls = new Map<string, { at: number; n: number }>();
 
   /** Live camera: Cloudflare Realtime client + monthly traffic meter. */
   setLive(rtc: RealtimeClient, meter: LiveMeter) {
@@ -259,6 +289,7 @@ export class Hub {
 
   /** Socket gone: participants keep their place for the reconnect grace period. */
   private detach(client: Client, leave: boolean) {
+    this.saveDemo(client);
     const room = client.roomId ? this.rooms.get(client.roomId) : null;
     if (room) {
       room.clients.delete(client);
@@ -271,6 +302,7 @@ export class Hub {
           room.engine.disconnect(client.user.id, Date.now(), reason, client.bye ? CLOSED_TAB_HOLD_MS : undefined);
         }
       } else room.engine.removeObserver(client.user.id);
+      this.voiceDrop(room, client.user.id);
       this.flush(room);
     }
     client.roomId = null;
@@ -306,7 +338,12 @@ export class Hub {
       );
       const screen = (row.screen_state as ScreenState)?.content ? (row.screen_state as ScreenState) : BLANK_SCREEN;
       const mods = new Set((await listModerators(this.db, roomId)).map((m) => m.userId));
-      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 }, lights: true, live: initialLive(row.live_mode ?? "approve") };
+      const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 }, lights: true, live: initialLive(row.live_mode ?? "approve"), voice: { mode: row.voice_mode ?? "all", talkers: new Map(), heard: new Map(), allowed: new Map(), groups: new Map() } };
+      if (row.is_demo) {
+        r.demo = { hostId: null, hostName: null, showIdx: 0, showAt: Date.now() };
+        // demo rooms: everyone may go on air at once (one at a time), like "Khán giả tự lên sóng"
+        r.live = initialLive("auto");
+      }
       this.rooms.set(roomId, r);
       return r;
     })().finally(() => this.loading.delete(roomId));
@@ -331,6 +368,121 @@ export class Hub {
       stageStyle: row.stage_style ?? "plain",
       stageLights: lights,
     };
+  }
+
+  // ---------- "Phòng trải nghiệm" (demo rooms) ----------
+
+  /** The demo host tries the owner controls like a real room; only the scrolling web page stays goixe5sao.vn. */
+  private demoLimited(room: LiveRoom, uid: string) {
+    return !!room.row.is_demo && room.demo?.hostId === uid && room.row.owner_id !== uid && !room.mods.has(uid);
+  }
+
+  isDemoHost(roomId: string, uid: string) {
+    return this.rooms.get(roomId)?.demo?.hostId === uid;
+  }
+
+  private demoDto(room: LiveRoom, c: Client): DemoDto {
+    const limitSec = (this.settings.demo_minutes_per_day ?? 5) * 60;
+    return {
+      hostId: room.demo?.hostId ?? null,
+      hostName: room.demo?.hostName ?? null,
+      leftSec: c.demo ? Math.max(0, c.demo.left0 - c.demo.used) : limitSec,
+      limitSec,
+      unlimited: !c.demo,
+    };
+  }
+
+  private broadcastDemo(room: LiveRoom) {
+    for (const c of room.clients) this.send(c, { t: "demo", demo: this.demoDto(room, c) });
+  }
+
+  /** Seconds counted for a device / network on live connections but not saved yet. */
+  private unsavedDemo(key: string) {
+    let n = 0;
+    for (const c of this.clients) if (c.demo?.keys.includes(key)) n += c.demo.used - c.demo.saved;
+    return n;
+  }
+
+  private saveDemo(c: Client) {
+    if (!c.demo) return;
+    const delta = c.demo.used - c.demo.saved;
+    if (delta <= 0) return;
+    c.demo.saved = c.demo.used;
+    addDemoUsage(this.db, c.demo.keys, delta).catch((e) => console.error("[demo] usage", e));
+  }
+
+  /** Every second in a demo room: count minutes (not while waiting), time out, host gone → reset, showcase. */
+  private demoTick(room: LiveRoom, now: number) {
+    const d = room.demo!;
+    for (const c of [...room.clients]) {
+      if (!c.demo) continue;
+      const m = room.engine.members.get(c.user.id);
+      if (!m || m.status === "waiting") continue;
+      c.demo.used++;
+      if (c.demo.used % 30 === 0) this.saveDemo(c);
+      if (c.demo.used >= c.demo.left0) {
+        this.send(c, { t: "kicked", reason: "demo_over" });
+        this.detach(c, true);
+        c.ws.close(4003, "demo_over");
+      }
+    }
+    if (d.hostId && !room.engine.members.has(d.hostId)) this.demoReset(room, now);
+    if (!d.hostId && now - d.showAt >= DEMO_SHOWCASE_MS) {
+      d.showIdx = (d.showIdx + 1) % DEMO_SHOWCASE.length;
+      d.showAt = now;
+      room.screen = applyScreenAction(room.screen, { action: "set", content: DEMO_SHOWCASE[d.showIdx] }, now);
+      this.broadcast(room, { t: "screen", state: room.screen });
+    }
+  }
+
+  /** The host left / timed out: give the next person a clean room. */
+  private demoReset(room: LiveRoom, now: number) {
+    const d = room.demo!;
+    const was = d.hostName;
+    d.hostId = null;
+    d.hostName = null;
+    d.showIdx = 0;
+    d.showAt = now;
+    room.screen = applyScreenAction(room.screen, { action: "set", content: DEMO_SHOWCASE[0] }, now);
+    void saveScreenState(this.db, room.row.id, room.screen).catch(() => {});
+    room.lights = true;
+    room.hands.clear();
+    if (room.live.onAir) this.liveEnded(room, room.live.onAir, null, "demo_reset");
+    room.live = initialLive("auto");
+    room.voice.mode = "all";
+    room.engine.unbanAll(); // people the demo host sent out may come back
+    void this.db
+      .query("update app.polls set status = 'closed' where room_id = $1 and status <> 'closed'", [room.row.id])
+      .then(async () => {
+        for (const p of await listPolls(this.db, room.row.id)) this.broadcast(room, { t: "poll", poll: p });
+      })
+      .catch((e) => console.error("[demo] reset polls", e));
+    logRoomEvent(this.db, room.row.id, null, "demo_reset", { host: was }).catch(() => {});
+    this.broadcast(room, { t: "screen", state: room.screen });
+    this.broadcast(room, { t: "stage_lights", on: true });
+    this.sendHands(room);
+    this.broadcastLive(room);
+    this.broadcastDemo(room);
+  }
+
+  /** Home page: seats taken and the host of each demo room. */
+  demoInfo(roomId: string) {
+    const room = this.rooms.get(roomId);
+    if (!room) return { seated: 0, waiting: 0, hostName: null, hostLeftSec: null };
+    let seated = 0;
+    let waiting = 0;
+    for (const m of room.engine.members.values()) {
+      if (m.status === "waiting") waiting++;
+      else seated++;
+    }
+    const host = room.demo?.hostId ? [...room.clients].find((c) => c.user.id === room.demo!.hostId) : undefined;
+    return { seated, waiting, hostName: room.demo?.hostName ?? null, hostLeftSec: host?.demo ? Math.max(0, host.demo.left0 - host.demo.used) : null }; // null: no limit (room / app owner) or reconnecting
+  }
+
+  /** One visit's length (for the home page / invite page): every visit gets the full time. */
+  async demoLeft(_deviceKey: string, _ipKey: string) {
+    const limitSec = (this.settings.demo_minutes_per_day ?? 5) * 60;
+    return { leftSec: limitSec, limitSec };
   }
 
   // ---------- live camera ----------
@@ -385,6 +537,8 @@ export class Hub {
     }
     if (this.meter && now % 60_000 < 1000) void this.meter.save().catch((e) => console.error("[live] meter", e));
     for (const [id, p] of this.livePulls) if (now - p.at > 6 * 3600_000) this.livePulls.delete(id);
+    for (const [id, p] of this.voicePulls) if (now - p.at > 12 * 3600_000) this.voicePulls.delete(id);
+    if (now % 60_000 < 1000) for (const [id, r] of this.voiceCalls) if (now - r.at > 60_000) this.voiceCalls.delete(id);
   }
 
   /** Broadcaster wants to publish: checks permission + monthly cap. */
@@ -431,6 +585,129 @@ export class Hub {
     const used = this.meter ? await this.meter.usedGb() : 0;
     this.liveUsedGb = used;
     return { month: this.meter?.monthKey ?? "", usedGb: Math.round(used * 10) / 10, capGb: this.settings.live_monthly_cap_gb ?? 800, configured: !!this.rtc?.configured };
+  }
+
+  // ---------- voice chat with the people around ----------
+
+  private voiceDto(room: LiveRoom): VoiceDto {
+    return { mode: room.voice.mode, configured: !!this.rtc?.configured, blocked: this.liveQuota().blocked, mics: [...room.voice.talkers].filter(([, t]) => t.mic).map(([id]) => id) };
+  }
+
+  private broadcastVoice(room: LiveRoom) {
+    this.broadcast(room, { t: "voice", voice: this.voiceDto(room) });
+  }
+
+  /** Re-pick in ~200 ms (batched): someone started talking, turned the mic on/off, left. */
+  private voiceSoon(room: LiveRoom) {
+    if (room.voice.soon) return;
+    room.voice.soon = setTimeout(() => {
+      room.voice.soon = undefined;
+      if (this.rooms.get(room.row.id) === room) this.voicePick(room, Date.now(), false);
+    }, 200);
+  }
+
+  /** A moderator (or the mode) turned someone's mic off: they are told, nobody pulls them any more. */
+  private voiceForceOff(room: LiveRoom, userId: string, message: string): boolean {
+    const t = room.voice.talkers.get(userId);
+    if (!t || !t.mic) return false;
+    t.mic = false;
+    t.speaking = false;
+    for (const c of room.clients) if (c.user.id === userId) this.send(c, { t: "voice_forced", message });
+    return true;
+  }
+
+  /** The person left the room: not a talker / listener any more. */
+  private voiceDrop(room: LiveRoom, userId: string) {
+    const was = room.voice.talkers.get(userId);
+    room.voice.talkers.delete(userId);
+    room.voice.heard.delete(userId);
+    room.voice.allowed.delete(userId);
+    room.voice.groups.delete(userId);
+    if (was?.mic) this.broadcastVoice(room);
+    if (was) this.voiceSoon(room);
+  }
+
+  /**
+   * Whom each listener hears (every second, and ~200 ms after a change). Cost: listeners x talkers
+   * with the mic on, distance checks only; a listener gets a message only when their list changes.
+   * Also meters the traffic: each voice pulled while talking is about VOICE_BITRATE_BPS.
+   */
+  private voicePick(room: LiveRoom, now: number, meter = true) {
+    const v = room.voice;
+    const talkers: { id: string; x: number; z: number; speaking: boolean; lastSpokeAt: number }[] = [];
+    if (v.mode !== "off")
+      for (const [id, t] of v.talkers) {
+        if (!t.mic) continue;
+        const p = room.engine.positionOf(id);
+        if (p) talkers.push({ id, x: p.x, z: p.z, speaking: t.speaking, lastSpokeAt: t.lastSpokeAt });
+      }
+    let pulled = 0;
+    for (const c of room.clients) {
+      const id = c.user.id;
+      const prev = v.heard.get(id) ?? [];
+      if (!talkers.length && !prev.length) continue;
+      const p = room.engine.positionOf(id);
+      const mine = v.groups.size ? talkers.filter((t) => canHear(id, t.id, (x) => v.groups.get(x))) : talkers;
+      const next = p ? pickSources({ id, x: p.x, z: p.z }, mine, prev, now) : [];
+      for (const s of next) if (v.talkers.get(s)?.speaking) pulled++;
+      if (sameList(prev, next)) continue;
+      v.heard.set(id, next);
+      const allow = v.allowed.get(id) ?? new Map<string, number>();
+      for (const [s, until] of allow) if (until < now) allow.delete(s);
+      for (const s of next) allow.set(s, now + 20_000);
+      v.allowed.set(id, allow);
+      const sources: VoiceSource[] = next.map((s) => ({ userId: s, sessionId: v.talkers.get(s)!.sessionId, track: v.talkers.get(s)!.track }));
+      this.send(c, { t: "voice_sources", sources });
+    }
+    if (meter && pulled && this.meter) void this.meter.add(pulled, 1, now, VOICE_BITRATE_BPS).catch((e) => console.error("[voice] meter", e));
+  }
+
+  /** May this person publish a mic now? (in the room, allowed by the mode, keys, monthly cap) */
+  voiceCanPublish(userId: string, roomId: string) {
+    const room = this.rooms.get(roomId);
+    const c = this.byUser.get(userId);
+    if (!room || !c || c.roomId !== roomId) throw new AppError("NOT_IN_ROOM", "Bạn chưa ở trong phòng.", 403);
+    if (!this.rtc?.configured) throw new AppError("LIVE_NOT_CONFIGURED", "Máy chủ chưa bật dịch vụ âm thanh (Cloudflare Realtime).", 503);
+    if (!mayTalk(room.voice.mode, { isGuest: c.user.is_guest, isMod: this.isMod(room, userId) })) throw new AppError("VOICE_NOT_ALLOWED", room.voice.mode === "off" ? "Chủ phòng đang tắt nói chuyện." : "Chỉ tài khoản đăng ký được bật mic trong phòng này.", 403);
+    if (this.liveQuota().blocked) throw new AppError("LIVE_QUOTA", "Đã hết hạn mức âm thanh / video của tháng này.", 403);
+    this.voiceRate(userId);
+  }
+
+  /** The mic track is up on the SFU (mic still off until the browser says so). */
+  voicePublished(roomId: string, userId: string, sessionId: string, track: string) {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    room.voice.talkers.set(userId, { sessionId, track, mic: false, speaking: false, lastSpokeAt: 0 });
+  }
+
+  /** A listener asks to pull voices: only the ones the server picked for them (lately). */
+  voiceMayPull(userId: string, roomId: string, tracks: { sessionId: string; track: string }[]) {
+    const room = this.rooms.get(roomId);
+    const c = this.byUser.get(userId);
+    if (!room || !c || c.roomId !== roomId) throw new AppError("NOT_IN_ROOM", "Bạn chưa ở trong phòng.", 403);
+    this.voiceRate(userId);
+    const allow = room.voice.allowed.get(userId);
+    const now = Date.now();
+    for (const t of tracks) {
+      const who = [...room.voice.talkers].find(([, x]) => x.sessionId === t.sessionId && x.track === t.track)?.[0];
+      if (!who || !allow || (allow.get(who) ?? 0) < now) throw new AppError("VOICE_NOT_NEAR", "Người này không còn ở gần bạn.", 403);
+    }
+  }
+
+  voicePullOpened(sessionId: string, userId: string, roomId: string) {
+    this.voicePulls.set(sessionId, { userId, roomId, at: Date.now() });
+  }
+
+  voicePullOwner(sessionId: string) {
+    return this.voicePulls.get(sessionId) ?? null;
+  }
+
+  /** At most 20 voice requests per user per 10 s (a buggy / hostile page cannot flood Cloudflare). */
+  private voiceRate(userId: string) {
+    const now = Date.now();
+    const r = this.voiceCalls.get(userId);
+    if (!r || now - r.at > 10_000) return void this.voiceCalls.set(userId, { at: now, n: 1 });
+    if (++r.n > 20) throw new AppError("TOO_MANY_ATTEMPTS", "Thao tác âm thanh quá nhanh, đợi vài giây.", 429);
   }
 
   /** Called by the sweeper / owner / admin after the DB marked the room closed. */
@@ -481,7 +758,7 @@ export class Hub {
   }
 
   private isMod(room: LiveRoom, uid: string) {
-    return room.row.owner_id === uid || room.mods.has(uid);
+    return room.row.owner_id === uid || room.mods.has(uid) || (!!room.demo && room.demo.hostId === uid);
   }
 
   private sendHands(room: LiveRoom) {
@@ -559,6 +836,8 @@ export class Hub {
     for (const room of this.rooms.values()) {
       room.engine.tick(now);
       this.autoAdvanceVideo(room, now);
+      if (room.demo) this.demoTick(room, now);
+      this.voicePick(room, now);
       this.pushLiveMarket(room);
       for (const [id, m] of room.ownerInbox) if (now - m.at > 120_000) room.ownerInbox.delete(id);
       this.flush(room);
@@ -636,7 +915,8 @@ export class Hub {
       case "claim":
       case "change_seat":
       case "accept_invite": {
-        const r = m.t === "claim" ? room.engine.claimSeat(uid, m.seatId, now) : m.t === "change_seat" ? room.engine.changeSeat(uid, m.seatId) : room.engine.acceptInvite(uid, now);
+        const chair = room.row.owner_id === uid || room.mods.has(uid) || room.demo?.hostId === uid; // may take the chairperson's seat
+        const r = m.t === "claim" ? room.engine.claimSeat(uid, m.seatId, now, chair) : m.t === "change_seat" ? room.engine.changeSeat(uid, m.seatId, chair) : room.engine.acceptInvite(uid, now);
         if (!r.ok) this.error(c, r.code);
         this.flush(room);
         return;
@@ -669,6 +949,7 @@ export class Hub {
           this.advanceVideo(room, now, uid, "screen_yt_next", true);
           return;
         }
+        if (m.action === "set" && this.demoLimited(room, uid) && !demoContentAllowed(m.content)) return this.error(c, "DEMO_LIBRARY", "Phòng trải nghiệm chiếu trang web goixe5sao.vn.");
         room.screen = applyScreenAction(room.screen, m, now);
         if (room.screen.content.kind === "youtube") knownDuration(room.screen.content.videoId); // learn the length early
         await saveScreenState(this.db, room.row.id, room.screen);
@@ -775,6 +1056,61 @@ export class Hub {
         this.broadcastLive(room);
         return;
       }
+      case "voice_state": {
+        const t = room.voice.talkers.get(uid);
+        if (!t) return; // not published yet
+        const allowed = mayTalk(room.voice.mode, { isGuest: c.user.is_guest, isMod });
+        const mic = m.mic && allowed;
+        if (m.mic && !allowed) this.send(c, { t: "voice_forced", message: room.voice.mode === "off" ? "Chủ phòng đang tắt nói chuyện." : "Chỉ tài khoản đăng ký được bật mic trong phòng này." });
+        const speaking = mic && m.speaking;
+        if (speaking) t.lastSpokeAt = now;
+        const changed = t.mic !== mic;
+        const started = speaking && !t.speaking;
+        t.mic = mic;
+        t.speaking = speaking;
+        if (changed) this.broadcastVoice(room);
+        if (changed || started) this.voiceSoon(room);
+        return;
+      }
+      case "voice_group": {
+        const ids = new Set(m.ids.filter((id) => id !== uid));
+        if (ids.size) room.voice.groups.set(uid, ids);
+        else room.voice.groups.delete(uid);
+        // whoever is no longer allowed loses the right to pull me at once (not after 20 s)
+        const groupOf = (id: string) => room.voice.groups.get(id);
+        for (const [listener, allow] of room.voice.allowed) for (const t of [...allow.keys()]) if (!canHear(listener, t, groupOf)) allow.delete(t);
+        this.voiceSoon(room);
+        return;
+      }
+      case "voice_mode": {
+        requireOwner();
+        if (room.voice.mode === m.mode) return;
+        room.voice.mode = m.mode;
+        room.row.voice_mode = m.mode;
+        await this.db.query("update app.rooms set voice_mode = $2 where id = $1", [room.row.id, m.mode]);
+        await logRoomEvent(this.db, room.row.id, uid, "voice_mode", { mode: m.mode });
+        // whoever may no longer talk: mic off
+        for (const [id, t] of room.voice.talkers) {
+          if (!t.mic) continue;
+          const who = [...room.clients].find((x) => x.user.id === id);
+          if (!who || !mayTalk(m.mode, { isGuest: who.user.is_guest, isMod: this.isMod(room, id) })) this.voiceForceOff(room, id, m.mode === "off" ? "Chủ phòng đã tắt nói chuyện trong phòng." : "Phòng chỉ cho tài khoản đăng ký bật mic.");
+        }
+        this.broadcastVoice(room);
+        this.voiceSoon(room);
+        return;
+      }
+      case "voice_mute": {
+        requireOwner();
+        const ids = m.userId ? [m.userId] : [...room.voice.talkers.keys()].filter((id) => id !== uid);
+        let n = 0;
+        for (const id of ids) if (this.voiceForceOff(room, id, "Chủ phòng đã tắt mic của bạn.")) n++;
+        if (n) {
+          await logRoomEvent(this.db, room.row.id, uid, "voice_mute", { userId: m.userId ?? null, count: n });
+          this.broadcastVoice(room);
+          this.voiceSoon(room);
+        }
+        return;
+      }
       case "live_ask": {
         const r = askLive(room.live, { id: uid, name: c.user.display_name }, isMod, now);
         if (!r.ok) return this.send(c, { t: "error", code: r.code, message: r.message });
@@ -855,6 +1191,14 @@ export class Hub {
         }
       const cap = this.settings.ip_max_participants;
       if (cap > 0 && sameIp >= cap) return this.error(c, "IP_LIMIT_PARTICIPANT", ERROR_TEXT.IP_LIMIT_PARTICIPANT);
+      if (room.row.is_demo && !isOwner) {
+        // Unlimited visits, each one at most N minutes: when it runs out you leave and may come back
+        // at once (minutes are still counted per device / network for the statistics).
+        const limitSec = (this.settings.demo_minutes_per_day ?? 5) * 60;
+        const keys = [`dev:${c.deviceId}`, `ip:${c.ipHash}`];
+        if (limitSec <= 0) return this.error(c, "DEMO_QUOTA", "Phòng trải nghiệm đang tạm tắt.");
+        c.demo = { keys, used: 0, saved: 0, left0: limitSec };
+      }
       this.participantIp.set(uid, { ip: c.ipHash, device: c.deviceId });
       const r = room.engine.join(uid, c.user.display_name, { group: m.avatar.group as AvatarGroup, model: m.avatar.model, color: validAvatarColor(m.avatar.group, m.avatar.color) }, Date.now(), m.resume ? { after: process.uptime() < 300 ? "server_restart" : "hold_expired" } : undefined);
       if (!r.ok) {
@@ -863,10 +1207,28 @@ export class Hub {
         return this.error(c, r.code);
       }
       role = "participant";
+      // Meeting room: the owner / a co-host sitting down takes the chairperson's seat when it is free.
+      const chairSeat = room.engine.config.layout.seats.find((s) => s.chair);
+      if (chairSeat && (isOwner || room.mods.has(uid)) && r.member.status === "seated" && r.member.seatId !== chairSeat.id && !room.engine.occupiedSeats().includes(chairSeat.id)) room.engine.changeSeat(uid, chairSeat.id, true);
     }
     c.roomId = room.row.id;
     c.role = role;
     room.clients.add(c);
+    // Demo room: the first visitor asking for it becomes the host (until they leave / time runs out).
+    let demoNote: string | null = null;
+    if (room.demo && role === "participant" && m.demoHost && room.demo.hostId !== uid) {
+      if (!room.demo.hostId || !room.engine.members.has(room.demo.hostId)) {
+        room.demo.hostId = uid;
+        room.demo.hostName = c.user.display_name;
+        logRoomEvent(this.db, room.row.id, uid, "demo_host", {}).catch(() => {});
+      } else demoNote = `${room.demo.hostName ?? "Một người khác"} đang làm chủ phòng — bạn vào làm khách nhé.`;
+    }
+    // Demo meeting room: the demo host sits in the chairperson's seat (when it is free).
+    if (room.demo?.hostId === uid && role === "participant") {
+      const chairSeat = room.engine.config.layout.seats.find((s) => s.chair);
+      const me = room.engine.members.get(uid);
+      if (chairSeat && me?.status === "seated" && me.seatId !== chairSeat.id && !room.engine.occupiedSeats().includes(chairSeat.id)) room.engine.changeSeat(uid, chairSeat.id, true);
+    }
     if (role !== "participant") {
       const l = room.engine.config.layout;
       room.engine.setObserver(uid, 0, (l.main.minZ + l.main.maxZ) / 2);
@@ -875,9 +1237,11 @@ export class Hub {
     this.send(c, {
       t: "welcome",
       role,
-      you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner, isModerator: room.mods.has(uid) },
+      you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner, isModerator: room.mods.has(uid) || room.demo?.hostId === uid },
       room: this.roomInfo(room.row, room.lights),
       live: this.liveDto(room),
+      demo: room.demo ? this.demoDto(room, c) : null,
+      voice: this.voiceDto(room),
       members: room.engine.publicMembers(),
       screen: room.screen,
       polls: await listPolls(this.db, room.row.id),
@@ -890,6 +1254,10 @@ export class Hub {
       questions: (await listQuestions(this.db, room.row.id)).filter((q) => q.status !== "hidden" || this.isMod(room, uid)),
       myQuestionVotes: await myQuestionVotes(this.db, room.row.id, uid),
     });
+    if (room.demo) {
+      this.broadcastDemo(room);
+      if (demoNote) this.send(c, { t: "error", code: "DEMO_HOST_TAKEN", message: demoNote });
+    }
   }
 
   private chat(room: LiveRoom, c: Client, raw: string, now: number) {

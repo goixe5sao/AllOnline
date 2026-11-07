@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api, ApiError, fmtTime, useApi, useMe } from "@/lib/api";
 import { MAP_INFO, type MapCode } from "@/core/maps";
 import { formatVnd } from "@/core/pricing";
+import { Receptionist } from "./robot";
 
 interface Bill {
   deposit: number;
@@ -59,21 +60,12 @@ function MyRoomsList() {
   const [err, setErr] = useState("");
   const [showEnded, setShowEnded] = useState(false);
   if (!data) return <p className="muted-x">Đang tải phòng của bạn…</p>;
-  if (!data.rooms.length)
-    return (
-      <p className="muted-x">
-        Bạn chưa có phòng nào. <Link href="/rooms/new">Mở phòng đầu tiên →</Link>
-      </p>
-    );
+  if (!data.rooms.length) return <RobotInvite first />;
   const { shown, ended } = splitMyRooms(data.rooms);
   const list = showEnded ? [...shown, ...ended] : shown;
   return (
     <div className="stack" style={{ gap: 12 }}>
-      {!shown.length && (
-        <p className="muted-x">
-          Không có phòng nào đang mở. <Link href="/rooms/new">Mở phòng mới →</Link>
-        </p>
-      )}
+      <RobotInvite first={!shown.length} />
       <div className="mr-grid">
       {err && <p className="mr-err">{err}</p>}
       {list.map((r) => (
@@ -136,19 +128,45 @@ function MyRoomsList() {
   );
 }
 
+/** The reception robot invites you to open a (new / first) room. */
+function RobotInvite({ first }: { first?: boolean }) {
+  return (
+    <div className={`robot-invite ${first ? "first" : ""}`}>
+      <Receptionist />
+      <div className="robot-say">
+        <p className="greet-bubble">
+          {first ? (
+            <>
+              Bạn chưa có phòng nào đang mở. Để tôi dẫn bạn <b>mở sân khấu đầu tiên</b> nhé — chọn kiểu sân khấu, số ghế, xong trong một phút!
+            </>
+          ) : (
+            <>
+              Mở thêm một <b>sân khấu mới</b>? Hội trường, phòng họp, rạp ô tô… tôi chuẩn bị ngay!
+            </>
+          )}
+        </p>
+        <Link className="btn-neon robot-go" href="/rooms/new">
+          ＋ Tạo phòng mới
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 /** Only for signed-in members: their rooms, visibility switches and open-ended bills. */
 export function MyRooms() {
   const { user } = useMe();
   if (!user || user.isGuest) return null;
   return (
     <section className="hs-section" aria-labelledby="my-rooms-h">
-      <div className="sec-head">
-        <h2 id="my-rooms-h">Phòng của tôi</h2>
-        <Link className="btn-neon small" href="/rooms/new">
-          + Tạo phòng
-        </Link>
+      <div className="frame frame-mine">
+        <div className="desk-sign">
+          <span id="my-rooms-h">PHÒNG CỦA TÔI</span>
+        </div>
+        <div className="frame-window">
+          <MyRoomsList />
+        </div>
       </div>
-      <MyRoomsList />
     </section>
   );
 }

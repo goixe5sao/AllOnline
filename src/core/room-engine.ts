@@ -249,6 +249,11 @@ export class RoomEngine {
     return { ok: true };
   }
 
+  /** Demo room reset: whoever was sent out may come back. */
+  unbanAll() {
+    this.banned.clear();
+  }
+
   isBanned(userId: string) {
     return this.banned.has(userId);
   }
@@ -260,7 +265,8 @@ export class RoomEngine {
   }
 
   private seatNearest(m: Member) {
-    const seat = this.freeSeats().sort((a, b) => a.rank - b.rank)[0];
+    // the chairperson's seat is kept for the owner / co-hosts — given out only when nothing else is free
+    const seat = this.freeSeats().sort((a, b) => Number(!!a.chair) - Number(!!b.chair) || a.rank - b.rank)[0];
     if (!seat) throw new Error("invariant: official access granted without a free seat");
     this.sitAt(m, seat.id);
   }
@@ -306,7 +312,7 @@ export class RoomEngine {
   }
 
   /** Gate mode: "Vào chỗ" next to a free seat. */
-  claimSeat(userId: string, seatId: string, now: number): ActionResult {
+  claimSeat(userId: string, seatId: string, now: number, mayChair = false): ActionResult {
     const m = this.members.get(userId);
     if (!m) return { ok: false, code: "NOT_IN_ROOM" };
     if (this.config.entryMode !== "gate_entry") return { ok: false, code: "WRONG_MODE" };
@@ -315,6 +321,7 @@ export class RoomEngine {
     const seat = this.seatById.get(seatId);
     if (!seat) return { ok: false, code: "NO_SUCH_SEAT" };
     if (this.seatOccupant.has(seatId)) return { ok: false, code: "SEAT_TAKEN" };
+    if (seat.chair && !mayChair) return { ok: false, code: "CHAIR_RESERVED" };
     if (Math.hypot(seat.x - m.x, seat.z - m.z) > this.config.layout.claimDistance) return { ok: false, code: "TOO_FAR" };
     this.sitAt(m, seatId);
     this.log("seat_claimed", userId, { seatId });
@@ -322,12 +329,14 @@ export class RoomEngine {
   }
 
   /** Auto mode: "Đổi chỗ" to another free official seat. */
-  changeSeat(userId: string, seatId: string): ActionResult {
+  changeSeat(userId: string, seatId: string, mayChair = false): ActionResult {
     const m = this.members.get(userId);
     if (!m) return { ok: false, code: "NOT_IN_ROOM" };
     if (m.status !== "seated") return { ok: false, code: "NOT_SEATED" };
-    if (!this.seatById.has(seatId)) return { ok: false, code: "NO_SUCH_SEAT" };
+    const seat = this.seatById.get(seatId);
+    if (!seat) return { ok: false, code: "NO_SUCH_SEAT" };
     if (this.seatOccupant.has(seatId)) return { ok: false, code: "SEAT_TAKEN" };
+    if (seat.chair && !mayChair) return { ok: false, code: "CHAIR_RESERVED" };
     const from = m.seatId;
     this.sitAt(m, seatId);
     this.log("seat_changed", userId, { from, to: seatId });

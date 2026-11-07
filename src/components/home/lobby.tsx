@@ -2,17 +2,56 @@ import Link from "next/link";
 import { formatVnd } from "@/core/pricing";
 import type { HomePricing } from "@/lib/home-data";
 import { JoinCode } from "./join-code";
+import { Receptionist } from "./robot";
 
 const SIGNUP = "/login?mode=signup&next=%2Frooms%2Fnew";
 
-export const FEATURES: { icon: string; title: string; text: string }[] = [
-  { icon: "🛸", title: "Một màn hình cho mọi người", text: "YouTube, live camera (chủ phòng duyệt), biểu đồ chứng khoán VN từng phút, hình ảnh — đồng bộ theo giờ máy chủ." },
-  { icon: "🤖", title: "Nhân vật đại diện", text: "Người, động vật hay xe; ngồi ghế, quay nhìn quanh, xem từ phía sau 2 hàng." },
-  { icon: "👽", title: "Chat với người ngồi gần", text: "Chỉ người ở gần nhận được, như thì thầm trong rạp. Không lưu lại." },
-  { icon: "🗳️", title: "Bình chọn trực tiếp", text: "Kết quả hiện ngay trên sân khấu; có thể chỉ cho tài khoản đã đăng ký." },
-  { icon: "📱", title: "Mọi thiết bị", text: "Máy tính, máy tính bảng, điện thoại — chạy trên trình duyệt, không cài đặt." },
-  { icon: "∞", title: "Theo giờ hoặc vô thời hạn", text: "Dùng thử, gói giờ, hoặc mở đến khi tắt: cọc trước, tính đúng giờ đã dùng." },
+/** Feature brochures; `demo` = can be tried in the "Phòng trải nghiệm" right away. */
+export const FEATURES: { icon: string; title: string; text: string; demo?: boolean }[] = [
+  {
+    icon: "🛸",
+    title: "Một màn hình cho mọi người",
+    text: "Chủ phòng chọn thứ cả phòng cùng xem trên màn hình sân khấu: video YouTube (lặp lại hoặc chiếu tiếp cả danh sách), biểu đồ chứng khoán Việt Nam cập nhật từng phút, hình ảnh, chữ, kết quả bình chọn. Ai vào lúc nào cũng thấy đúng đoạn đang chiếu, vì mọi thứ chạy theo giờ máy chủ.",
+    demo: true,
+  },
+  {
+    icon: "🎥",
+    title: "Live camera lên sân khấu",
+    text: "Chủ phòng (hoặc khán giả được chủ phòng duyệt) phát hình và tiếng từ camera, micro lên màn hình cho cả phòng — như MC trên sân khấu thật. Chủ phòng duyệt từng người xin lên sóng và cắt sóng bất cứ lúc nào; không ghi lại.",
+    demo: true,
+  },
+  {
+    icon: "🤖",
+    title: "Nhân vật đại diện",
+    text: "Mỗi người là một nhân vật 3D — người, động vật hay xe hơi (có xe theo mẫu VinFast, tự chọn màu). Ngồi ghế, quay nhìn quanh, hoặc xem từ phía sau 2 hàng để thấy cả mình lẫn sân khấu.",
+    demo: true,
+  },
+  {
+    icon: "👽",
+    title: "Chat với người ngồi gần",
+    text: "Tin nhắn chỉ đến người ở gần bạn, như thì thầm trong rạp, và không được lưu lại. Thêm thả cảm xúc bay lên sân khấu, giơ tay xin phát biểu, đặt câu hỏi cho chủ phòng.",
+    demo: true,
+  },
+  {
+    icon: "🗳️",
+    title: "Bình chọn & Hỏi đáp trực tiếp",
+    text: "Tạo bình chọn trong vài giây, kết quả nhảy ngay trên màn hình sân khấu. Khán giả đặt câu hỏi và bấm ▲ cho câu muốn nghe; chủ phòng đưa câu hay nhất lên màn hình.",
+    demo: true,
+  },
+  {
+    icon: "📱",
+    title: "Mọi thiết bị, không cài đặt",
+    text: "Chạy trên trình duyệt của máy tính, máy tính bảng và điện thoại. Khách chỉ cần link mời và một cái tên — không cần tài khoản. Máy yếu thì tự giảm đồ hoạ.",
+  },
+  {
+    icon: "∞",
+    title: "Theo giờ hoặc vô thời hạn",
+    text: "Dùng thử miễn phí, mua gói theo giờ, hoặc mở phòng vô thời hạn: đặt cọc trước, tắt phòng khi xong, hệ thống tính đúng số giờ đã dùng và hoàn phần dư. Thanh toán bằng quét mã VietQR — tiền vào là phòng tự mở.",
+  },
 ];
+
+/** This many answers are shown open; questions after them start folded (click to open). */
+export const FAQ_OPEN = 6;
 
 export const FAQ: { q: string; a: string }[] = [
   { q: "Khách có cần tạo tài khoản để vào phòng không?", a: "Không. Khách chỉ cần link mời (hoặc bấm vào phòng công khai trên màn hình sân khấu), nhập tên và chọn nhân vật. Tài khoản chỉ cần cho người tạo phòng." },
@@ -21,33 +60,6 @@ export const FAQ: { q: string; a: string }[] = [
   { q: "Một phòng chứa được bao nhiêu người?", a: "Bạn chọn số chỗ chính thức khi tạo phòng; có thể bật thêm khu chờ ngoài cổng. Người chờ được mời vào theo thứ tự khi có chỗ trống." },
   { q: "Dùng được trên điện thoại không?", a: "Được. Sân Khấu Online chạy trên trình duyệt của máy tính, máy tính bảng và điện thoại; nút “Xem màn hình” mở riêng màn hình sân khấu toàn màn hình." },
 ];
-
-/** Friendly robot behind the reception desk (original SVG). */
-function Receptionist() {
-  return (
-    <svg className="rcp" viewBox="0 0 160 150" aria-hidden focusable="false">
-      <defs>
-        <linearGradient id="rcp-body" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#2a3570" />
-          <stop offset="1" stopColor="#141a3a" />
-        </linearGradient>
-      </defs>
-      <line x1="80" y1="18" x2="80" y2="4" stroke="#3df5ff" strokeWidth="3" />
-      <circle className="au-blink" cx="80" cy="4" r="4" fill="#ff4fd8" />
-      <rect x="44" y="18" width="72" height="56" rx="18" fill="url(#rcp-body)" stroke="#3df5ff" strokeWidth="2.5" />
-      <rect x="54" y="32" width="52" height="26" rx="13" fill="#05060f" />
-      <g className="rcp-eyes">
-        <circle cx="70" cy="45" r="5" fill="#3df5ff" />
-        <circle cx="90" cy="45" r="5" fill="#3df5ff" />
-      </g>
-      <path d="M70 64 Q80 70 90 64" stroke="#b6ff3d" strokeWidth="3" fill="none" strokeLinecap="round" />
-      <rect x="40" y="80" width="80" height="70" rx="20" fill="url(#rcp-body)" stroke="#8b5cff" strokeWidth="2" />
-      <circle cx="80" cy="104" r="9" fill="none" stroke="#ffd38a" strokeWidth="2.5" />
-      <path className="rcp-wave" d="M120 96 Q146 84 150 60" stroke="#3df5ff" strokeWidth="9" strokeLinecap="round" fill="none" />
-      <path d="M40 100 Q24 112 30 130" stroke="#3df5ff" strokeWidth="9" strokeLinecap="round" fill="none" />
-    </svg>
-  );
-}
 
 /** The lobby below the seats: ticket booth, reception desk and information desk. */
 export function Lobby({ pricing }: { pricing: HomePricing | null }) {
@@ -143,14 +155,20 @@ export function Lobby({ pricing }: { pricing: HomePricing | null }) {
                   <div>
                     <h3>{f.title}</h3>
                     <p>{f.text}</p>
+                    {f.demo && (
+                      <a className="f-try" href="#trai-nghiem">
+                        Thử ngay trong phòng trải nghiệm →
+                      </a>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
             <div className="faq">
               <h3 className="faq-title">Câu hỏi thường gặp</h3>
-              {FAQ.map((f) => (
-                <details key={f.q}>
+              {FAQ.map((f, i) => (
+                // answers shown; only when the list grows long are the later ones folded
+                <details key={f.q} open={i < FAQ_OPEN}>
                   <summary>{f.q}</summary>
                   <p>{f.a}</p>
                 </details>

@@ -13,7 +13,9 @@ import dynamic from "next/dynamic";
 const AvatarPreview = dynamic(() => import("@/components/room/avatar-preview"), { ssr: false });
 
 interface InviteView {
-  room: { id: string; name: string; description: string; map: MapCode; avatarGroups: AvatarGroup[]; entryMode: string; hasPassword: boolean; expiresAt: string; openEnded?: boolean; startsAt: number | null; isPublic: boolean };
+  room: { id: string; name: string; description: string; map: MapCode; avatarGroups: AvatarGroup[]; entryMode: string; hasPassword: boolean; expiresAt: string; openEnded?: boolean; startsAt: number | null; isPublic: boolean; isDemo?: boolean };
+  /** "Phòng trải nghiệm": who is host, seats, your minutes left today. */
+  demo: { seated: number; waiting: number; hostName: string | null; hostLeftSec: number | null; leftSec: number; limitSec: number } | null;
   isOwner: boolean;
   guestJoinEnabled: boolean;
   reminded: boolean;
@@ -139,6 +141,12 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
   const [paint, setPaint] = useState<string | undefined>(undefined);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const demo = data.demo;
+  const hostFree = !!demo && !demo.hostName;
+  const [demoRole, setDemoRole] = useState<"host" | "guest">(() => {
+    const want = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("as") : null;
+    return want === "guest" || !hostFree ? "guest" : "host";
+  });
 
   if (!isAccount && !data.guestJoinEnabled)
     return (
@@ -165,6 +173,8 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
           sessionStorage.setItem(`ao-pass-${j.roomId}`, j.pass);
           sessionStorage.setItem(`ao-avatar-${j.roomId}`, JSON.stringify(avatar.group === "vehicles" && paint ? { ...avatar, color: paint } : avatar));
           if (data.isOwner) sessionStorage.setItem(`ao-mode-${j.roomId}`, "participant");
+          if (demo && demoRole === "host" && hostFree) sessionStorage.setItem(`ao-demo-host-${j.roomId}`, "1");
+          else sessionStorage.removeItem(`ao-demo-host-${j.roomId}`);
           router.push(`/room/${j.roomId}`);
         } catch (e) {
           setErr((e as ApiError).message);
@@ -178,9 +188,37 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
       <h1>{r.name}</h1>
       {r.description && <p>{r.description}</p>}
       <p className="muted">
-        {MAP_INFO[r.map].name} · {r.entryMode === "auto_assign" ? "Tự xếp chỗ" : "Vào từ cổng, tự tìm chỗ"} · {r.openEnded ? "mở đến khi chủ phòng tắt" : `đến ${fmtTime(r.expiresAt)}`}
+        {MAP_INFO[r.map].name} · {r.entryMode === "auto_assign" ? "Tự xếp chỗ" : "Vào từ cổng, tự tìm chỗ"} · {r.isDemo ? "luôn mở" : r.openEnded ? "mở đến khi chủ phòng tắt" : `đến ${fmtTime(r.expiresAt)}`}
       </p>
 
+      {demo && (
+        <div className="notice demo-intro stack" style={{ gap: 8 }}>
+          <b>🎪 Phòng trải nghiệm — không cần tài khoản</b>
+          <span>
+            Mỗi lượt trải nghiệm <b>{Math.round(demo.limitSec / 60)} phút</b> (chỉ tính lúc ở trong phòng, không tính lúc chờ). Hết lượt bạn vào lại ngay được — <b>không giới hạn số lượt</b>. Phòng có {r.name.includes("Bãi") ? "3 chỗ đỗ" : "3 ghế"}: {demo.seated}/3 đang có người{demo.waiting ? `, ${demo.waiting} người chờ` : ""}.
+          </span>
+          {demo.leftSec > 0 && (
+            <div className="demo-roles" role="radiogroup" aria-label="Vào với vai trò">
+              <button type="button" role="radio" aria-checked={demoRole === "host"} disabled={!hostFree} className={`choice ${demoRole === "host" ? "on" : ""}`} onClick={() => setDemoRole("host")}>
+                <b>👑 Vào làm chủ phòng</b>
+                <small>{hostFree ? "Điều khiển màn hình: YouTube, biểu đồ, bình chọn, đèn sân khấu…" : `${demo.hostName} đang làm chủ phòng${demo.hostLeftSec != null ? ` (còn ${mmss(demo.hostLeftSec)})` : ""}`}</small>
+              </button>
+              <button type="button" role="radio" aria-checked={demoRole === "guest"} className={`choice ${demoRole === "guest" ? "on" : ""}`} onClick={() => setDemoRole("guest")}>
+                <b>🎟 Vào làm khách</b>
+                <small>Ngồi xem, chat với người gần, thả cảm xúc, giơ tay, hỏi đáp, bình chọn</small>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {demo && demo.leftSec <= 0 ? (
+        <div className="stack">
+          <p className="notice warn">Bạn đã dùng hết {Math.round(demo.limitSec / 60)} phút trải nghiệm hôm nay. Quay lại vào ngày mai nhé!</p>
+          <Link className="btn primary" href="/login?mode=signup&next=%2Frooms%2Fnew">
+            🎁 Mở phòng dùng thử miễn phí của riêng bạn
+          </Link>
+        </div>
+      ) : null}
       {data.isOwner && (
         <div className="notice warn stack" style={{ gap: 8 }}>
           <span>
@@ -249,8 +287,8 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
       )}
 
       {err && <p className="notice error">{err}</p>}
-      <button className="btn primary" disabled={busy}>
-        {busy ? "Đang vào…" : data.isOwner ? "Vào như người tham dự" : "Vào phòng"}
+      <button className="btn primary" disabled={busy || (!!demo && demo.leftSec <= 0)}>
+        {busy ? "Đang vào…" : demo ? (demoRole === "host" && hostFree ? "👑 Vào làm chủ phòng" : "🎟 Vào làm khách") : data.isOwner ? "Vào như người tham dự" : "Vào phòng"}
       </button>
       <small>
         {!isAccount && "Không cần tài khoản. "}Chat chỉ đến người ở gần bạn và không được lưu lại. Camera của bạn không bao giờ tự bật: chỉ người được chủ phòng cho phép mới live hình + tiếng lên màn hình, và không ghi lại.
@@ -282,4 +320,8 @@ export default function JoinPage() {
       }}
     </AppShell>
   );
+}
+
+function mmss(sec: number) {
+  return `${Math.floor(sec / 60)}:${String(Math.max(0, Math.floor(sec % 60))).padStart(2, "0")}`;
 }

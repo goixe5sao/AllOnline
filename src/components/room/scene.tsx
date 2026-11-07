@@ -16,6 +16,8 @@ import { HumanLod, HumanModel, POSE_HEIGHTS, type Pose } from "./people";
 import { GlamStage } from "./stage-fx";
 import { UltraFx } from "./ultra-fx";
 import { CarModel, carSize } from "./cars";
+import { ROOM_KITS } from "./kits";
+import { VoiceSync, type VoiceEngine } from "./voice";
 
 /** Participants may only tilt the view a little (±12°) — they turn around themselves instead. */
 export const PITCH_RANGE = 0.21;
@@ -274,8 +276,10 @@ function SeatsVisual({ layout, freeHighlight, occupied, selected, ownSeat }: { l
     return [...groups.values()].map((list) => ({ x: list.reduce((a, s) => a + s.x, 0) / list.length, z: list[0].z - 0.75, y: 0, w: Math.max(1.6, list.length * 1.05) }));
   }, [seats]);
 
+  const Kit = ROOM_KITS[layout.map];
   return (
     <group>
+      {Kit && <Kit.Seats layout={layout} ownSeat={ownSeat} />}
       {layout.map === "hall" && (
         <>
           <Instances limit={seats.length}>
@@ -357,6 +361,13 @@ function SeatsVisual({ layout, freeHighlight, occupied, selected, ownSeat }: { l
 }
 
 function World({ layout, glam, lite, lights, children }: { layout: Layout; glam: boolean; lite: boolean; lights: boolean; children?: ReactNode }) {
+  const Kit = ROOM_KITS[layout.map];
+  if (Kit)
+    return (
+      <Kit.World layout={layout} lights={lights} lite={lite}>
+        {children}
+      </Kit.World>
+    );
   const night = layout.map === "drive_in";
   // Stage lights off: the house goes dark, only the screen (and a faint glow) stays.
   const dim = lights ? 1 : glam ? 0.45 : 0.35;
@@ -720,8 +731,14 @@ function OwnerRig({ layout, domElement, send }: { layout: Layout; domElement: HT
   const { camera } = useThree();
   useEffect(() => {
     const m = layout.main;
-    camera.position.set(0, 18, m.maxZ + 10);
-    ref.current?.target.set(0, 0, (m.minZ + m.maxZ) / 2);
+    const kit = ROOM_KITS[layout.map]?.ownerCamera?.(layout);
+    if (kit) {
+      camera.position.set(...kit.position);
+      ref.current?.target.set(...kit.target);
+    } else {
+      camera.position.set(0, 18, m.maxZ + 10);
+      ref.current?.target.set(0, 0, (m.minZ + m.maxZ) / 2);
+    }
     ref.current?.update();
   }, [camera, layout]);
   // Double-click on the floor: glide the owner's camera (and chat position) to that spot.
@@ -804,6 +821,8 @@ export interface SceneProps {
   onSeatClick?: (seatId: string, x: number, y: number) => void;
   /** Room owner attending as a participant: double-click a free seat to go there at once. */
   onSeatDoubleClick?: (seatId: string) => void;
+  /** Voice chat: the listener is the camera, voices at the avatars. */
+  voice?: VoiceEngine | null;
 }
 
 export function RoomScene(p: SceneProps) {
@@ -836,6 +855,7 @@ export function RoomScene(p: SceneProps) {
       </World>
       {p.ultra && !p.lite && <UltraFx onSlow={p.onSlow} />}
       <AdClickTarget layout={p.layout} ad={p.ad} domElement={p.domElement} />
+      <VoiceSync engine={p.voice ?? null} store={p.store} layout={p.layout} />
       {p.role === "participant" && <SeatClickTarget layout={p.layout} domElement={p.domElement} occupied={occupied} onSeatClick={p.onSeatClick} onSeatDoubleClick={p.onSeatDoubleClick} />}
       {p.role === "participant" ? (
         <ParticipantRig layout={p.layout} store={p.store} selfId={p.selfId} controls={p.controls} send={p.send} entryMode={p.entryMode} />
