@@ -112,10 +112,13 @@ export class RealtimeClient {
   }
 }
 
-/** Monthly live traffic estimate, kept in app.kv ("live_usage:2026-11" → { bytes }). */
+/** Monthly traffic estimate, kept in app.kv ("live_usage:2026-11" → { bytes, video, voice }). */
+export type MeterKind = "video" | "voice";
+
 export class LiveMeter {
   private month = "";
-  private bytes = 0;
+  private video = 0;
+  private voice = 0;
   private dirty = false;
   private loaded = false;
 
@@ -126,28 +129,51 @@ export class LiveMeter {
     if (this.loaded && m === this.month) return;
     if (this.dirty) await this.save();
     this.month = m;
-    const row = (await this.db.query<{ value: { bytes: number } }>("select value from app.kv where key = $1", [`live_usage:${m}`])).rows[0];
-    this.bytes = Number(row?.value?.bytes ?? 0);
+    const row = (await this.db.query<{ value: { bytes?: number; video?: number; voice?: number } }>("select value from app.kv where key = $1", [`live_usage:${m}`])).rows[0];
+    const v = row?.value ?? {};
+    // months saved before the split had one total: it was all live camera then
+    this.voice = Number(v.voice ?? 0);
+    this.video = v.video !== undefined ? Number(v.video) : Math.max(0, Number(v.bytes ?? 0) - this.voice);
     this.loaded = true;
   }
 
-  /** Add `viewers` watching for `seconds` (voice chat: listeners x voices, at the voice bitrate). */
-  async add(viewers: number, seconds: number, now = Date.now(), bps = LIVE_BITRATE_BPS) {
+  /** Add `viewers` watching (or listening) for `seconds` at `bps`. */
+  async add(viewers: number, seconds: number, now = Date.now(), bps = LIVE_BITRATE_BPS, kind: MeterKind = "video") {
     await this.ensure(now);
     if (viewers <= 0) return;
-    this.bytes += (viewers * seconds * bps) / 8;
+    const b = (viewers * seconds * bps) / 8;
+    if (kind === "voice") this.voice += b;
+    else this.video += b;
     this.dirty = true;
   }
 
   async save() {
     if (!this.dirty || !this.month) return;
     this.dirty = false;
-    await this.db.query("insert into app.kv (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value, updated_at = now()", [`live_usage:${this.month}`, JSON.stringify({ bytes: Math.round(this.bytes) })]);
+    const value = { bytes: Math.round(this.video + this.voice), video: Math.round(this.video), voice: Math.round(this.voice) };
+    await this.db.query("insert into app.kv (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value, updated_at = now()", [`live_usage:${this.month}`, JSON.stringify(value)]);
   }
 
   async usedGb(now = Date.now()) {
     await this.ensure(now);
-    return this.bytes / 1e9;
+    return (this.video + this.voice) / 1e9;
+  }
+
+  /** This month in GB: total, live camera, voice chat. */
+  async split(now = Date.now()) {
+    await this.ensure(now);
+    return { totalGb: (this.video + this.voice) / 1e9, videoGb: this.video / 1e9, voiceGb: this.voice / 1e9 };
+  }
+
+  /** Earlier months (newest first), from the saved rows. */
+  async history(months = 6) {
+    await this.save();
+    const rows = (await this.db.query<{ key: string; value: { bytes?: number; video?: number; voice?: number } }>("select key, value from app.kv where key like 'live_usage:%' order by key desc limit $1", [months])).rows;
+    return rows.map((r) => {
+      const voice = Number(r.value?.voice ?? 0);
+      const video = r.value?.video !== undefined ? Number(r.value.video) : Math.max(0, Number(r.value?.bytes ?? 0) - voice);
+      return { month: r.key.slice("live_usage:".length), videoGb: video / 1e9, voiceGb: voice / 1e9 };
+    });
   }
 
   get monthKey() {
