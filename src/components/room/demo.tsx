@@ -54,7 +54,7 @@ export const MISSIONS: [Mission, string][] = [
   ["chart", "Đưa biểu đồ VNINDEX lên màn hình"],
   ["poll", "Tạo một bình chọn (tab Bình chọn)"],
   ["lights", "Bật / tắt đèn sân khấu (quả cầu → 💡)"],
-  ["camera", "Xem thử camera của bạn (quả cầu → 🎥)"],
+  ["camera", "Lên sóng camera cho cả phòng (quả cầu → 📹 Live camera)"],
 ];
 
 /** The host's to-do list for 5 minutes; ticks as things are done. */

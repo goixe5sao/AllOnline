@@ -3,8 +3,9 @@ import { orb } from "./orb.mjs";
 /**
  * "Phòng trải nghiệm" in real Chrome (limit set to 1 minute/day to keep the test short):
  *  - the home page lists the 3 demo rooms (created automatically) with host / seats;
- *  - visitor A becomes the host: to-do list, library-only text, YouTube link → ticked;
- *  - visitor B sees the host seat taken, enters as a guest; camera = preview only;
+ *  - visitor A becomes the host: to-do list, free text on screen (like a real room), YouTube → ticked;
+ *  - visitor B sees the host seat taken, enters as a guest and goes live at once (REAL=1:
+ *    through Cloudflare, A sees "LIVE · Minh" on the stage screen);
  *  - A's minute (one visit) runs out → "Hết lượt" with "Vào lại" + the sign-up button, the room resets
  *    (showcase back on screen) and the host seat is free again on the home page;
  *  - visits are unlimited: A comes straight back in with a fresh minute.
@@ -77,10 +78,18 @@ check(await waitFor(async () => /Chủ phòng trải nghiệm/.test(await text(a
 await orb(a, "control");
 await a.waitForSelector(".demo-missions");
 check(/Thử ngay \(0\/5\)/.test(await text(a, ".demo-missions")), "A: to-do list 0/5");
-// text: library only
+// the main room's functions: free text, picture / sound links
 const kinds = await a.$$eval('.side-panel label.field select option', (o) => o.map((x) => x.textContent));
-check(kinds.some((k) => /thư viện mẫu/.test(k)) && !kinds.some((k) => /Âm thanh/.test(k)), "A: text / pictures from the library, no audio upload");
-check(!!(await a.$('select[aria-label="Văn bản mẫu"]')) && !(await a.$(".side-panel textarea")), "A: text = pick a sample (no free typing)");
+check(kinds.some((k) => /Âm thanh/.test(k)) && !kinds.some((k) => /thư viện mẫu/.test(k)), "A: text, pictures and sound like a real room");
+await a.waitForSelector(".side-panel textarea");
+await a.evaluate(() => {
+  const t = document.querySelector(".side-panel textarea");
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(t, "Chào cả phòng — chữ tự gõ!");
+  t.dispatchEvent(new Event("input", { bubbles: true }));
+});
+await sleep(300);
+await a.evaluate(() => [...document.querySelectorAll(".side-panel button")].find((b) => /Hiển thị|Đưa lên|Áp dụng|Chiếu/.test(b.textContent ?? "") && !b.disabled)?.click());
+check(await waitFor(async () => /chữ tự gõ/.test(await a.evaluate(() => document.querySelector(".screen-surface")?.textContent ?? "")), 8000), "A: free text on the stage screen");
 // YouTube: any link
 await a.evaluate(() => {
   const sel = [...document.querySelectorAll(".side-panel label.field")].find((l) => l.textContent?.includes("Loại nội dung"))?.querySelector("select");
@@ -110,9 +119,17 @@ check(await waitFor(async () => /Trải nghiệm · ⏳/.test(await text(b, ".de
 check(!(await b.$('[data-orb="control"]')), "B: no owner controls");
 await orb(b, "live");
 await b.waitForSelector(".live-panel");
+// demo rooms: anyone goes live at once (no approval)
+await b.evaluate(() => [...document.querySelectorAll(".live-panel button")].find((x) => x.textContent?.includes("Lên sóng"))?.click());
+check(await waitFor(() => b.evaluate(() => [...document.querySelectorAll(".live-panel button")].some((x) => x.textContent?.includes("Bật camera"))), 8000), "B (guest): allowed to go live at once, no approval");
 await b.evaluate(() => [...document.querySelectorAll(".live-panel button")].find((x) => x.textContent?.includes("Bật camera"))?.click());
 check(await waitFor(() => b.evaluate(() => (document.querySelector(".live-preview")?.videoWidth ?? 0) > 0)), "B: camera preview works");
-check(await b.$eval(".live-go", (x) => x.disabled), "B: “Lên sóng” disabled (preview only in the demo)");
+check(!(await b.$eval(".live-go", (x) => x.disabled)), "B: “Lên sóng” enabled in the demo room");
+if (process.env.REAL === "1") {
+  await b.evaluate(() => document.querySelector(".live-go")?.click());
+  check(await waitFor(async () => /LIVE · Minh/.test(await a.evaluate(() => document.querySelector(".screen-surface")?.textContent ?? "")), 30000), "B on air: A sees “LIVE · Minh” on the stage screen (via Cloudflare)");
+  await a.screenshot({ path: `${OUT}/demo-live-guest.png` });
+}
 
 // ---- A's minute runs out
 check(await waitFor(async () => /Hết lượt trải nghiệm/.test(await a.evaluate(() => document.body.innerText)), 75000), "A: visit over → “Hết lượt trải nghiệm”");

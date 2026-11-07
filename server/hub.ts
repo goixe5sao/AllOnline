@@ -339,7 +339,11 @@ export class Hub {
       const screen = (row.screen_state as ScreenState)?.content ? (row.screen_state as ScreenState) : BLANK_SCREEN;
       const mods = new Set((await listModerators(this.db, roomId)).map((m) => m.userId));
       const r: LiveRoom = { row, engine, screen, clients: new Set(), ownerInbox: new Map(), movesPending: false, mods, hands: new Map(), counters: { reactions: 0, chats: 0 }, lights: true, live: initialLive(row.live_mode ?? "approve"), voice: { mode: row.voice_mode ?? "all", talkers: new Map(), heard: new Map(), allowed: new Map(), groups: new Map() } };
-      if (row.is_demo) r.demo = { hostId: null, hostName: null, showIdx: 0, showAt: Date.now() };
+      if (row.is_demo) {
+        r.demo = { hostId: null, hostName: null, showIdx: 0, showAt: Date.now() };
+        // demo rooms: everyone may go on air at once (one at a time), like "Khán giả tự lên sóng"
+        r.live = initialLive("auto");
+      }
       this.rooms.set(roomId, r);
       return r;
     })().finally(() => this.loading.delete(roomId));
@@ -368,7 +372,7 @@ export class Hub {
 
   // ---------- "Phòng trải nghiệm" (demo rooms) ----------
 
-  /** The demo host tries the owner controls, but not the risky ones (free text / pictures, kick, live broadcast). */
+  /** The demo host tries the owner controls like a real room; only the scrolling web page stays goixe5sao.vn. */
   private demoLimited(room: LiveRoom, uid: string) {
     return !!room.row.is_demo && room.demo?.hostId === uid && room.row.owner_id !== uid && !room.mods.has(uid);
   }
@@ -444,7 +448,9 @@ export class Hub {
     room.lights = true;
     room.hands.clear();
     if (room.live.onAir) this.liveEnded(room, room.live.onAir, null, "demo_reset");
-    room.live = initialLive(room.live.mode === "off" ? "off" : "approve");
+    room.live = initialLive("auto");
+    room.voice.mode = "all";
+    room.engine.unbanAll(); // people the demo host sent out may come back
     void this.db
       .query("update app.polls set status = 'closed' where room_id = $1 and status <> 'closed'", [room.row.id])
       .then(async () => {
@@ -540,7 +546,6 @@ export class Hub {
     const room = this.rooms.get(roomId);
     const c = this.byUser.get(userId);
     if (!room || !c || c.roomId !== roomId) throw new AppError("NOT_IN_ROOM", "Bạn chưa ở trong phòng.", 403);
-    if (room.row.is_demo && room.row.owner_id !== userId && !room.mods.has(userId)) throw new AppError("DEMO_LIMITED", "Bản trải nghiệm chỉ cho xem trước camera của bạn — mở phòng thật để live cho mọi người.", 403);
     if (!mayPublish(room.live, userId, this.isMod(room, userId))) throw new AppError("LIVE_NOT_ALLOWED", "Bạn chưa được chủ phòng cho lên sóng.", 403);
     if (this.liveQuota().blocked) throw new AppError("LIVE_QUOTA", "Đã hết hạn mức live của tháng này. Liên hệ quản trị để nâng trần.", 403);
     return { room, name: c.user.display_name };
@@ -944,7 +949,7 @@ export class Hub {
           this.advanceVideo(room, now, uid, "screen_yt_next", true);
           return;
         }
-        if (m.action === "set" && this.demoLimited(room, uid) && !demoContentAllowed(m.content)) return this.error(c, "DEMO_LIBRARY", "Bản trải nghiệm: chữ và hình chọn trong thư viện mẫu (video YouTube thì dán link nào cũng được).");
+        if (m.action === "set" && this.demoLimited(room, uid) && !demoContentAllowed(m.content)) return this.error(c, "DEMO_LIBRARY", "Phòng trải nghiệm chiếu trang web goixe5sao.vn.");
         room.screen = applyScreenAction(room.screen, m, now);
         if (room.screen.content.kind === "youtube") knownDuration(room.screen.content.videoId); // learn the length early
         await saveScreenState(this.db, room.row.id, room.screen);
@@ -954,7 +959,6 @@ export class Hub {
       }
       case "promote_chat": {
         requireOwner();
-        if (this.demoLimited(room, uid)) return this.error(c, "DEMO_LIMITED", "Bản trải nghiệm không có chức năng này — mở phòng thật (dùng thử miễn phí) để dùng đủ.");
         const msg = room.ownerInbox.get(m.id);
         if (!msg) return this.error(c, "INVALID", "Tin nhắn không còn khả dụng (chỉ giữ tạm 2 phút trong bộ nhớ).");
         room.screen = applyScreenAction(room.screen, { action: "set", content: { kind: "chat", text: msg.text, author: msg.name } }, now);
@@ -966,7 +970,6 @@ export class Hub {
       }
       case "kick": {
         requireOwner();
-        if (this.demoLimited(room, uid)) return this.error(c, "DEMO_LIMITED", "Bản trải nghiệm không có chức năng này — mở phòng thật (dùng thử miễn phí) để dùng đủ.");
         const r = room.engine.kick(m.userId, uid, now);
         if (!r.ok) this.error(c, r.code);
         this.flush(room);
@@ -1043,7 +1046,6 @@ export class Hub {
       }
       case "live_mode": {
         requireOwner();
-        if (this.demoLimited(room, uid)) return this.error(c, "DEMO_LIMITED", "Bản trải nghiệm không có chức năng này — mở phòng thật (dùng thử miễn phí) để dùng đủ.");
         if (room.live.mode === m.mode) return;
         const was = room.live.onAir;
         room.live = setLiveMode(room.live, m.mode);
@@ -1082,7 +1084,6 @@ export class Hub {
       }
       case "voice_mode": {
         requireOwner();
-        if (this.demoLimited(room, uid)) return this.error(c, "DEMO_LIMITED", "Bản trải nghiệm không có chức năng này — mở phòng thật (dùng thử miễn phí) để dùng đủ.");
         if (room.voice.mode === m.mode) return;
         room.voice.mode = m.mode;
         room.row.voice_mode = m.mode;

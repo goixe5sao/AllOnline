@@ -46,21 +46,9 @@ const isDemoWebHost = (url: string) => {
 /** Several people on one office / mobile network can try, but not endlessly from new private tabs. */
 export const DEMO_PEOPLE_PER_NETWORK = 6;
 
-/** Text / pictures on screen come from the library (YouTube links are free, charts are data, the web page is goixe5sao.vn). */
+/** The demo host shows anything a real room can; only the scrolling web page is goixe5sao.vn. */
 export function demoContentAllowed(c: ScreenContent): boolean {
-  switch (c.kind) {
-    case "text":
-      return DEMO_TEXTS.includes(c.text);
-    case "image":
-      return DEMO_IMAGES.some((i) => i.url === c.url);
-    case "web":
-      return isDemoWebHost(c.url);
-    case "audio":
-    case "chat":
-      return false;
-    default:
-      return true;
-  }
+  return c.kind !== "web" || isDemoWebHost(c.url);
 }
 
 /** "2026-11-06" in Vietnam time — the day the minutes are counted in. */

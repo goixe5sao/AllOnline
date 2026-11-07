@@ -249,6 +249,11 @@ export class RoomEngine {
     return { ok: true };
   }
 
+  /** Demo room reset: whoever was sent out may come back. */
+  unbanAll() {
+    this.banned.clear();
+  }
+
   isBanned(userId: string) {
     return this.banned.has(userId);
   }

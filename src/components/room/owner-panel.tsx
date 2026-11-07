@@ -135,19 +135,19 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
             setKind(e.target.value as ScreenContent["kind"]);
             setValue("");
           }}>
-          <option value="text">{demo ? "Văn bản (thư viện mẫu)" : "Văn bản"}</option>
-          <option value="image">{demo ? "Hình ảnh (thư viện mẫu)" : "Hình ảnh (https hoặc tải lên)"}</option>
+          <option value="text">Văn bản</option>
+          <option value="image">{demo ? "Hình ảnh (dán link https)" : "Hình ảnh (https hoặc tải lên)"}</option>
           <option value="youtube">Video YouTube</option>
           <option value="web">{demo ? "Trang web goixe5sao.vn (tự cuộn)" : "Trang web (tự cuộn từ đầu đến cuối)"}</option>
-          {!demo && <option value="audio">Âm thanh (https hoặc tải lên)</option>}
+          <option value="audio">{demo ? "Âm thanh (dán link https)" : "Âm thanh (https hoặc tải lên)"}</option>
           <option value="chart">Biểu đồ chứng khoán VN kiểu TradingView</option>
           <option value="tradingview">TradingView chính thức — mã quốc tế (dữ liệu thật)</option>
           <option value="blank">Màn hình trống</option>
         </select>
       </label>
       {kind === "text" && demo && (
-        <select value={value} onChange={(e) => setValue(e.target.value)} aria-label="Văn bản mẫu">
-          <option value="">— Chọn một câu —</option>
+        <select value="" onChange={(e) => e.target.value && setValue(e.target.value)} aria-label="Văn bản mẫu">
+          <option value="">— Hoặc chọn câu mẫu —</option>
           {DEMO_TEXTS.map((t) => (
             <option key={t} value={t}>
               {t}
@@ -156,8 +156,8 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
         </select>
       )}
       {kind === "image" && demo && (
-        <select value={value} onChange={(e) => setValue(e.target.value)} aria-label="Hình mẫu">
-          <option value="">— Chọn một hình —</option>
+        <select value="" onChange={(e) => e.target.value && setValue(e.target.value)} aria-label="Hình mẫu">
+          <option value="">— Hoặc chọn hình mẫu —</option>
           {DEMO_IMAGES.map((i) => (
             <option key={i.url} value={i.url}>
               {i.label}
@@ -165,16 +165,16 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
           ))}
         </select>
       )}
-      {demo && (kind === "text" || kind === "image") && <small>Bản trải nghiệm: chữ và hình chọn trong thư viện mẫu. Phòng thật của bạn thì gõ chữ, dán link hay tải ảnh tuỳ ý.</small>}
-      {kind === "text" && !demo && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
+      {kind === "text" && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
       {kind === "chart" && <SymbolPicker value={value} onChange={setValue} />}
       {kind === "youtube" && <YouTubePanel send={send} screen={screen} />}
       {kind === "web" && <WebPanel send={send} screen={screen} roomId={roomId} demo={demo} />}
-      {((kind === "image" && !demo) || kind === "audio" || kind === "tradingview") && (
+      {(kind === "image" || kind === "audio" || kind === "tradingview") && (
         <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
       )}
       {kind === "audio" && <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tiêu đề" />}
-      {((kind === "image" && !demo) || kind === "audio") && (
+      {demo && (kind === "image" || kind === "audio") && <small>Phòng trải nghiệm: dán link https (tải tệp từ máy lên có ở phòng thật của bạn).</small>}
+      {!demo && (kind === "image" || kind === "audio") && (
         <label className="field">
           <small>Hoặc tải tệp lên (ảnh PNG/JPEG/WebP/GIF, âm thanh MP3/OGG/WAV/M4A; giới hạn dung lượng do chủ ứng dụng cấu hình)</small>
           <input type="file" accept={kind === "image" ? "image/png,image/jpeg,image/webp,image/gif" : "audio/*"} disabled={uploading} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
@@ -515,20 +515,10 @@ export function OwnerPanel(p: {
           <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} demo={!!p.demo} />
         </>
       )}
-      {tab === "live" &&
-        (p.demo ? (
-          <div className="stack" style={{ gap: 8 }}>
-            <p className="notice">Phòng thật: bạn (hoặc khán giả được bạn duyệt) live camera + micro lên màn hình cho cả phòng. Bản trải nghiệm chỉ cho <b>xem trước camera của chính bạn</b>.</p>
-            <button className="hud-btn primary" onClick={p.onOpenCamera}>
-              🎥 Xem thử camera của tôi
-            </button>
-          </div>
-        ) : (
-          <LiveModeration live={p.live} send={p.send} selfId={p.selfId} onOpenCamera={p.onOpenCamera} />
-        ))}
+      {tab === "live" && <LiveModeration live={p.live} send={p.send} selfId={p.selfId} onOpenCamera={p.onOpenCamera} />}
       {tab === "polls" && <PollsTab send={p.send} polls={p.polls} />}
       {tab === "people" && <VoiceModeration voice={p.voice ?? null} send={p.send} names={p.voiceName ?? ((id) => p.members.find((m) => m.userId === id)?.name ?? "Ai đó")} selfId={p.selfId} />}
-      {tab === "people" && <PeopleTab members={p.members} send={p.send} hands={p.hands} isOwner={p.isOwner} selfId={p.selfId} roomId={p.room.id} noKick={!!p.demo} />}
+      {tab === "people" && <PeopleTab members={p.members} send={p.send} hands={p.hands} isOwner={p.isOwner} selfId={p.selfId} roomId={p.room.id} />}
       {tab === "stats" && <StatsTab roomId={p.room.id} />}
       {tab === "chat" && (
         <div className="stack">
@@ -540,7 +530,7 @@ export function OwnerPanel(p: {
               <span>
                 <b>{c.name}:</b> {c.text}
               </span>
-              <button className="hud-btn" hidden={!!p.demo} onClick={() => p.send({ t: "promote_chat", id: c.id })}>
+              <button className="hud-btn" onClick={() => p.send({ t: "promote_chat", id: c.id })}>
                 Lên màn hình
               </button>
             </div>

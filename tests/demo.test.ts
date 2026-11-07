@@ -21,11 +21,13 @@ describe("demo rooms", () => {
   it("the demo host: YouTube / charts free, text and pictures from the library only", () => {
     expect(demoContentAllowed({ kind: "youtube", videoId: "dQw4w9WgXcQ" })).toBe(true);
     expect(demoContentAllowed({ kind: "chart", symbol: "FPT", source: "demo" })).toBe(true);
+    // the demo host shows anything a real room can (free text, picture / sound links)…
     expect(demoContentAllowed({ kind: "text", text: DEMO_TEXTS[0] })).toBe(true);
-    expect(demoContentAllowed({ kind: "text", text: "anything I like" })).toBe(false);
+    expect(demoContentAllowed({ kind: "text", text: "anything I like" })).toBe(true);
     expect(demoContentAllowed({ kind: "image", url: DEMO_IMAGES[0].url })).toBe(true);
-    expect(demoContentAllowed({ kind: "image", url: "https://example.com/x.png" })).toBe(false);
-    expect(demoContentAllowed({ kind: "audio", url: "https://example.com/a.mp3", title: "x" })).toBe(false);
+    expect(demoContentAllowed({ kind: "image", url: "https://example.com/x.png" })).toBe(true);
+    expect(demoContentAllowed({ kind: "audio", url: "https://example.com/a.mp3", title: "x" })).toBe(true);
+    // …only the scrolling web page stays goixe5sao.vn
     const web = (url: string) => ({ kind: "web" as const, url, shots: ["/api/uploads/11111111-1111-1111-1111-111111111111"], w: 1280, h: 5000, speed: "normal" as const, takenAt: 1 });
     expect(demoContentAllowed(web("https://goixe5sao.vn/"))).toBe(true); // the one page a demo room shows
     expect(demoContentAllowed(web("https://www.goixe5sao.vn/dat-xe"))).toBe(true);

@@ -169,8 +169,8 @@ export function RoomView({ roomId }: { roomId: string }) {
     if (isDemoHost && s.polls.length) tick("poll");
   }, [isDemoHost, s.polls.length]);
   useEffect(() => {
-    if (isDemoHost && pub.preview) tick("camera");
-  }, [isDemoHost, pub.preview]);
+    if (isDemoHost && pub.state === "live") tick("camera");
+  }, [isDemoHost, pub.state]);
   // Cut by a moderator / replaced / live switched off: stop the camera here too.
   const pubLive = pub.state === "live";
   const pubStop = pub.stop;
@@ -824,7 +824,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           demo={isDemoHost && !s.you.isRoomOwner ? { missions } : null}
         />
       )}
-      {panel === "live" && s.live && <LivePanel live={s.live} selfId={s.you.userId} isMod={canModerate} send={send} pub={pub} onClose={() => setPanel(null)} previewOnly={!!s.demo && !s.you.isRoomOwner} />}
+      {panel === "live" && s.live && <LivePanel live={s.live} selfId={s.you.userId} isMod={canModerate} send={send} pub={pub} onClose={() => setPanel(null)} />}
       <LiveAudio stream={onAirSelf ? null : liveView.stream} volume={stageVolume} muted={muted} />
       {panel === "qa" && (
         <QaPanel
