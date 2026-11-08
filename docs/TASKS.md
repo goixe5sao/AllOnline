@@ -135,3 +135,26 @@ Result (Codex, 2026-11-08):
 - Screenshots: `docs/screenshots/ui/after/host-panel-{390,1440}-{dark,light}.png`, `host-panel-chart-{390,1440}-{dark,light}.png`; machine-readable checks in `docs/screenshots/ui/after/host-panel-report.json`. These are the real OwnerPanel mounted without the 3D scene. Visually inspected desktop dark and mobile light captures. One actual room visit additionally saved `docs/screenshots/ui/after/host-panel-room-390-dark.png`, then closed immediately on a test error (about six seconds for the whole browser run).
 - FAIL / limitation: the bounded real-browser picker run captured the actual panel but its subsequent chart-submit step failed because a script string was corrupted by shell encoding. Corrected the selector to `.ui-button-primary` and reran the component mode successfully; did not revisit the CPU-rendered room. An earlier attempt timed out on `/login` during dev reloads, before opening any room. The actual browser chart-persistence assertion is therefore not claimed as passing. Long multi-context YouTube/web/3D E2Es were not run; the existing room/screen smoke and component payload checks above passed. Claude visual review remains pending.
 - Safety: only `D:/ActiveProject/AllOnline-ui`, local demo PGlite `.data-ui-audit`, market polling off, one server at a time on 3100. Server stopped and no listener remains on 3100. No access to `D:/ActiveProject/AllOnline`, live services, protocol/backend changes, deployment or push.
+
+## AI Stock (see docs/AI-STOCK.md); tasks S-* run in the StockVN repo (worktree D:/ActiveProject/StockVN-dev)
+
+### S-1 (StockVN): Equilibrium engine + evidence
+Status: todo   Risk: medium
+Goal: an `ml/equilibrium.py` that computes POC + value area (volume profile, minute bars when available), anchored VWAP (swing low/high) and Kijun-26 for each symbol. It detects confirmed breaks, weak breaks and retests as defined in AI-STOCK.md, and stores events in SQLite (new table, additive migration). Extend `pattern_eval` so every signal type (equilibrium events, existing S/R breakouts, candlestick patterns) gets hit rate, n, Wilson ci95 and the average return at 5/10/20 sessions, after fees, on VN100 history. Then compare the three equilibrium definitions.
+Acceptance: unit tests on synthetic series (known POC/VWAP/Kijun). A report `docs/equilibrium-report.md` with a per-definition table (n, hit rate, ci, avg return per horizon) and a recommendation of the leading definition. Note survivorship bias. The existing tests pass.
+
+### S-2 (StockVN): Classical chart patterns
+Status: todo (after S-1)   Risk: medium
+Goal: double top/bottom, head & shoulders (+inverse), ascending/descending/symmetrical triangles, flags. Detection is rule-based on the existing confirmed pivots, with neckline/breakout confirmation by volume. Output overlay geometry, and evaluate with the S-1 stats machinery.
+Acceptance: tests on synthetic shapes, a stats report, and the existing tests pass.
+
+### S-3 (StockVN): Scan snapshot + `/api/ai/scan`
+Status: todo (after S-1)   Risk: medium (public API contract)
+Goal: a scan job (after close, plus every 15 min in trading hours) that joins the ML rank, levels, equilibrium, signals and their stats into a versioned snapshot table. `GET /api/ai/scan?universe=VN100&limit=` returns exactly the contract in AI-STOCK.md from the cached snapshot (no synchronous fan-out). It is Bearer-token protected, and the API must refuse to run unauthenticated if `STOCKVN_PASSWORD`/token are unset in production.
+Acceptance: an API test against the fixture DB, a contract test (JSON schema), and response time < 300 ms from the snapshot.
+
+### A-1 (AllOnline): AI Stock stage mode
+Status: todo (can start now against a mocked contract)   Risk: high (realtime screen state, LLM, the core experience)
+Goal: implement the "AllOnline" section of AI-STOCK.md: a server-side director + a new screen content kind `ai-stock` (backward compatible), the stage chart for any symbol with level/zone/pattern overlays, the signal card, Claude commentary (server only, cached, model from config with default `claude-opus-5-5`, a strict prompt: only use the given numbers, Vietnamese, no buy/sell advice, end with the disclaimer), the owner controls (bật AI, pause/skip/pin/stop, top N, seconds per stock), and the viewer list "Bảng AI Stock" (private view).
+Design notes: add `STOCKVN_URL` and the token client for `/api/ai/scan`. Until S-3 ships, use a typed fixture provider that matches the contract exactly. With no Anthropic key, fall back to a template sentence. Rate-limit the LLM calls. Demo mode uses the fixture.
+Acceptance: unit tests for the director (rotation/pause/pin, late-join state), the prompt builder (numbers come only from input) and the fallback. The `scripts/smoke.ts` room checks pass. Screenshots at 390/1440 with the 3D-safe procedure. lint, tsc, tests.
