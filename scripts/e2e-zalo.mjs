@@ -3,7 +3,7 @@ import puppeteer from "puppeteer-core";
  * Zalo bot + payments in real Chrome (demo server, bot simulator on /account):
  * sign up via the bot → one-time login link → link a web account (LK) → reminder → SePay
  * webhook opens a paid room and the bot tells the payer → screenshot to review → admin approves.
- * Needs a DEMO server started with SEPAY_API_KEY=test-sepay ZALO_OA_ID=demo-oa:
+ * Needs an isolated DEMO server started with SEPAY_API_KEY=test-sepay:
  *   BASE=http://localhost:3100 node scripts/e2e-zalo.mjs <outDir>
  */
 const BASE = process.env.BASE ?? "http://localhost:3100";

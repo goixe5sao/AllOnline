@@ -20,7 +20,7 @@ interface InviteView {
   guestJoinEnabled: boolean;
   reminded: boolean;
   zaloLinked: boolean;
-  zaloBot: { oaId: string; url: string } | null;
+  zaloBot: { url: string } | null;
 }
 
 function countdown(ms: number) {

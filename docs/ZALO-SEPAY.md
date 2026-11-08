@@ -1,5 +1,9 @@
 # Bật Zalo, SePay và đọc ảnh chuyển khoản
 
+> The Zalo OA bot instructions below are historical. T-1 replaces that transport;
+> use [ZALO-BOT.md](ZALO-BOT.md) for current bot configuration and webhook registration.
+> The OAuth app login and SePay instructions remain separate.
+
 Tài liệu này dành cho chủ ứng dụng AllOnline (sankhau.pro.vn).
 
 Code đã có sẵn. Mỗi tính năng tự bật khi điền khoá tương ứng vào `D:\ActiveProject\AllOnline\.env.local`, sau đó chạy `.\deploy\windows\restart.ps1`. Thiếu khoá nào thì tính năng đó tự ẩn, phần còn lại của web vẫn chạy bình thường.

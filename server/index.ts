@@ -26,7 +26,7 @@ import type { MapCode } from "@/core/maps";
 import { getUser } from "./services/users";
 import { clientIp } from "./http";
 import path from "node:path";
-import { CaptureSender, ZaloOa } from "./zalo/oa";
+import { CaptureSender, BotTransport } from "./zalo/transport";
 import { ZaloBot } from "./zalo/bot";
 
 async function main() {
@@ -48,9 +48,10 @@ async function main() {
   if (process.env.MARKET_DATA !== "off") market.start();
   // Technical analysis is provided by the StockVN service (trendlines, channels, S/R, patterns…).
   const analysis = new StockVnAnalysis(cfg.stockvnUrl, undefined, undefined, cfg.stockvnToken);
-  // Zalo OA bot: real OA API when configured, otherwise an in-memory sender (demo simulator).
+  // Demo mode always captures messages, even when inherited env contains live credentials.
   const origin = () => cfg.publicOrigin ?? `http://localhost:${cfg.port}`;
-  const zaloSender = cfg.zaloAppId && cfg.zaloAppSecret && (cfg.zaloOaRefreshToken || cfg.zaloOaId) ? new ZaloOa(cfg, db) : new CaptureSender();
+  const zaloSender = cfg.mode !== "demo" && cfg.zaloBotToken ? new BotTransport(cfg.zaloBotToken) : new CaptureSender();
+  if (zaloSender instanceof BotTransport) cfg.zaloBotId = await zaloSender.accountName();
   const bot = new ZaloBot({
     cfg,
     db,

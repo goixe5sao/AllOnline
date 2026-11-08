@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { migrate, openPglite, type Db } from "../server/db";
 import { upsertUser } from "../server/services/users";
 import { updateSettings } from "../server/services/settings";
@@ -8,7 +8,7 @@ import { Auth } from "../server/auth";
 import type { Config } from "../server/config";
 import type { Storage } from "../server/storage";
 import { ZaloBot, parseCommand, plain } from "../server/zalo/bot";
-import { CaptureSender, verifyZaloSignature } from "../server/zalo/oa";
+import { CaptureSender } from "../server/zalo/transport";
 import { decideReceipt, findOrderCode, type Receipt } from "../server/payments/receipt";
 import { parseVnTime, recordBankTransfer } from "../server/payments/bank";
 import { userByIdentity } from "../server/services/identities";
@@ -72,12 +72,7 @@ describe("receipts", () => {
     expect(decideReceipt({ ...ok, transfer_content: "chuyen tien", amount_vnd: 12345 }, pending, opts)).toMatchObject({ kind: "no_order" });
   });
 
-  it("Zalo webhook signature and SePay time", () => {
-    const raw = JSON.stringify({ event_name: "user_send_text", timestamp: "1730800000000" });
-    const mac = createHash("sha256").update("APP" + raw + "1730800000000" + "SECRET").digest("hex");
-    expect(verifyZaloSignature(raw, `mac=${mac}`, "APP", "SECRET")).toBe(true);
-    expect(verifyZaloSignature(raw, `mac=${mac}`, "APP", "OTHER")).toBe(false);
-    expect(verifyZaloSignature(raw, undefined, "APP", "SECRET")).toBe(false);
+  it("SePay time", () => {
     expect(parseVnTime("2026-11-05 20:01:00")?.toISOString()).toBe("2026-11-05T13:01:00.000Z");
   });
 });

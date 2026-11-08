@@ -10,7 +10,7 @@ import { getSettings } from "../services/settings";
 import { confirmPayment, getRoomByInvite } from "../services/rooms";
 import { findOrCreateZaloUser, linkIdentity, oaUserIdOf, userByIdentity } from "../services/identities";
 import { decideReceipt, readReceipt } from "../payments/receipt";
-import type { OaSender } from "./oa";
+import type { BotSender } from "./transport";
 
 /** "Đăng ký" → "dang ky": commands work with or without Vietnamese accents. */
 export function plain(s: string) {
@@ -51,17 +51,17 @@ const HELP = [
 ].join("\n");
 
 export interface ZaloEvent {
-  app_id?: string;
   event_name: string;
-  timestamp?: string | number;
-  user_id_by_app?: string;
-  sender?: { id: string };
-  follower?: { id: string };
-  message?: { msg_id?: string; text?: string; attachments?: { type: string; payload?: { url?: string; thumbnail?: string } }[] };
+  message?: {
+    from?: { id: string; display_name?: string; is_bot?: boolean };
+    chat?: { id: string; chat_type: string };
+    text?: string;
+    photo_url?: string;
+  };
 }
 
 /**
- * The Sân Khấu Online Zalo OA bot: sign up / sign in with a one-time link, link a web account,
+ * The Sân Khấu Online Zalo Bot Platform bot: sign up / sign in with a one-time link, link a web account,
  * event reminders, payment status, and payment screenshots (read by Claude, matched with the
  * bank feed; a screenshot alone opens a room only below the app owner's auto-approve limit).
  */
@@ -79,7 +79,7 @@ export class ZaloBot {
   private wrongCodes = new Map<string, { n: number; since: number }>();
 
   constructor(
-    private deps: { cfg: Config; db: Db; auth: Auth; storage: Storage; sender: OaSender; origin: () => string; onPaid?: (r: { roomId?: string; kind?: string }) => Promise<void> },
+    private deps: { cfg: Config; db: Db; auth: Auth; storage: Storage; sender: BotSender; origin: () => string; onPaid?: (r: { roomId?: string; kind?: string }) => Promise<void> },
   ) {}
 
   get sender() {
@@ -136,40 +136,28 @@ export class ZaloBot {
   // ---------- events ----------
 
   async handle(e: ZaloEvent) {
-    const oaUid = e.sender?.id ?? e.follower?.id;
-    if (!oaUid) return;
-    if (e.event_name === "follow") return this.say(oaUid, "Cảm ơn bạn đã quan tâm Sân Khấu Online — sân khấu 3D trực tuyến!\n\n" + HELP);
-    if (e.event_name === "user_send_text") return this.onText(oaUid, e.message?.text ?? "", e.user_id_by_app);
-    if (e.event_name === "user_send_image") {
-      const url = e.message?.attachments?.find((a) => a.type === "image")?.payload?.url;
-      if (url) return this.onImage(oaUid, url);
-    }
+    const m = e.message;
+    // Login and account commands are private: group chats must never become identities.
+    if (!m?.from?.id || m.from.is_bot || m.chat?.chat_type !== "PRIVATE" || m.chat.id !== m.from.id) return;
+    if (e.event_name === "message.text.received") return this.onText(m.chat.id, m.text ?? "");
+    if (e.event_name === "message.image.received" && m.photo_url) return this.onImage(m.chat.id, m.photo_url);
   }
 
   private say(oaUid: string, text: string) {
     return this.deps.sender.sendText(oaUid, text);
   }
 
-  /** The account behind a follower: linked, else (via Zalo Login on the same app) the 'zalo' identity. */
-  private async account(oaUid: string, appUid?: string) {
-    const linked = await userByIdentity(this.deps.db, "zalo_oa", oaUid);
-    if (linked) return linked;
-    if (appUid) {
-      const viaLogin = await userByIdentity(this.deps.db, "zalo", appUid);
-      if (viaLogin) {
-        await linkIdentity(this.deps.db, "zalo_oa", oaUid, viaLogin.id);
-        return viaLogin;
-      }
-    }
-    return null;
+  /** Keep the existing provider key to reuse code-login storage without a schema migration. */
+  private async account(oaUid: string) {
+    return userByIdentity(this.deps.db, "zalo_oa", oaUid);
   }
 
-  async onText(oaUid: string, text: string, appUid?: string) {
+  async onText(oaUid: string, text: string) {
     const cmd = parseCommand(text);
     const db = this.deps.db;
     switch (cmd.kind) {
       case "login": {
-        let user = await this.account(oaUid, appUid);
+        let user = await this.account(oaUid);
         let created = false;
         if (!user) {
           const p = await this.deps.sender.profile(oaUid);
@@ -189,7 +177,7 @@ export class ZaloBot {
           this.wrongCodes.set(oaUid, w && now - w.since < 10 * 60_000 ? { n: w.n + 1, since: w.since } : { n: 1, since: now });
           return this.say(oaUid, "Mã đăng nhập không đúng hoặc đã hết hạn. Trên trang web, bấm “Lấy mã mới” rồi nhắn lại mã mới nhé.");
         }
-        let user = await this.account(oaUid, appUid);
+        let user = await this.account(oaUid);
         let created = false;
         if (!user) {
           const p = await this.deps.sender.profile(oaUid);
@@ -206,7 +194,7 @@ export class ZaloBot {
         return this.say(oaUid, "✅ Đã liên kết Zalo với tài khoản Sân Khấu Online của bạn. Từ giờ bot sẽ nhắc sự kiện và báo thanh toán ở đây.");
       }
       case "remind": {
-        const user = (await this.account(oaUid, appUid)) ?? (await findOrCreateZaloUser(db, "zalo_oa", oaUid, (await this.deps.sender.profile(oaUid))?.name ?? "Người dùng Zalo")).user;
+        const user = (await this.account(oaUid)) ?? (await findOrCreateZaloUser(db, "zalo_oa", oaUid, (await this.deps.sender.profile(oaUid))?.name ?? "Người dùng Zalo")).user;
         const r = await getRoomByInvite(db, cmd.invite);
         if (!r || r.status !== "open") return this.say(oaUid, `Không tìm thấy phòng đang mở với mã ${cmd.invite}.`);
         if (cmd.on) await db.query("insert into app.room_reminders (room_id, user_id) values ($1, $2) on conflict do nothing", [r.id, user.id]);
@@ -215,7 +203,7 @@ export class ZaloBot {
         return this.say(oaUid, cmd.on ? `🔔 Sẽ nhắc bạn sự kiện “${r.name}”${when}.` : `Đã bỏ nhắc “${r.name}”.`);
       }
       case "events": {
-        const user = await this.account(oaUid, appUid);
+        const user = await this.account(oaUid);
         if (!user) return this.say(oaUid, "Bạn chưa có tài khoản. Nhắn ĐĂNG KÝ để bắt đầu.");
         const rows = (
           await db.query<{ name: string; invite_code: string; scheduled_at: Date | null }>(
@@ -228,7 +216,7 @@ export class ZaloBot {
         return this.say(oaUid, "🗓 Sự kiện của bạn:\n" + rows.map((r) => `• ${r.name}${r.scheduled_at ? " — " + vnEventTime(new Date(r.scheduled_at).getTime()) : ""}\n  ${this.deps.origin()}/join/${r.invite_code}`).join("\n"));
       }
       case "orders": {
-        const user = await this.account(oaUid, appUid);
+        const user = await this.account(oaUid);
         if (!user) return this.say(oaUid, "Bạn chưa có tài khoản. Nhắn ĐĂNG KÝ để bắt đầu.");
         const s = await getSettings(db);
         const rows = (await db.query<{ code: string; amount_vnd: number; kind: string }>("select code, amount_vnd::float8 as amount_vnd, kind from app.orders where user_id = $1 and status = 'pending' and hold_expires_at > now() order by created_at desc limit 5", [user.id])).rows;
