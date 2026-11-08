@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { Badge, Button, PageHeader, Skeleton } from "@/components/ui";
+import "../orders.css";
 import { api, ApiError, fmtDuration, fmtTime, useApi } from "@/lib/api";
 import { formatVnd, type Quote } from "@/core/pricing";
 
@@ -42,16 +44,17 @@ export default function OrderPage() {
     <AppShell requireLogin narrow>
       {() => {
         if (error) return <p className="notice error">{error.message}</p>;
-        if (!data) return <p className="muted">Đang tải…</p>;
+        if (!data) return <Skeleton />;
         const o = data.order;
         const pending = o.status === "pending";
         const topUp = o.status === "underpaid";
         return (
-          <div className="stack">
+          <div className="stack order-page">
+            <PageHeader title={`Đơn ${o.code}`} subtitle="Thông tin đơn và thanh toán" />
             <div className="card stack">
               <div className="row between">
-                <h1 style={{ margin: 0 }}>Đơn {o.code}</h1>
-                <span className={`badge ${o.status.startsWith("paid") ? "ok" : pending ? "warn" : "danger"}`}>{STATUS_TEXT[o.status] ?? o.status}</span>
+                <h2>Chi tiết đơn</h2>
+                <Badge tone={o.status.startsWith("paid") ? "success" : pending ? "warning" : "danger"}>{STATUS_TEXT[o.status] ?? o.status}</Badge>
               </div>
               <p className="muted" style={{ margin: 0 }}>
                 {o.kind === "create_room" ? "Tạo phòng" : "Gia hạn phòng"} · {o.quote.officialCapacity} chỗ chính thức + {o.quote.waitingCapacity} chờ · {o.quote.openEnded ? `vô thời hạn (đặt cọc, ${formatVnd(o.quote.openEnded.hourlyRate)}/giờ)` : `${o.quote.durationHours} giờ`}
@@ -84,7 +87,9 @@ export default function OrderPage() {
                 {data.payment.qrConfigured ? (
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={data.payment.qrImageUrl!} alt={`QR chuyển khoản ${o.code}`} width={280} height={280} style={{ alignSelf: "center", background: "#fff", borderRadius: 12 }} />
+                    <img className="order-qr" src={data.payment.qrImageUrl!} alt={`QR chuyển khoản ${o.code}`} width={280} height={280} />
+                    <div className="order-copy"><span>Số tiền cần chuyển <strong>{formatVnd(data.payment.due)}</strong></span><Button size="sm" variant="secondary" onClick={async () => { try { await navigator.clipboard.writeText(String(data.payment.due)); setMsg("Đã sao chép số tiền."); } catch { setMsg("Không thể sao chép."); } }}>Sao chép số tiền</Button></div>
+                    <div className="order-copy"><span>Nội dung <strong>{data.payment.transferNote}</strong></span><Button size="sm" variant="secondary" onClick={async () => { try { await navigator.clipboard.writeText(data.payment.transferNote); setMsg("Đã sao chép nội dung."); } catch { setMsg("Không thể sao chép."); } }}>Sao chép nội dung</Button></div>
                     <table className="data">
                       <tbody>
                         <tr>
@@ -147,7 +152,7 @@ export default function OrderPage() {
                     Huỷ đơn
                   </button>
                 </div>
-                {msg && <p className="notice error">{msg}</p>}
+                {msg && <p className="notice" role="status">{msg}</p>}
               </div>
             )}
 
@@ -164,7 +169,14 @@ export default function OrderPage() {
                 </div>
               </div>
             )}
-            <small className="muted">Tạo lúc {fmtTime(o.created_at)}</small>
+            <section className="card stack" aria-label="Tiến trình đơn">
+              <h2>Tiến trình đơn</h2>
+              <ol className="order-timeline">
+                <li><strong>Đã tạo đơn</strong><small>{fmtTime(o.created_at)}</small></li>
+                <li aria-current="step"><strong>{STATUS_TEXT[o.status] ?? o.status}</strong>{pending && <small>Trang tự cập nhật trạng thái thanh toán.</small>}</li>
+                {data.room && <li><strong>{o.kind === "create_room" ? "Phòng đã được tạo" : "Phòng đã được gia hạn"}</strong><small>{data.room.name}</small></li>}
+              </ol>
+            </section>
           </div>
         );
       }}

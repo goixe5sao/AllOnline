@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { fmtTime, useApi } from "@/lib/api";
+import { Badge, DataList, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { formatVnd } from "@/core/pricing";
 
 const STATUS: Record<string, string> = {
@@ -20,40 +21,15 @@ export default function OrdersPage() {
   return (
     <AppShell requireLogin>
       {() => (
-        <div className="card">
-          <h1>Đơn của tôi</h1>
-          {!data ? (
-            <p className="muted">Đang tải…</p>
-          ) : !data.orders.length ? (
-            <p className="muted">Chưa có đơn nào.</p>
-          ) : (
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Mã</th>
-                    <th>Loại</th>
-                    <th>Số tiền</th>
-                    <th>Trạng thái</th>
-                    <th>Tạo lúc</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.orders.map((o) => (
-                    <tr key={o.id}>
-                      <td>
-                        <Link href={`/orders/${o.id}`}>{o.code}</Link>
-                      </td>
-                      <td>{o.kind === "create_room" ? "Tạo phòng" : "Gia hạn"}</td>
-                      <td>{formatVnd(o.amount_vnd)}</td>
-                      <td>{STATUS[o.status] ?? o.status}</td>
-                      <td>{fmtTime(o.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <div className="stack">
+          <PageHeader title="Đơn của tôi" subtitle="Theo dõi đơn và trạng thái thanh toán." />
+          {!data ? <Skeleton /> : <DataList caption="Đơn của tôi" rows={data.orders} rowKey={o => o.id} empty={<EmptyState title="Chưa có đơn nào" action={<Link className="ui-button ui-button-primary" href="/rooms/new">Tạo phòng</Link>} />} columns={[
+            { key: "code", label: "Mã", render: o => <Link href={`/orders/${o.id}`}>{o.code}</Link> },
+            { key: "kind", label: "Loại", render: o => o.kind === "create_room" ? "Tạo phòng" : "Gia hạn" },
+            { key: "amount", label: "Số tiền", render: o => formatVnd(o.amount_vnd) },
+            { key: "status", label: "Trạng thái", render: o => <Badge tone={o.status.startsWith("paid") ? "success" : o.status === "pending" ? "warning" : "danger"}>{STATUS[o.status] ?? o.status}</Badge> },
+            { key: "date", label: "Tạo lúc", render: o => fmtTime(o.created_at) },
+          ]} />}
         </div>
       )}
     </AppShell>

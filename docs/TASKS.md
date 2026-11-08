@@ -88,9 +88,16 @@ Result (Codex, 2026-11-08):
 - Safety: only this worktree, local demo PGlite `.data-ui-audit`, one server on 3100; stopped after checks. No production directory access, live DB/payment/auth calls, deployment or push. Open question: Claude visual review. No backend/auth/pricing implementation changed.
 
 ### T-5: Orders list + order detail (payment)
-Status: todo (after T-2)   Risk: medium (payments UI only)
+Status: review   Risk: medium (payments UI only)
 Goal: orders as a DataList with status Badges. Order detail is a payment card: a VietQR image, amount and content each with a copy button, a countdown, and a status timeline. Proof upload is a dropzone.
 Acceptance: screenshots, the SePay/order e2e, lint, tsc.
+
+Result (Codex, 2026-11-08):
+- Branch: `codex/ui-system`; separate local T-5 commit, no push. Orders use DataList, status Badges, loading Skeleton and an empty-state creation link. Payment detail uses token cards, unchanged VietQR source, amount/content copy buttons, existing countdown and a status timeline.
+- Preserved `/api/orders/:id` polling at 4000 ms, cancel/demo-pay bodies and all backend/payment/pricing code. There is no browser proof-upload control in the existing order page: proofs arrive through the Zalo bot. That behavior is unchanged; adding a dropzone would introduce a new upload path outside this presentation scope.
+- PASS lint (0 errors, 16 existing warnings), tsc --noEmit, unit/service tests (16 files / 174 tests), git diff --check. PASS existing e2e-sepay: QR bank/amount/content, unauthorized/irrelevant transfers, partial payment and remaining-amount QR, top-up, automatic status polling, replay and refund review; no browser errors.
+- PASS `node scripts/ui-t5-t6.mjs`: orders/detail at 390/1440 dark/light, no overflow or page errors, exact QR source and both clipboard values. Eight captures `after/{orders,order}-{390,1440}-{dark,light}.png`, SePay state captures and `after/t5-report.json`. Visually inspected mobile light payment capture.
+- Safety: demo PGlite only, port 3100 only; server stopped at end of session. No production directory, live payment calls, backend edits or push. Claude visual review pending.
 
 ### T-6: Admin + room logs
 Status: todo (after T-2)   Risk: low
