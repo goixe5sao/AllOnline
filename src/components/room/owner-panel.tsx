@@ -32,7 +32,7 @@ const CONTENT_TYPES = [
   { value: "youtube", label: "Video YouTube", icon: Video, hint: "Dán link để tạo danh sách phát" },
   { value: "web", label: "Trang web", icon: Globe, hint: "Chụp trang và tự cuộn" },
   { value: "audio", label: "Âm thanh", icon: Volume2, hint: "Link https hoặc tải lên" },
-  { value: "chart", label: "Biểu đồ VN-Index", icon: ChartNoAxesCombined, hint: "Cố định chỉ số VNINDEX" },
+  { value: "chart", label: "Biểu đồ VN‑Index", icon: ChartNoAxesCombined, hint: "Cố định chỉ số VNINDEX" },
   { value: "blank", label: "Màn hình trống", icon: Square, hint: "Ẩn nội dung đang chiếu" },
 ] as const;
 function contentLabel(content: ScreenContent) {
