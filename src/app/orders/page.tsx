@@ -10,7 +10,7 @@ const STATUS: Record<string, string> = {
   pending: "Chờ thanh toán",
   paid: "Đã xác nhận",
   paid_late: "Đã xác nhận (trễ)",
-  expired: "Hết hạn giữ slot",
+  expired: "Hết hạn giữ chỗ",
   cancelled: "Đã huỷ",
   underpaid: "Thiếu tiền",
   needs_review: "Cần xem xét",

@@ -34,7 +34,7 @@ function OverviewTab() {
         </p>
       ))}
       <LiveUsageCard />
-      <div className="grid grid-4">
+      <div className="admin-kpis">
         <div className="card stat">
           <span>Ngân sách slot</span>
           <strong>{b.budget}</strong>
@@ -51,12 +51,6 @@ function OverviewTab() {
           <span>Còn lại</span>
           <strong>{b.remaining}</strong>
         </div>
-      </div>
-      <div className="slotbar">
-        <span className="alloc" style={{ width: `${(b.allocated / Math.max(1, b.budget)) * 100}%` }} />
-        <span className="held" style={{ width: `${(b.held / Math.max(1, b.budget)) * 100}%` }} />
-      </div>
-      <div className="grid grid-4">
         <div className="card stat">
           <span>Người online (tài khoản)</span>
           <strong>{data.live.onlineUsers}</strong>
@@ -75,6 +69,10 @@ function OverviewTab() {
           <span>Đang chờ ngoài cổng</span>
           <strong>{data.live.waiting}</strong>
         </div>
+      </div>
+      <div className="slotbar">
+        <span className="alloc" style={{ width: `${(b.allocated / Math.max(1, b.budget)) * 100}%` }} />
+        <span className="held" style={{ width: `${(b.held / Math.max(1, b.budget)) * 100}%` }} />
       </div>
       <p className="muted">
         Đơn đang giữ slot: {data.pendingOrders} · Giao dịch cần xem xét: {data.reviewOrders}
@@ -803,7 +801,7 @@ function LiveUsageCard({ cap: capIn, onCap }: { cap?: number; onCap?: (v: number
   const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : 100;
   return (
     <div className="card stack usage-card">
-      <h2>📡 Hạn mức live camera &amp; nói chuyện — tháng {data?.month ?? "…"}</h2>
+      <h2>Hạn mức live camera &amp; nói chuyện — tháng {data?.month ?? "…"}</h2>
       {data && !data.configured && <p className="notice warn">Máy chủ chưa có mã Cloudflare Realtime — chưa ai live / bật mic được.</p>}
       <div className="usage-split">
         <div>
@@ -812,7 +810,7 @@ function LiveUsageCard({ cap: capIn, onCap }: { cap?: number; onCap?: (v: number
         </div>
         <div>
           <b>Còn lại</b>
-          <div className="usage-num" style={{ color: pct >= 90 ? "var(--danger, #e5484d)" : undefined }}>{size(left)}</div>
+          <div className="usage-num" style={{ color: pct >= 90 ? "var(--danger)" : undefined }}>{size(left)}</div>
         </div>
         <div>
           <b>Trần tháng</b>
@@ -820,7 +818,7 @@ function LiveUsageCard({ cap: capIn, onCap }: { cap?: number; onCap?: (v: number
         </div>
       </div>
       <div className="live-meter usage-bar" aria-label={`Đã dùng ${Math.round(pct)}%`}>
-        <span style={{ width: `${pct}%`, background: pct >= 90 ? "var(--danger, #e5484d)" : undefined }} />
+        <span style={{ width: `${pct}%`, background: pct >= 90 ? "var(--danger)" : undefined }} />
       </div>
       {onCap ? (
         <label className="field">
@@ -841,7 +839,7 @@ function DemoRoomsCard({ minutes, onMinutes }: { minutes: number; onMinutes: (v:
   const [msg, setMsg] = useState("");
   return (
     <div className="card stack">
-      <h2>🎪 Phòng trải nghiệm (trang chủ)</h2>
+      <h2>Phòng trải nghiệm (trang chủ)</h2>
       <label className="field">
         Số phút mỗi lượt trải nghiệm — hết lượt vào lại được, không giới hạn số lượt (0 = ẩn phòng trải nghiệm)
         <input type="number" min={0} max={1440} value={minutes} onChange={(e) => onMinutes(Number(e.target.value))} />

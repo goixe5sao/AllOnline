@@ -9,3 +9,4 @@
 .logs-timeline pre { white-space: pre-wrap; min-width: 0; }
 .logs-timeline summary { cursor: pointer; min-height: var(--touch); display: flex; align-items: center; color: var(--text-2); }
 @media (max-width: 767px) { .logs-filters { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 767px) { .logs-timeline { padding: var(--space-4); } }

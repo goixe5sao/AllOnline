@@ -1,10 +1,10 @@
 .admin-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); }
 .admin-page .admin-layout { grid-template-columns: minmax(0, 1fr); }
 .admin-page .admin-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); border: 0; align-self: start; }
-.admin-nav button { min-height: var(--touch); padding: var(--space-3); color: var(--text-2); border: 1px solid var(--border); border-radius: var(--radius-input); background: var(--surface); text-align: left; }
-.admin-nav button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+.admin-nav button { min-height: var(--touch); padding: var(--space-3); color: var(--text-2); border: 0; border-left: var(--space-1) solid transparent; border-radius: var(--radius-input); background: transparent; text-align: left; }
+.admin-nav button[aria-selected="true"] { background: var(--accent-soft); color: var(--text); border-left-color: var(--accent); }
 .admin-content { min-width: 0; }
-.admin-page .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-5); box-shadow: var(--shadow-1); min-width: 0; }
+.admin-page .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-6); box-shadow: var(--shadow-1); min-width: 0; }
 .admin-page .stat strong { color: var(--text); font-size: var(--type-28); }
 .admin-page .grid { gap: var(--space-4); }
 .admin-page .row { flex-wrap: wrap; }
@@ -24,3 +24,12 @@
   .admin-page .grid { grid-template-columns: minmax(0, 1fr); }
   .admin-page .ui-data-list td { white-space: normal !important; }
 }
+
+.admin-nav button:hover { background: var(--surface-2); color: var(--text); }
+.admin-page .usage-bar span { background: var(--success); }
+.admin-page .usage-split > div { background: var(--surface-2); padding: var(--space-3); border-radius: var(--radius-input); }
+.admin-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: var(--space-4); align-items: stretch; }
+.admin-kpis > .card { margin: 0; align-content: space-between; gap: var(--space-3); }
+@media (min-width: 1024px) { .admin-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 379px) { .admin-kpis { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 767px) { .admin-page .card { padding: var(--space-4); } }

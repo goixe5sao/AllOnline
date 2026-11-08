@@ -33,7 +33,19 @@ for(const width of [390,1440]) for(const theme of ['dark','light']) {
  if(name==='order'){
  const d=await page.evaluate(async id=>(await(await fetch(`/api/orders/${id}`)).json()),fixture.orderId);
  assert.equal(await page.$eval('.order-qr',e=>e.getAttribute('src')),d.payment.qrImageUrl);
- for(const [index,value] of [[0,String(d.payment.due)],[1,d.payment.transferNote]]){await(await page.$$('.order-copy button'))[index].click();assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),value);}
+ for(const [index,value] of [[0,d.payment.accountNo],[1,String(d.payment.due)],[2,d.payment.transferNote]]){await(await page.$$('.order-copy button'))[index].click();assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),value);}
+ assert.equal(await page.$$eval('.order-bank-details > div',nodes=>nodes.length),5);
+ assert.ok(await page.$eval('.order-actions',e=>{const [a,b]=e.children;return Math.abs(a.getBoundingClientRect().top-b.getBoundingClientRect().top)<1;}));
+ assert.equal(await page.$eval('.order-page details',e=>e.open),false);
+ const me=await page.evaluate(async()=>(await(await fetch('/api/me')).json()));
+ await page.setRequestInterception(true);
+ const customer=req=>new URL(req.url()).pathname==='/api/me'?req.respond({status:200,contentType:'application/json',body:JSON.stringify({...me,user:{...me.user,role:'user'}})}):req.continue();
+ page.on('request',customer);
+ await page.reload({waitUntil:'networkidle0'});
+ assert.equal(await page.$('.order-page details'),null);
+ assert.ok(!await page.$eval('.order-page',e=>/slot|vẫn trừ/.test(e.innerText)));
+ await page.screenshot({path:`${out}/order-${width}-${theme}.png`,fullPage:true});
+ page.off('request',customer);await page.setRequestInterception(false);
  }
  if(name==='logs'){
  await page.type('input[type=search]','no-event-matches-this');
@@ -44,6 +56,10 @@ for(const width of [390,1440]) for(const theme of ['dark','light']) {
  if(options.length>1){await page.select('.logs-filters select',options[1]);assert.ok(await page.$('.logs-timeline li'));}
  }
  if(name==='admin'){
+ const tiles=await page.$$eval('.admin-kpis > .card',nodes=>nodes.map(e=>{const r=e.getBoundingClientRect();return {top:r.top,height:r.height,margin:getComputedStyle(e).marginTop};}));
+ assert.equal(tiles.length,8);
+ const columns=width===1440?4:2;
+ for(let i=0;i<tiles.length;i+=columns){assert.ok(tiles.slice(i,i+columns).every(t=>Math.abs(t.top-tiles[i].top)<1&&Math.abs(t.height-tiles[i].height)<1&&t.margin==='0px'));}
  await page.screenshot({path:`${out}/admin-overview-${width}-${theme}.png`,fullPage:false});
  await page.focus('[role=tab][aria-selected=true]');await page.keyboard.press('End');
  assert.equal(await page.$eval('[role=tab][aria-selected=true]', e=>e.textContent.trim()),'Log');

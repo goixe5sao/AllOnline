@@ -1,8 +1,8 @@
 .auth-card { max-width:100%; margin:var(--space-8) auto; }
-.auth-card .ui-card-body { padding:var(--space-8); }
+.auth-card .ui-card-body { padding:var(--space-6); }
 .auth-brand { display:flex; align-items:center; gap:var(--space-3); color:var(--accent); font-weight:600; font-size:var(--type-14); }
 .auth-brand svg,.account-section h2 svg,.event-hero svg { width:var(--space-5); height:var(--space-5); stroke-width:1.75; flex-shrink:0; }
-.auth-card .ui-page-header { margin:0; }
+.auth-card .ui-page-header { margin-bottom:var(--space-8); }
 .auth-card .ui-tabs { margin-bottom:var(--space-6); }
 .auth-card .ui-tabs button { flex:1; }
 .auth-card .login-tabs { display:block; border:0; padding:0; background:transparent; }
@@ -25,7 +25,7 @@
 .account-section .sim-chat { background:var(--surface-2); border-color:var(--border); }
 .account-section .sim-msg { overflow-wrap:anywhere; }
 .event-hero { background:linear-gradient(135deg,var(--accent-soft),var(--surface) 65%); border-color:var(--border); }
-.event-hero .ui-page-header { margin:0; }
+.event-hero .ui-page-header { margin-bottom:var(--space-8); }
 .event-hero .event-when { display:flex; align-items:center; gap:var(--space-2); color:var(--text-2); font-size:var(--type-14); }
 .event-hero .event-count { color:var(--accent); font-size:var(--type-28); font-weight:700; }
 .event-hero .row { gap:var(--space-2); }

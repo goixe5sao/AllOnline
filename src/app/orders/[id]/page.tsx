@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Copy } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Badge, Button, PageHeader, Skeleton } from "@/components/ui";
 import "../orders.css";
@@ -20,7 +21,7 @@ const STATUS_TEXT: Record<string, string> = {
   pending: "Chờ thanh toán",
   paid: "Đã xác nhận",
   paid_late: "Đã xác nhận (trễ)",
-  expired: "Hết thời gian giữ slot",
+  expired: "Hết thời gian giữ chỗ",
   cancelled: "Đã huỷ",
   underpaid: "Thiếu tiền — chờ xử lý",
   needs_review: "Cần chủ ứng dụng xem xét",
@@ -42,7 +43,7 @@ export default function OrderPage() {
 
   return (
     <AppShell requireLogin narrow>
-      {() => {
+      {(me) => {
         if (error) return <p className="notice error">{error.message}</p>;
         if (!data) return <Skeleton />;
         const o = data.order;
@@ -58,18 +59,18 @@ export default function OrderPage() {
               </div>
               <p className="muted" style={{ margin: 0 }}>
                 {o.kind === "create_room" ? "Tạo phòng" : "Gia hạn phòng"} · {o.quote.officialCapacity} chỗ chính thức + {o.quote.waitingCapacity} chờ · {o.quote.openEnded ? `vô thời hạn (đặt cọc, ${formatVnd(o.quote.openEnded.hourlyRate)}/giờ)` : `${o.quote.durationHours} giờ`}
-                {o.kind === "create_room" && ` · giữ ${o.slots} slot`}
               </p>
-              <div className="row between">
+              {(!(pending || topUp) || !data.payment.qrConfigured) && <div className="row between">
                 <span>Số tiền</span>
                 <strong style={{ fontSize: "1.4rem" }}>{formatVnd(o.amount_vnd)}</strong>
-              </div>
+              </div>}
               {o.quote.promo && (
                 <p className="notice ok" style={{ margin: 0 }}>
                   Mã {o.quote.promo.code}: giảm {o.quote.promo.percentOff}% (−{formatVnd(o.quote.promo.discount)}, giá gốc {formatVnd(o.quote.promo.amountBefore)})
                 </p>
               )}
-              <small>{o.quote.note}. Giá đã chốt tại thời điểm tạo đơn.</small>
+              <small>Giá đã chốt tại thời điểm tạo đơn.</small>
+              {me.role === "app_owner" && <details><summary>Chi tiết hệ thống</summary><p>{o.quote.note} · Giữ {o.slots} slot</p></details>}
               {o.review_note && <p className="notice warn">{o.review_note}</p>}
             </div>
 
@@ -77,37 +78,30 @@ export default function OrderPage() {
               <div className="card stack">
                 {pending ? (
                   <p>
-                    Slot đang được giữ trong <Countdown until={o.hold_expires_at} />. Hết thời gian, đơn tự huỷ và trả slot.
+                    Giữ chỗ <Countdown until={o.hold_expires_at} />, quá giờ đơn tự huỷ.
                   </p>
                 ) : (
                   <p className="notice warn">
-                    Còn thiếu <strong>{formatVnd(data.payment.due)}</strong>. Quét QR dưới đây (đã điền sẵn số tiền còn thiếu và nội dung <strong>{o.code}</strong>).
+                    Vui lòng thanh toán phần còn thiếu. Mã QR đã điền sẵn số tiền và nội dung chuyển khoản bên dưới.
                   </p>
                 )}
                 {data.payment.qrConfigured ? (
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img className="order-qr" src={data.payment.qrImageUrl!} alt={`QR chuyển khoản ${o.code}`} width={280} height={280} />
-                    <div className="order-copy"><span>Số tiền cần chuyển <strong>{formatVnd(data.payment.due)}</strong></span><Button size="sm" variant="secondary" onClick={async () => { try { await navigator.clipboard.writeText(String(data.payment.due)); setMsg("Đã sao chép số tiền."); } catch { setMsg("Không thể sao chép."); } }}>Sao chép số tiền</Button></div>
-                    <div className="order-copy"><span>Nội dung <strong>{data.payment.transferNote}</strong></span><Button size="sm" variant="secondary" onClick={async () => { try { await navigator.clipboard.writeText(data.payment.transferNote); setMsg("Đã sao chép nội dung."); } catch { setMsg("Không thể sao chép."); } }}>Sao chép nội dung</Button></div>
-                    <table className="data">
-                      <tbody>
-                        <tr>
-                          <td>Số tài khoản</td>
-                          <td>{data.payment.accountNo}</td>
-                        </tr>
-                        <tr>
-                          <td>Chủ tài khoản</td>
-                          <td>{data.payment.accountName}</td>
-                        </tr>
-                        <tr>
-                          <td>Nội dung chuyển khoản</td>
-                          <td>
-                            <strong>{data.payment.transferNote}</strong>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                    <dl className="order-bank-details">
+                      {[
+                        { label: "Ngân hàng", value: data.payment.bankBin },
+                        { label: "Số tài khoản", value: data.payment.accountNo, copy: data.payment.accountNo },
+                        { label: "Chủ tài khoản", value: data.payment.accountName },
+                        { label: "Số tiền", value: formatVnd(data.payment.due), copy: String(data.payment.due) },
+                        { label: "Nội dung", value: data.payment.transferNote, copy: data.payment.transferNote },
+                      ].map(({ label, value, copy }) => (
+                        <div className={copy !== undefined ? "order-copy" : ""} key={label}>
+                          <dt>{label}</dt><dd><strong>{value}</strong>{copy !== undefined && <Button size="sm" variant="ghost" aria-label={`Sao chép ${label.toLowerCase()}`} onClick={async () => { try { await navigator.clipboard.writeText(copy); setMsg(`Đã sao chép ${label.toLowerCase()}.`); } catch { setMsg("Không thể sao chép."); } }}><Copy aria-hidden="true" /></Button>}</dd>
+                        </div>
+                      ))}
+                    </dl>
                     <small>Ảnh QR được tạo bởi dịch vụ VietQR (img.vietqr.io) từ cấu hình của chủ ứng dụng.</small>
                   </>
                 ) : (
@@ -115,14 +109,14 @@ export default function OrderPage() {
                 )}
                 {data.payment.autoConfirm ? (
                   <p className="notice ok">
-                    ⚡ Chuyển <strong>đúng số tiền</strong> và giữ nguyên nội dung <strong>{o.code}</strong>: tiền vào tài khoản là phòng <strong>tự mở trong vài giây</strong> — trang này tự cập nhật, không cần gửi ảnh.
+                    Chuyển <strong>đúng số tiền</strong> và giữ nguyên nội dung bên trên: tiền vào tài khoản là phòng <strong>tự mở trong vài giây</strong> — trang này tự cập nhật, không cần gửi ảnh.
                   </p>
                 ) : (
                   <p className="notice">
                     Quét QR hay chuyển khoản <strong>không tự động</strong> tạo phòng. Phòng chỉ được tạo khi chủ ứng dụng xác nhận đã nhận tiền.
                   </p>
                 )}
-                <div className="row">
+                <div className="row order-actions">
                   {data.demoPayAvailable && (
                     <button
                       className="btn primary"
@@ -135,11 +129,11 @@ export default function OrderPage() {
                         }
                       }}
                     >
-                      Thanh toán giả (chỉ demo)
+                      Thanh toán thử
                     </button>
                   )}
                   <button
-                    className="btn danger"
+                    className="ui-button ui-button-ghost order-cancel"
                     onClick={async () => {
                       try {
                         await api(`/api/orders/${o.id}/cancel`, { body: {} });
