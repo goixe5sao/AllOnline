@@ -102,7 +102,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   const publicUser = (u: AppUser | null) => u && { id: u.id, displayName: u.display_name, email: u.email, role: u.role, isDemo: u.is_demo, isGuest: u.is_guest };
 
   // ----- session -----
-  route("GET", "/api/ai-stock/scan", async () => hub.aiStockScan());
+  route("GET", "/api/ai-stock/scan", async (ctx) => { needAttendee(ctx); return hub.aiStockScan(); });
   route("GET", "/api/me", async ({ user }) => ({ user: publicUser(user), mode: cfg.mode }), { public: true });
 
   route(

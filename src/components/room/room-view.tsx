@@ -8,6 +8,7 @@ import type { PollViewDto } from "@/core/protocol";
 import { hourIndex, ringBell, unlockAudio, vnHourLabel } from "./bell";
 import { PITCH_RANGE, RoomScene, type Controls } from "./scene";
 import { ScreenContent } from "./screen-content";
+import { AiStockList } from "./ai-stock";
 import { OwnerPanel } from "./owner-panel";
 import { QaPanel, ReactionStream } from "./engage";
 import { AlienOrb } from "./orb-menu";
@@ -181,7 +182,7 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [wrap, setWrap] = useState<HTMLDivElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [fullView, setFullView] = useState(false);
-  const [panel, setPanel] = useState<"owner" | "seats" | "qa" | "live" | null>(null);
+  const [panel, setPanel] = useState<"owner" | "seats" | "qa" | "live" | "ai-stock" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -751,6 +752,7 @@ export function RoomView({ roomId }: { roomId: string }) {
               : []),
             ...(isParticipant ? [{ id: "hand", icon: "✋", label: handUp ? "Hạ tay" : "Giơ tay", onClick: () => send({ t: "hand", up: !handUp }), active: handUp }] : []),
             { id: "qa", icon: "❓", label: "Hỏi đáp", onClick: () => setPanel(panel === "qa" ? null : "qa"), active: panel === "qa", badge: openQuestions },
+            { id: "ai-stock", icon: "", label: "Bảng AI Stock", onClick: () => setPanel(panel === "ai-stock" ? null : "ai-stock"), active: panel === "ai-stock" },
             { id: "screen", icon: "📺", label: "Xem màn hình", onClick: openFull },
             ...(isParticipant ? [{ id: "view", icon: behind ? "👁" : "🎥", label: behind ? "Góc của tôi" : "Xem từ sau", onClick: () => setBehind(!behind), active: !behind, stay: true }] : []),
             ...(isParticipant && s.room.entryMode === "auto_assign" && me?.status === "seated" ? [{ id: "seats", icon: "💺", label: "Đổi chỗ", onClick: () => setPanel(panel === "seats" ? null : "seats"), active: panel === "seats" }] : []),
@@ -824,6 +826,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           demo={isDemoHost && !s.you.isRoomOwner ? { missions } : null}
         />
       )}
+      {panel === "ai-stock" && <aside className="side-panel"><button className="hud-btn" onClick={() => setPanel(null)}>Đóng</button><AiStockList current={s.screen.content.kind === "ai-stock" ? s.screen.content : undefined}/></aside>}
       {panel === "live" && s.live && <LivePanel live={s.live} selfId={s.you.userId} isMod={canModerate} send={send} pub={pub} onClose={() => setPanel(null)} />}
       <LiveAudio stream={onAirSelf ? null : liveView.stream} volume={stageVolume} muted={muted} />
       {panel === "qa" && (

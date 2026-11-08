@@ -4,7 +4,7 @@ import { stockScanSchema, type StockScan } from "@/core/ai-stock";
 export const STOCK_FIXTURE: StockScan = stockScanSchema.parse({
   asOf: "2026-11-09T07:30:00Z", universe: "VN100", dataDelayMin: 1,
   picks: ["FPT", "HPG", "VCB", "SSI", "MWG", "VHM", "TCB", "VNM"].map((symbol, i) => ({
-    symbol, score: 0.82 - i * 0.03, rank: i + 1, bias: i % 3 === 1 ? "down" : "up", price: 132.5 - i * 10, changePct: 1.2 - i * 0.3,
+    symbol, score: Number((0.82 - i * 0.03).toFixed(2)), rank: i + 1, bias: i % 3 === 1 ? "down" : "up", price: 132.5 - i * 10, changePct: Number((1.2 - i * 0.3).toFixed(2)),
     levels: { support: [128 - i * 10], resistance: [136.4 - i * 10], poc: 129.1 - i * 10, vwap: 130.2 - i * 10, kijun: 128.8 - i * 10, valueArea: [125 - i * 10, 133 - i * 10] },
     signals: [{ type: "poc_breakout", direction: "up", date: "2026-11-06", level: 129.1 - i * 10, volumeRatio: 1.8, stats: { horizon: 10, hitRate: 0.63, n: 214, ci95: [0.56, 0.69], avgReturnPct: 3.1 } },
       { type: "pattern:ascending_triangle", direction: "up", date: "2026-11-06", level: 136.4 - i * 10, volumeRatio: 1.5, stats: { horizon: 5, hitRate: 0.58, n: 120, ci95: [0.49, 0.67], avgReturnPct: 1.4 } }],

@@ -81,6 +81,7 @@ async function main() {
   for (const u of [owner, a, b, c]) await u.login();
 
   // privileges
+  ok((await fetch(BASE + "/api/ai-stock/scan")).status === 401, "AI Stock scan requires an attendee session");
   ok((await owner.call("/api/admin/overview")).status === 403, "normal user cannot open admin API");
   ok((await admin.call("/api/admin/overview")).status === 200, "app owner can open admin API");
   await admin.call("/api/admin/settings", { trial_rooms_per_account: 5, find_seat_seconds: 30, chat_radius: 2, device_limit_room_creator: false, ip_max_participants: 0 }, "PATCH");
@@ -168,6 +169,33 @@ async function main() {
   sC.send({ t: "join", roomId, pass: passes["Chi"], avatar: { group: "people", model: "person-violet" } });
   const wC = await sC.wait((m) => m.t === "welcome");
   ok(wC?.screen?.content?.kind === "youtube" && wC.screen.playing && wC.serverNow - wC.screen.updatedAt >= 1000, "late joiner receives current screen state with server timestamps");
+
+  // AI Stock uses the same authoritative screen channel and moderator permission gate.
+  sA.send({ t: "screen", action: "ai_stock", command: "start" });
+  ok(!!(await sA.wait((m) => m.t === "error" && m.code === "FORBIDDEN")), "AI Stock start is moderator-only");
+  so.send({ t: "screen", action: "ai_stock", command: "start", topN: 2, seconds: 10 });
+  const aiStart = (await sA.wait((m) => m.t === "screen" && m.state.content.kind === "ai-stock"))?.state;
+  ok(aiStart?.content.fixture && aiStart.content.index === 0 && aiStart.content.topN === 2, "AI Stock starts with typed fixture and configured timing");
+  const aiNext = (await sA.wait((m) => m.t === "screen" && m.state.content.kind === "ai-stock" && m.state.content.index === 1, 12000))?.state;
+  ok(!!aiNext, "AI Stock rotates on the server without viewer commands");
+  so.send({ t: "screen", action: "ai_stock", command: "pause" });
+  ok(!!(await sA.wait((m) => m.t === "screen" && m.state.content.paused)), "AI Stock pauses for all viewers");
+  so.send({ t: "screen", action: "ai_stock", command: "pin", symbol: "VNM" });
+  const aiPinned = (await sA.wait((m) => m.t === "screen" && m.state.content.pinned))?.state;
+  ok(aiPinned?.content.snapshot.picks[aiPinned.content.index].symbol === "VNM", "AI Stock pins any symbol in the snapshot");
+  const aiObserver = await new Sock().open(admin);
+  aiObserver.send({ t: "join", roomId });
+  const aiWelcome = await aiObserver.wait((m) => m.t === "welcome");
+  ok(aiWelcome?.screen.rev === aiPinned?.rev && aiWelcome?.screen.content.pinned && aiWelcome?.screen.content.paused, "AI Stock late join gets identical snapshot, pin, pause and revision");
+  aiObserver.ws.close();
+  const privateScan = await a.call("/api/ai-stock/scan");
+  ok(privateScan.status === 200 && privateScan.data.fixture && privateScan.data.snapshot.picks.length === 8, "viewer can read fixture list privately");
+  so.send({ t: "screen", action: "ai_stock", command: "resume" });
+  ok(!!(await sA.wait((m) => m.t === "screen" && m.state.content.kind === "ai-stock" && !m.state.content.paused && !m.state.content.pinned)), "AI Stock resumes and unpins");
+  so.send({ t: "screen", action: "ai_stock", command: "skip" });
+  ok(!!(await sA.wait((m) => m.t === "screen" && m.state.content.kind === "ai-stock" && m.state.content.index === 0)), "AI Stock skip wraps within top N");
+  so.send({ t: "screen", action: "ai_stock", command: "stop" });
+  ok(!!(await sA.wait((m) => m.t === "screen" && m.state.content.kind === "blank")), "AI Stock stop hands the screen back to manual controls");
 
   // poll
   so.send({ t: "poll_create", question: "Bạn thích phim nào?", options: ["A", "B"] });

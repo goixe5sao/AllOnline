@@ -1,0 +1,11 @@
+.ai-stock-stage { position:absolute; inset:0; display:grid; grid-template-columns:minmax(0, 3fr) minmax(0, 2fr); background:var(--surface); color:var(--text); overflow:auto; font-size:var(--type-14); }
+.ai-stock-chart { position:relative; min-height:calc(var(--space-80) * 4); }
+.ai-stock-signal { padding:var(--space-4); min-width:0; overflow:auto; background:var(--surface); color:var(--text); }
+.ai-stock-signal p, .ai-stock-signal li { margin-block:var(--space-3); }
+.ai-stock-signal small { color:var(--text-2); }
+.ai-stock-signal ul { padding-left:var(--space-5); overflow-wrap:anywhere; }
+.ai-stock-fixture { color:var(--warning); font-weight:600; }
+.ai-stock-commentary { border-top:1px solid var(--border); padding-top:var(--space-3); }
+.ai-stock-controls, .ai-stock-list { min-width:0; }
+.ai-stock-private-chart { position:relative; height:calc(var(--space-80) * 4); }
+@media(max-width:767px) { .ai-stock-stage { grid-template-columns:1fr; grid-template-rows:calc(var(--space-80) * 4) auto; } }

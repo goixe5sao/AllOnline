@@ -1,5 +1,6 @@
 "use client";
 
+import { AiStockStage } from "./ai-stock";
 import { LiveVideo } from "./live";
 import { useEffect, useRef, useState } from "react";
 import { currentPosition, type ScreenState } from "@/core/screen";
@@ -268,6 +269,9 @@ export function ScreenContent(p: ScreenProps) {
   const c = p.state.content;
   let body: React.ReactNode;
   switch (c.kind) {
+    case "ai-stock":
+      body = <AiStockStage content={c} />;
+      break;
     case "blank":
       body = <div className="screen-text" style={{ opacity: 0.8 }}>{p.roomName}</div>;
       break;
