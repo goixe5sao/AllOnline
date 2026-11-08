@@ -1,6 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Camera, MessageCircle, UserRound } from "lucide-react";
+import { Input, Card, PageHeader, Badge } from "@/components/ui";
+import "../auth-pages.css";
 import { AppShell } from "@/components/app-shell";
 import { api, ApiError, useApi, type Me } from "@/lib/api";
 
@@ -36,11 +39,11 @@ function BotSimulator() {
       const r = await api<{ replies: string[] }>("/api/zalo/simulate", { body: { oaUserId: oaId, ...body } });
       push(r.replies.map((t) => ({ me: false, text: t })));
     } catch (e) {
-      push([{ me: false, text: "⚠️ " + (e as ApiError).message }]);
+      push([{ me: false, text: "Lỗi: " + (e as ApiError).message }]);
     }
   };
   return (
-    <div className="card stack" id="bot-sim">
+    <Card className="account-section stack" id="bot-sim">
       <h2>Thử bot Zalo</h2>
       <div className="sim-chat" ref={box} aria-live="polite">
         {log.map((m, i) => (
@@ -65,10 +68,10 @@ function BotSimulator() {
           setText("");
         }}
       >
-        <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhắn cho bot…" aria-label="Tin nhắn cho bot" style={{ flex: 1 }} />
-        <button className="btn primary">Gửi</button>
-        <label className="btn" title="Gửi ảnh chụp màn hình chuyển khoản">
-          📷
+        <Input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhắn cho bot…" aria-label="Tin nhắn cho bot" style={{ flex: 1 }} />
+        <button className="btn primary ui-button ui-button-primary">Gửi</button>
+        <label className="btn ui-button" title="Gửi ảnh chụp màn hình chuyển khoản">
+          <Camera aria-label="Gửi ảnh" />
           <input
             type="file"
             accept="image/*"
@@ -84,7 +87,7 @@ function BotSimulator() {
           />
         </label>
       </form>
-    </div>
+    </Card>
   );
 }
 
@@ -97,9 +100,10 @@ function Account({ me }: { me: Me }) {
   const oa = data?.identities.find((i) => i.provider === "zalo_oa");
   const zalo = data?.identities.find((i) => i.provider === "zalo");
   return (
-    <div className="stack">
-      <div className="card stack">
-        <h1>Tài khoản</h1>
+    <div className="account-page stack">
+      <PageHeader title="Tài khoản" subtitle="Thông tin cá nhân và kết nối của bạn." />
+      <Card className="account-section stack">
+        <h2><UserRound aria-hidden /> Thông tin cá nhân</h2>
         {params?.get("linked") === "zalo" && <p className="notice ok">Đã liên kết Zalo.</p>}
         {params?.get("error") === "zalo_taken" && <p className="notice error">Tài khoản Zalo này đã gắn với một tài khoản Sân Khấu Online khác.</p>}
         <form
@@ -116,29 +120,29 @@ function Account({ me }: { me: Me }) {
         >
           <label className="field" style={{ flex: 1 }}>
             Tên hiển thị
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+            <Input type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
           </label>
-          <button className="btn" style={{ alignSelf: "flex-end" }}>
+          <button className="btn ui-button" style={{ alignSelf: "flex-end" }}>
             Lưu
           </button>
         </form>
         {me.email && <small className="muted">Email: {me.email}</small>}
         {msg && <small>{msg}</small>}
-      </div>
+      </Card>
 
-      <div className="card stack">
-        <h2>Zalo</h2>
+      <Card className="account-section stack">
+        <h2><MessageCircle aria-hidden /> Kết nối Zalo</h2>
         <p className="muted" style={{ margin: 0 }}>
           Liên kết Zalo để bot Sân Khấu Online nhắn tin nhắc trước giờ sự kiện, báo khi thanh toán xong, và để bạn gửi ảnh chuyển khoản cho bot.
         </p>
         <div className="row">
-          <span className={`badge ${oa ? "ok" : ""}`}>{oa ? "✓ Bot Zalo đã liên kết" : "Bot Zalo: chưa liên kết"}</span>
-          {zalo && <span className="badge ok">✓ Đăng nhập bằng Zalo</span>}
+          <Badge tone={oa ? "success" : "neutral"}>{oa ? "Bot Zalo đã liên kết" : "Bot Zalo: chưa liên kết"}</Badge>
+          {zalo && <Badge tone="success">Đăng nhập bằng Zalo</Badge>}
         </div>
         {!oa && (
           <div className="stack" style={{ gap: 6 }}>
             <button
-              className="btn primary"
+              className="btn primary ui-button ui-button-primary"
               onClick={async () => {
                 const r = await api<{ code: string }>("/api/me/zalo-link-code", { body: {} });
                 setCode(r.code);
@@ -163,7 +167,7 @@ function Account({ me }: { me: Me }) {
         )}
         {oa && (
           <button
-            className="btn"
+            className="btn ui-button"
             onClick={async () => {
               await api("/api/me/zalo-unlink", { body: {} });
               reload();
@@ -173,14 +177,14 @@ function Account({ me }: { me: Me }) {
           </button>
         )}
         {data?.zaloLogin && !zalo && (
-          <a className="btn zalo-btn" href="/api/auth/zalo/start?next=/account">
+          <a className="btn ui-button zalo-btn" href="/api/auth/zalo/start?next=/account">
             <span className="zalo-logo" aria-hidden>
               Z
             </span>
             Dùng Zalo để đăng nhập tài khoản này
           </a>
         )}
-      </div>
+      </Card>
       {data?.simulator && <BotSimulator />}
     </div>
   );

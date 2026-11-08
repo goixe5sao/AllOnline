@@ -72,9 +72,20 @@ Result (Codex, 2026-11-08):
 - Polish checks: PASS lint (0 errors, 16 existing warnings), tsc, 16 test files / 174 tests, ui-t3 (16 step captures in both themes/sizes and exact payload assertions), existing create-room e2e (all checks, including trial/paid/promo/deposit payloads), diff --check. Overwrote after/rooms-new-*; demo server only on 3100, will be stopped after T-4 in this session.
 
 ### T-4: Login, account, join/[code]
-Status: todo (after T-2)   Risk: medium (auth UI; do not touch the auth logic)
+Status: review   Risk: medium (auth UI; auth logic unchanged)
 Goal: a centred auth card with Email/Zalo tabs and the brand header. Zalo tab: a large code, a copy button, an "Mở Zalo" button and a QR on desktop. Account becomes sections in Cards. The invite page becomes an event hero (name, time countdown, host, join CTA, add-to-calendar).
 Acceptance: screenshots, the existing e2e for login and join, lint, tsc.
+
+Result (Codex, 2026-11-08):
+- Branch: `codex/ui-system`; separate local commit after the T-3 polish; no push.
+- Summary: centred branded auth Card, shared keyboard-accessible Email/Zalo Tabs, token Inputs/buttons, account sections with Cards and Badges, invite hero with event name, countdown, host, calendar/share actions and mobile StickyActionBar. Host comes from the existing server invite metadata through a narrow client context; no REST response changes. Existing avatar preview and selection, guest/account identity, password handling, session storage, redirects, reminder and calendar logic remain intact.
+- Zalo: bot URL still comes from `/api/catalog` → `zaloBot.url`; code still uses POST `/api/auth/zalo/code` with `{}` and the same claim/poll/expiry flow. Added locally rendered desktop QR with `qrcode.react` 4.2.0 (official API checked), large message, copy feedback and Mở Zalo button. No external QR service or auth-service changes.
+- PASS lint (0 errors, 16 existing warnings), `npx.cmd tsc --noEmit`, `npm.cmd test -- --maxWorkers=2 --silent` (16 files / 174 tests), `git diff --check`.
+- PASS `node scripts/ui-t4.mjs`: 24 full-page screenshots at 390×844 / 1440×900, dark/light: `after/{login,login-email,login-signup,login-zalo,account,join}-{390,1440}-{dark,light}.png`. Checks overflow, desktop/mobile QR visibility, catalogue bot link, clipboard content, demo sign-in, profile save, host/countdown/calendar and real guest entry. Exact email login/signup payloads verified with browser-only fixtures (no live auth requests); exact guest/join bodies verified against demo API. Evidence: `after/t4-report.json`.
+- PASS existing `node scripts/e2e-zalo-code.mjs docs/screenshots/ui/after`: desktop/mobile new-account DN login, wrong/used code rejection, next redirect and repeat login account reuse. Made test identities unique per run so a persistent demo DB does not invalidate the new-account assertion; browser cleanup in finally, home redirect replaced with a placeholder to avoid 3D rendering.
+- PASS existing invite acceptance via `node scripts/e2e-engage.mjs docs/screenshots/ui/after --join-only`: server title/share metadata, countdown, saved reminder, calendar ICS, share image, guest entry and stored pass/avatar. Added bounded join-only mode; room navigation uses a placeholder. The unrelated realtime reactions/Q&A/co-host portion of this e2e was not run.
+- T-3 checks rerun successfully after the page migration: ui-t3 plus the complete create-room e2e, including customer absence of system details, collapsed admin details, mobile reserved action height and unchanged create payloads.
+- Safety: only this worktree, local demo PGlite `.data-ui-audit`, one server on 3100; stopped after checks. No production directory access, live DB/payment/auth calls, deployment or push. Open question: Claude visual review. No backend/auth/pricing implementation changed.
 
 ### T-5: Orders list + order detail (payment)
 Status: todo (after T-2)   Risk: medium (payments UI only)

@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { QRCodeSVG } from "qrcode.react";
+import { Copy, Check, Theater } from "lucide-react";
+import { Input, Card, CardBody, PageHeader, Skeleton, Tabs } from "@/components/ui";
+import "../auth-pages.css";
 import { AppShell } from "@/components/app-shell";
 import { api, ApiError, useApi, useMe } from "@/lib/api";
 
@@ -15,7 +19,7 @@ function DemoLogin() {
   const [err, setErr] = useState("");
   return (
     <form
-      className="stack"
+      className="stack auth-form"
       onSubmit={async (e) => {
         e.preventDefault();
         try {
@@ -31,12 +35,12 @@ function DemoLogin() {
       </div>
       <label className="field">
         Tên hiển thị
-        <input type="text" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} placeholder="Nguyễn Văn A" />
+        <Input type="text" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} placeholder="Nguyễn Văn A" />
       </label>
       <label className="check">
-        <input type="checkbox" checked={asOwner} onChange={(e) => setAsOwner(e.target.checked)} /> Vào với vai trò <strong>chủ ứng dụng</strong> (chỉ có trong demo)
+        <input type="checkbox" checked={asOwner} onChange={(e) => setAsOwner(e.target.checked)} /> <span>Vào với vai trò <strong>chủ ứng dụng</strong> (chỉ có trong demo)</span>
       </label>
-      <button className="btn primary">Vào bản demo</button>
+      <button className="btn primary ui-button ui-button-primary">Vào bản demo</button>
       {err && <p className="notice error">{err}</p>}
     </form>
   );
@@ -72,26 +76,26 @@ function RealLogin() {
   }
 
   return (
-    <form className="stack" onSubmit={submit}>
+    <form className="stack auth-form" onSubmit={submit}>
       {mode === "signup" && (
         <label className="field">
           Tên hiển thị
-          <input type="text" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} />
+          <Input type="text" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} />
         </label>
       )}
       <label className="field">
         Email
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
       </label>
       <label className="field">
         Mật khẩu
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === "signup" ? 8 : 6} autoComplete={mode === "login" ? "current-password" : "new-password"} />
+        <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === "signup" ? 8 : 6} autoComplete={mode === "login" ? "current-password" : "new-password"} />
       </label>
-      <button className="btn primary" disabled={busy}>
+      <button className="btn primary ui-button ui-button-primary" disabled={busy}>
         {busy ? "Đang xử lý…" : mode === "login" ? "Đăng nhập" : "Tạo tài khoản"}
       </button>
       {msg && <p className={`notice ${msg.kind}`}>{msg.text}</p>}
-      <button type="button" className="btn" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
+      <button type="button" className="btn ui-button" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
         {mode === "login" ? "Chưa có tài khoản? Đăng ký" : "Đã có tài khoản? Đăng nhập"}
       </button>
     </form>
@@ -156,7 +160,7 @@ function ZaloLogin({ zaloLogin, botUrl }: { zaloLogin: boolean; botUrl: string |
               <p style={{ margin: 0 }}>
                 Đăng nhập bằng cách <b>nhắn một mã cho bot Sân Khấu Online trên Zalo</b>. Chưa có tài khoản thì bot tạo luôn — không cần email, không cần mật khẩu.
               </p>
-              <button type="button" className="btn primary zalo-btn" onClick={getCode}>
+              <button type="button" className="btn primary ui-button ui-button-primary zalo-btn" onClick={getCode}>
                 <span className="zalo-logo" aria-hidden>
                   Z
                 </span>
@@ -167,13 +171,14 @@ function ZaloLogin({ zaloLogin, botUrl }: { zaloLogin: boolean; botUrl: string |
           ) : (
             <ol className="zalo-steps">
               <li>
-                <a className="btn zalo-btn" href={botUrl} target="_blank" rel="noopener noreferrer">
+                <div className="auth-qr"><QRCodeSVG value={botUrl} size={176} marginSize={4} title="Quét mã để mở bot Zalo" /></div>
+                <a className="btn ui-button zalo-btn" href={botUrl} target="_blank" rel="noopener noreferrer">
                   <span className="zalo-logo" aria-hidden>
                     Z
                   </span>
-                  Mở bot Sân Khấu Online trên Zalo
+                  Mở Zalo
                 </a>
-                <small className="muted">Trên máy tính: trang Zalo hiện mã QR, quét bằng điện thoại.</small>
+                <small className="muted">Quét mã bằng Zalo trên điện thoại để mở bot.</small>
               </li>
               <li>
                 Nhắn cho bot đúng tin này:
@@ -181,12 +186,12 @@ function ZaloLogin({ zaloLogin, botUrl }: { zaloLogin: boolean; botUrl: string |
                   <code>{message}</code>
                   <button
                     type="button"
-                    className="btn"
+                    className="btn ui-button"
                     onClick={() => {
                       void navigator.clipboard?.writeText(message).then(() => setCopied(true));
                     }}
                   >
-                    {copied ? "✓ Đã chép" : "📋 Chép"}
+                    {copied ? <><Check aria-hidden /> Đã chép</> : <><Copy aria-hidden /> Chép</>}
                   </button>
                 </div>
               </li>
@@ -194,7 +199,7 @@ function ZaloLogin({ zaloLogin, botUrl }: { zaloLogin: boolean; botUrl: string |
                 {state === "expired" ? (
                   <span className="notice warn">
                     Mã đã hết hạn.{" "}
-                    <button type="button" className="btn" onClick={getCode}>
+                    <button type="button" className="btn ui-button" onClick={getCode}>
                       Lấy mã mới
                     </button>
                   </span>
@@ -209,7 +214,7 @@ function ZaloLogin({ zaloLogin, botUrl }: { zaloLogin: boolean; botUrl: string |
         </>
       )}
       {zaloLogin && (
-        <a className="btn zalo-btn" href={`/api/auth/zalo/start?next=${encodeURIComponent(typeof window !== "undefined" ? nextUrl() : "/")}`}>
+        <a className="btn ui-button zalo-btn" href={`/api/auth/zalo/start?next=${encodeURIComponent(typeof window !== "undefined" ? nextUrl() : "/")}`}>
           <span className="zalo-logo" aria-hidden>
             Z
           </span>
@@ -230,18 +235,10 @@ function LoginTabs({ email }: { email: React.ReactNode }) {
   if (!zalo) return <>{email}</>;
   return (
     <div className="stack">
-      <div className="login-tabs" role="tablist" aria-label="Cách đăng nhập">
-        <button type="button" role="tab" aria-selected={tab === "email"} onClick={() => setTab("email")}>
-          ✉️ Email
-        </button>
-        <button type="button" role="tab" aria-selected={tab === "zalo"} onClick={() => setTab("zalo")}>
-          <span className="zalo-logo sm" aria-hidden>
-            Z
-          </span>{" "}
-          Zalo
-        </button>
-      </div>
-      {tab === "email" ? email : <ZaloLogin zaloLogin={data!.zaloLogin} botUrl={data!.zaloBot?.url ?? null} />}
+      <div className="login-tabs"><Tabs label="Cách đăng nhập" value={tab} onChange={v => setTab(v as "email" | "zalo")} items={[
+        { value: "email", label: "Email", content: tab === "email" ? email : null },
+        { value: "zalo", label: "Zalo", content: tab === "zalo" ? <ZaloLogin zaloLogin={data!.zaloLogin} botUrl={data!.zaloBot?.url ?? null} /> : null },
+      ]} /></div>
     </div>
   );
 }
@@ -251,10 +248,11 @@ export default function LoginPage() {
   return (
     <AppShell narrow>
       {() => (
-        <div className="card">
-          <h1>Đăng nhập</h1>
-          {mode ? <LoginTabs email={mode === "demo" ? <DemoLogin /> : <RealLogin />} /> : <p className="muted">Đang tải…</p>}
-        </div>
+        <Card className="auth-card"><CardBody className="stack">
+          <div className="auth-brand"><Theater aria-hidden /><span>Sân Khấu Online</span></div>
+          <PageHeader title="Đăng nhập" subtitle="Không gian của bạn, câu chuyện của bạn." />
+          {mode ? <LoginTabs email={mode === "demo" ? <DemoLogin /> : <RealLogin />} /> : <Skeleton />}
+        </CardBody></Card>
       )}
     </AppShell>
   );

@@ -1,0 +1,52 @@
+.auth-card { max-width:100%; margin:var(--space-8) auto; }
+.auth-card .ui-card-body { padding:var(--space-8); }
+.auth-brand { display:flex; align-items:center; gap:var(--space-3); color:var(--accent); font-weight:600; font-size:var(--type-14); }
+.auth-brand svg,.account-section h2 svg,.event-hero svg { width:var(--space-5); height:var(--space-5); stroke-width:1.75; flex-shrink:0; }
+.auth-card .ui-page-header { margin:0; }
+.auth-card .ui-tabs { margin-bottom:var(--space-6); }
+.auth-card .ui-tabs button { flex:1; }
+.auth-card .login-tabs { display:block; border:0; padding:0; background:transparent; }
+.auth-card .login-tabs [role=tab] { border-radius:var(--radius-input); }
+.auth-card .login-tabs [role=tab][aria-selected=true] { background:var(--accent-soft); color:var(--text); box-shadow:none; }
+.auth-card .zalo-btn { background:var(--surface-2); color:var(--text); border-color:var(--border); }
+.auth-card .zalo-btn.primary { background:var(--accent); color:var(--on-accent); }
+.auth-card .zalo-logo { background:var(--surface-2); color:var(--text); }
+.auth-card .zalo-code { display:flex; flex-wrap:wrap; gap:var(--space-3); padding:var(--space-4); background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-card); }
+.auth-card .zalo-code code { font-size:var(--type-28); font-weight:700; letter-spacing:var(--space-1); color:var(--text); background:var(--surface); overflow-wrap:anywhere; }
+.auth-card .zalo-code svg { width:var(--space-4); height:var(--space-4); }
+.auth-card .zalo-steps { display:grid; gap:var(--space-6); padding-left:var(--space-6); margin:0; }
+.auth-card .zalo-steps li { padding-left:var(--space-2); }
+.auth-qr { display:flex; justify-content:center; margin-bottom:var(--space-4); }
+.auth-qr svg { max-width:100%; height:auto; border-radius:var(--radius-input); }
+.account-section,.join-form,.event-hero { padding:var(--space-6); }
+.account-section h2 { display:flex; align-items:center; gap:var(--space-3); font-size:var(--type-18); }
+.account-section .row { flex-wrap:wrap; }
+.account-section input { min-width:0; }
+.account-section .sim-chat { background:var(--surface-2); border-color:var(--border); }
+.account-section .sim-msg { overflow-wrap:anywhere; }
+.event-hero { background:linear-gradient(135deg,var(--accent-soft),var(--surface) 65%); border-color:var(--border); }
+.event-hero .ui-page-header { margin:0; }
+.event-hero .event-when { display:flex; align-items:center; gap:var(--space-2); color:var(--text-2); font-size:var(--type-14); }
+.event-hero .event-count { color:var(--accent); font-size:var(--type-28); font-weight:700; }
+.event-hero .row { gap:var(--space-2); }
+.join-form .choice-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.join-form .choice { min-width:0; }
+.join-form h2 { font-size:var(--type-22); }
+.join-actions { position:static; padding:0; border:0; background:transparent; box-shadow:none; }
+.join-actions button { width:100%; }
+.auth-form .btn,.account-section .btn,.join-page .btn { min-height:var(--touch); }
+.auth-form input:not([type=checkbox]),.account-section input:not([type=file]),.join-form input { min-height:var(--touch); }
+.auth-form .check { align-items:center; }
+.auth-form .check input { flex-shrink:0; }
+.account-section .sim-msg.me { background:var(--accent); color:var(--on-accent); }
+.account-section .sim-msg.bot { background:var(--surface); border-color:var(--border); }
+.join-page small,.account-page small { color:var(--text-2); }
+@media (max-width:767px) {
+  .auth-card { margin:var(--space-4) auto; }
+  .auth-card .ui-card-body,.account-section,.join-form,.event-hero { padding:var(--space-4); }
+  .auth-qr { display:none; }
+  .auth-card .zalo-code { flex-direction:column; align-items:stretch; }
+  .auth-card .zalo-code code { text-align:center; }
+  .join-actions { position:fixed; left:var(--space-4); right:var(--space-4); bottom:0; padding:var(--space-3); padding-bottom:calc(var(--space-3) + env(safe-area-inset-bottom)); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-card); z-index:2; }
+  .join-form { padding-bottom:calc(var(--space-80) + env(safe-area-inset-bottom)); }
+}

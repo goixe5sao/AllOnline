@@ -7,6 +7,7 @@ import puppeteer from "puppeteer-core";
  */
 const BASE = process.env.BASE ?? "http://localhost:3100";
 const OUT = process.argv[2] ?? ".";
+const runId = Date.now().toString(36);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failed = 0;
 const check = (ok, msg) => (console.log(`${ok ? "PASS" : "FAIL"}  ${msg}`), ok || failed++);
@@ -21,6 +22,7 @@ async function page(vp) {
   return p;
 }
 
+try {
 for (const [name, vp] of [
   ["laptop", { width: 1100, height: 860 }],
   ["mobile", { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }],
@@ -40,7 +42,7 @@ for (const [name, vp] of [
   check(href === "https://zalo.me/demo-bot", `${name}: button opens the bot (${href})`);
   await p.screenshot({ path: `${OUT}/login-zalo-${name}.png` });
 
-  const who = `oa-user-${name}`;
+  const who = `oa-user-${name}-${runId}`;
   const wrong = await bot(who, "DN 000000");
   check(/không đúng hoặc đã hết hạn/.test(wrong), `${name}: wrong code → bot says so`);
   const ok = await bot(who, msg.toLowerCase()); // typed in lower case
@@ -54,6 +56,9 @@ for (const [name, vp] of [
   if (name === "laptop") {
     // second time with the same Zalo → same account, no new one
     const p2 = await page(vp);
+    await p2.setRequestInterception(true);
+    p2.on('request', req => req.isNavigationRequest() && req.url() === BASE + '/'
+      ? req.respond({ status: 200, contentType: 'text/html', body: '<p>Signed in</p>' }) : req.continue());
     await p2.goto(BASE + "/login?via=zalo", { waitUntil: "networkidle0" });
     await p2.click(".zalo-box button.zalo-btn");
     await p2.waitForSelector(".zalo-code code");
@@ -63,9 +68,11 @@ for (const [name, vp] of [
     await p2.waitForFunction(() => location.pathname === "/", { timeout: 10000 }).catch(() => {});
     const me2 = await p2.evaluate(async () => (await (await fetch("/api/me")).json()));
     check(me2?.user?.id === me?.user?.id, "both browsers are the same account");
+    await p2.browserContext().close();
   }
+  await p.browserContext().close();
 }
 console.log("errors:", errors.length ? errors : "none");
 check(errors.length === 0, "no page errors");
-await browser.close();
+} finally { await browser.close(); }
 process.exit(failed ? 1 : 0);
