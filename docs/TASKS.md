@@ -118,3 +118,10 @@ Result (Codex, 2026-11-08):
 Status: todo (last)   Risk: high (3D performance, the core experience)
 Goal: overlays (toolbars, orb, panels, dialogs, chat) use the tokens and components. The home lobby text and CTAs get the same polish. The 3D scene itself is not changed.
 Acceptance: screenshots taken carefully (see DESIGN.md), no frame-rate regression, the existing room e2e passes.
+
+### T-8: Host control panel ("Điều khiển chủ phòng") cleanup
+Status: todo   Risk: medium (in-room UI, realtime screen state)
+Goal (owner request 2026-11-08): the content-type list is redundant and confusing. **Remove the TradingView options from the picker.** Keep a single chart option, **"Biểu đồ VN-Index"**, fixed to VNINDEX (no symbol input). Final list: Văn bản, Hình ảnh, Video YouTube, Trang web, Âm thanh, Biểu đồ VN-Index, Màn hình trống. Use short labels with a one-line hint below for the chosen type (e.g. "https hoặc tải lên"), and preferably an icon grid (RadioCards) instead of a native select.
+Also: the tabs (Màn hình / Live / Bình chọn / Người tham dự…) overflow with a visible scrollbar, so use a compact scrollable Tabs without a scrollbar, or an icon+label layout that fits at 390 px. Replace the emoji buttons with lucide icons. Use accent/neutral tokens instead of the green fills. "Đang chiếu: image" shows a raw value, so map it to the Vietnamese type name. Use the design-system components (docs/DESIGN.md).
+Compat: rooms whose screen is already 'tradingview' (or a non-VNINDEX symbol) must still render. Show them as-is and let the host switch away. Do not change the server realtime protocol unless required, and if it is, keep it backward compatible.
+Acceptance: screenshots of the panel at 390/1440 in dark and light (open the room once, close right away; see DESIGN.md), the existing room/screen e2e, lint, tsc, tests.
