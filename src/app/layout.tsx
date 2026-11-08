@@ -1,6 +1,10 @@
+import { Be_Vietnam_Pro } from "next/font/google";
 import type { Metadata, Viewport } from "next";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_SHORT, SITE_URL } from "@/lib/site";
 import "./globals.css";
+import "./ui.css";
+
+const beVietnam = Be_Vietnam_Pro({ subsets: ["latin", "vietnamese"], weight: ["400", "500", "600", "700"], variable: "--font-be-vietnam", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -20,8 +24,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f5f1fc" },
-    { media: "(prefers-color-scheme: dark)", color: "#05060f" },
+    { media: "(prefers-color-scheme: light)", color: "#F6F7FB" },
+    { media: "(prefers-color-scheme: dark)", color: "#0B0D14" },
   ],
 };
 
@@ -30,7 +34,7 @@ const THEME_SCRIPT = `(function(){var t="dark";try{var s=localStorage.getItem("a
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="vi" data-theme="dark" suppressHydrationWarning>
+    <html className={beVietnam.variable} lang="vi" data-theme="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>

@@ -1,0 +1,40 @@
+{
+  "report": [
+    {
+      "name": "styleguide",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false,
+      "interactions": "PASS: tabs/arrows, checkbox, radio, modal focus/trap/Escape/restore, 360px, reduced motion, persisted theme"
+    },
+    {
+      "name": "styleguide",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false,
+      "interactions": "PASS: tabs/arrows, checkbox, radio, modal focus/trap/Escape/restore, 360px, reduced motion, persisted theme"
+    },
+    {
+      "name": "styleguide",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false,
+      "interactions": "PASS: tabs/arrows, checkbox, radio, modal focus/trap/Escape/restore, 360px, reduced motion, persisted theme"
+    },
+    {
+      "name": "styleguide",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false,
+      "interactions": "PASS: tabs/arrows, checkbox, radio, modal focus/trap/Escape/restore, 360px, reduced motion, persisted theme"
+    }
+  ]
+}

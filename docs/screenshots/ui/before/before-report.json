@@ -1,0 +1,157 @@
+{
+  "fixture": {
+    "room": {
+      "roomId": "17836822-86cf-46b9-a522-b5a6eb2bfccc",
+      "inviteCode": "2WTXSK7X"
+    },
+    "order": {
+      "orderId": "64c90e7e-68e7-4387-b5e8-976020829d84"
+    }
+  },
+  "report": [
+    {
+      "name": "login",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "login",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "account",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "account",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "rooms-new",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": true
+    },
+    {
+      "name": "rooms-new",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "orders",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "orders",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "order",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "order",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "admin",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "admin",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "join",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "join",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "logs",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "logs",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "home",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "room",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    }
+  ]
+}
