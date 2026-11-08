@@ -1,3 +1,4 @@
+import { botInfo } from "./zalo/transport";
 import { captureWebPage } from "./webshot";
 import { createDemoRoom, ensureDemoRooms } from "./services/demo";
 import type { RealtimeClient } from "./live";
@@ -200,7 +201,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
         extensionEnabled: s.extension_enabled,
         openEnded: { enabled: s.open_ended_enabled, deposit: Number(s.open_ended_deposit_vnd) },
         zaloLogin: !!(cfg.zaloAppId && cfg.zaloAppSecret),
-        zaloBot: cfg.zaloOaId ? { url: `https://zalo.me/${cfg.zaloOaId}` } : null,
+        zaloBot: botInfo(cfg),
         priceTiers: await getPriceTiers(db),
         waitingSurchargePct: s.waiting_surcharge_pct,
         budget: await slotBudget(db),
@@ -299,8 +300,8 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     return { events: events.rows, orders: orders.rows };
   });
 
-  /** Zalo OA bot users can chat with (shown on invite / login pages); null when not set up. */
-  const zaloBotInfo = () => (cfg.zaloOaId ? { oaId: cfg.zaloOaId, url: `https://zalo.me/${cfg.zaloOaId}` } : null);
+  /** Bot users can chat with (shown on invite / login pages); null when not set up. */
+  const zaloBotInfo = () => botInfo(cfg);
 
   // ----- co-hosts, ownership, schedule, report -----
   /** Owner, co-host or app owner (report / Q&A tools); owner-only actions use ownedRoom. */
@@ -966,7 +967,7 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
       if (!m) continue;
       try {
         // Server-to-server webhooks (payment providers, Zalo) carry their own signature / key.
-        const webhook = url.pathname.startsWith("/api/payments/") || url.pathname === "/api/zalo/webhook";
+        const webhook = url.pathname.startsWith("/api/payments/") || url.pathname === "/api/zalo/bot-webhook";
         if (method !== "GET" && !webhook && !sameOrigin(req)) throw new AppError("BAD_ORIGIN", "Yêu cầu bị chặn.", 403);
         auth.ensureDevice(req, res);
         const user = await auth.currentUser(req, res).catch(() => null);

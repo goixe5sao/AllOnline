@@ -462,3 +462,10 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .voice-pick input { width: 15px; height: 15px; accent-color: #b6ff3d; }
 .voice-group-now { color: #b6ff3d; }
 .hud-chip.voice-group-chip { cursor: pointer; color: #ffd38a; border-color: rgb(255 211 138 / 0.5); }
+
+/* admin: live camera + voice traffic (one quota) */
+.usage-bar { display: flex; height: 12px; }
+.usage-bar span { display: block; height: 100%; background: #2f8f6d; }
+.usage-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.usage-split > div { padding: 10px 12px; border-radius: 10px; background: rgb(127 127 127 / 0.08); }
+.usage-num { font-size: 1.4rem; font-weight: 800; margin: 2px 0; }

@@ -7,13 +7,13 @@ import type { Auth } from "../auth";
 import type { Hub } from "../hub";
 import type { Storage } from "../storage";
 import { sniffMime } from "../storage";
-import { appendCookie, parseCookies, readBody, readJson, serializeCookie } from "../http";
+import { appendCookie, parseCookies, readJson, sendJson, serializeCookie } from "../http";
 import { AppError, confirmPayment, getOrder } from "../services/rooms";
 import { findOrCreateZaloUser, identitiesOf, linkIdentity, oaUserIdOf, userByIdentity } from "../services/identities";
 import type { AppUser } from "../services/users";
 import { recordBankTransfer, sepaySchema } from "../payments/bank";
-import { verifyZaloSignature, CaptureSender } from "./oa";
-import type { ZaloBot, ZaloEvent } from "./bot";
+import { verifyBotSecret, botInfo, CaptureSender } from "./transport";
+import type { ZaloBot } from "./bot";
 
 interface Ctx {
   req: IncomingMessage;
@@ -35,7 +35,7 @@ const redirect = (res: ServerResponse, to: string) => {
 /** Only same-site paths after sign-in (no open redirect). */
 const safeNext = (n: string | null) => (n && n.startsWith("/") && !n.startsWith("//") ? n : "/");
 
-/** Zalo Login, the Zalo OA bot webhook + simulator, SePay webhook, payment proofs for the admin. */
+/** Zalo Login, the Zalo Bot Platform bot webhook + simulator, SePay webhook, payment proofs for the admin. */
 export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; bot: ZaloBot }) {
   const { cfg, db, auth, hub, storage, bot } = deps;
   const origin = (url: URL) => cfg.publicOrigin ?? url.origin;
@@ -120,8 +120,8 @@ export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth
     "POST",
     "/api/auth/zalo/code",
     async () => {
-      if (!cfg.zaloOaId) throw new AppError("ZALO_DISABLED", "Chưa bật bot Zalo.", 404);
-      return { ...bot.createWebLogin(), botUrl: `https://zalo.me/${cfg.zaloOaId}` };
+      if (!botInfo(cfg)) throw new AppError("ZALO_DISABLED", "Chưa bật bot Zalo.", 404);
+      return { ...bot.createWebLogin(), botUrl: botInfo(cfg)!.url };
     },
     { public: true },
   );
@@ -158,7 +158,7 @@ export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth
     return {
       identities: (await identitiesOf(db, u.id)).map((i) => ({ provider: i.provider, name: i.display_name, since: i.created_at })),
       zaloLogin: !!(cfg.zaloAppId && cfg.zaloAppSecret),
-      bot: cfg.zaloOaId ? { url: `https://zalo.me/${cfg.zaloOaId}` } : null,
+      bot: botInfo(cfg),
       simulator: cfg.mode === "demo",
     };
   });
@@ -174,18 +174,42 @@ export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth
     return { ok: true };
   });
 
-  // ---------- Zalo OA webhook ----------
+  // Process-local retry suppression: 24 hours, at most 20,000 messages.
+  const seenMessages = new Map<string, number>();
+
+  // ---------- Zalo Bot Platform webhook ----------
   route(
     "POST",
-    "/api/zalo/webhook",
-    async ({ req }) => {
-      const raw = (await readBody(req, 256 * 1024)).toString("utf8");
-      if (!cfg.zaloAppId || !cfg.zaloOaSecret) throw new AppError("ZALO_DISABLED", "Chưa cấu hình bot Zalo.", 404);
-      if (!verifyZaloSignature(raw, req.headers["x-zevent-signature"] as string | undefined, cfg.zaloAppId, cfg.zaloOaSecret)) throw new AppError("BAD_SIGNATURE", "Chữ ký không hợp lệ.", 401);
-      const evt = JSON.parse(raw) as ZaloEvent;
-      // Answer Zalo right away; the bot replies through the OA API.
-      void bot.handle(evt).catch((e) => console.error("[zalo] bot", e));
-      return { ok: true };
+    "/api/zalo/bot-webhook",
+    async ({ req, res }) => {
+      if (!verifyBotSecret(req.headers["x-bot-api-secret-token"], cfg.zaloBotWebhookSecret)) throw new AppError("BAD_SECRET", "Invalid bot secret.", 401);
+      if (!cfg.zaloBotToken) throw new AppError("ZALO_DISABLED", "Bot is not configured.", 404);
+      const evt = z.object({
+        event_name: z.string(),
+        message: z.object({
+          message_id: z.string().optional(),
+          from: z.object({ id: z.string(), display_name: z.string().optional(), is_bot: z.boolean().optional() }).optional(),
+          chat: z.object({ id: z.string(), chat_type: z.string() }).optional(),
+          text: z.string().max(2000).optional(),
+          photo_url: z.url().optional(),
+        }).optional(),
+      }).parse(await readJson(req, 256 * 1024));
+      const now = Date.now();
+      for (const [id, expires] of seenMessages) {
+        if (expires > now) break;
+        seenMessages.delete(id);
+      }
+      const id = evt.message?.message_id;
+      const duplicate = !!id && seenMessages.has(id);
+      if (id && !duplicate) {
+        if (seenMessages.size >= 20_000) seenMessages.delete(seenMessages.keys().next().value!);
+        seenMessages.set(id, now + 24 * 60 * 60_000);
+      }
+      sendJson(res, 200, { ok: true });
+      if (!duplicate) setImmediate(() => {
+        void Promise.resolve().then(() => bot.handle(evt)).catch(() => console.error("[zalo] webhook processing failed"));
+      });
+      return undefined;
     },
     { public: true },
   );
@@ -207,8 +231,8 @@ export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth
         if (!m) throw new AppError("INVALID", "Ảnh không hợp lệ.");
         const url = `https://zalo.simulator/${Date.now()}`;
         cap.images.set(url, Buffer.from(m[1], "base64"));
-        await bot.handle({ event_name: "user_send_image", sender: { id: b.oaUserId }, message: { attachments: [{ type: "image", payload: { url } }] } });
-      } else await bot.handle({ event_name: "user_send_text", sender: { id: b.oaUserId }, message: { text: b.text ?? "" } });
+        await bot.handle({ event_name: "message.image.received", message: { from: { id: b.oaUserId }, chat: { id: b.oaUserId, chat_type: "PRIVATE" }, photo_url: url } });
+      } else await bot.handle({ event_name: "message.text.received", message: { from: { id: b.oaUserId }, chat: { id: b.oaUserId, chat_type: "PRIVATE" }, text: b.text ?? "" } });
       return { replies: cap.sent.slice(from).filter((m) => m.to === b.oaUserId).map((m) => m.text) };
     },
     { public: true },
@@ -241,7 +265,7 @@ export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth
        order by (p.status in ('pending_review', 'waiting_bank')) desc, p.created_at desc limit 100`,
     );
     const bank = await db.query("select id, amount_vnd::float8 as amount_vnd, content, occurred_at, order_code, outcome, created_at from app.bank_transactions order by created_at desc limit 50");
-    return { proofs: proofs.rows, bank: bank.rows, sepay: !!cfg.sepayApiKey, receiptAi: !!cfg.anthropicApiKey, bot: !!cfg.zaloOaId };
+    return { proofs: proofs.rows, bank: bank.rows, sepay: !!cfg.sepayApiKey, receiptAi: !!cfg.anthropicApiKey, bot: !!botInfo(cfg) };
   });
 
   route("GET", "/api/admin/proofs/:id/image", async (ctx) => {

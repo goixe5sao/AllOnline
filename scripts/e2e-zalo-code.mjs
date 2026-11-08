@@ -2,7 +2,7 @@ import puppeteer from "puppeteer-core";
 /**
  * Login page: Email / Zalo tabs; Zalo = the page shows a code, the person sends it to the bot,
  * the page signs in by itself. Bot replies go through the demo simulator (/api/zalo/simulate).
- * Needs a DEMO server started with ZALO_OA_ID=demo-oa:
+ * Needs an isolated DEMO server (no bot credentials required):
  *   BASE=http://localhost:3100 node scripts/e2e-zalo-code.mjs <outDir>
  */
 const BASE = process.env.BASE ?? "http://localhost:3100";
@@ -37,7 +37,7 @@ for (const [name, vp] of [
   const msg = await p.$eval(".zalo-code code", (e) => e.textContent);
   check(/^DN \d{6}$/.test(msg), `${name}: code shown (“${msg}”)`);
   const href = await p.$eval(".zalo-steps a.zalo-btn", (a) => a.href);
-  check(href === "https://zalo.me/demo-oa", `${name}: button opens the bot (${href})`);
+  check(href === "https://zalo.me/demo-bot", `${name}: button opens the bot (${href})`);
   await p.screenshot({ path: `${OUT}/login-zalo-${name}.png` });
 
   const who = `oa-user-${name}`;

@@ -223,7 +223,7 @@ function ZaloLogin({ zaloLogin, botUrl }: { zaloLogin: boolean; botUrl: string |
 /** Email or Zalo: two tabs (Zalo only when it is set up on this site). */
 function LoginTabs({ email }: { email: React.ReactNode }) {
   const { data } = useApi<{ zaloLogin: boolean; zaloBot: { url: string } | null }>("/api/catalog");
-  const zalo = !!data && (data.zaloLogin || !!data.zaloBot);
+  const zalo = !!data && !!data.zaloBot;
   const [tab, setTab] = useState<"email" | "zalo">(() =>
     typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("via") === "zalo" || ["zalo", "link"].includes(new URLSearchParams(window.location.search).get("error") ?? "")) ? "zalo" : "email",
   );

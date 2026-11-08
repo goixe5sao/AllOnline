@@ -581,10 +581,38 @@ export class Hub {
     return this.livePulls.get(sessionId) ?? null;
   }
 
+  /** App owner: live camera + voice chat traffic this month, history, and what is in use right now. */
   async liveUsage() {
-    const used = this.meter ? await this.meter.usedGb() : 0;
-    this.liveUsedGb = used;
-    return { month: this.meter?.monthKey ?? "", usedGb: Math.round(used * 10) / 10, capGb: this.settings.live_monthly_cap_gb ?? 800, configured: !!this.rtc?.configured };
+    const r2 = (n: number) => Math.round(n * 1e6) / 1e6; // GB, to the kB (voice is small)
+    const split = this.meter ? await this.meter.split() : { totalGb: 0, videoGb: 0, voiceGb: 0 };
+    this.liveUsedGb = split.totalGb;
+    const history = this.meter ? await this.meter.history(6) : [];
+    let liveRooms = 0;
+    let viewers = 0;
+    let mics = 0;
+    let voices = 0;
+    let voiceRooms = 0;
+    for (const room of this.rooms.values()) {
+      const on = room.live.onAir;
+      if (on) {
+        liveRooms++;
+        viewers += [...room.clients].filter((c) => c.user.id !== on.userId).length;
+      }
+      const open = [...room.voice.talkers.values()].filter((t) => t.mic).length;
+      mics += open;
+      if (open) voiceRooms++;
+      for (const list of room.voice.heard.values()) voices += list.length;
+    }
+    return {
+      month: this.meter?.monthKey ?? "",
+      usedGb: r2(split.totalGb),
+      videoGb: r2(split.videoGb),
+      voiceGb: r2(split.voiceGb),
+      capGb: this.settings.live_monthly_cap_gb ?? 800,
+      configured: !!this.rtc?.configured,
+      history: history.map((h) => ({ month: h.month, videoGb: r2(h.videoGb), voiceGb: r2(h.voiceGb) })),
+      now: { liveRooms, viewers, voiceRooms, mics, voices },
+    };
   }
 
   // ---------- voice chat with the people around ----------
@@ -659,7 +687,7 @@ export class Hub {
       const sources: VoiceSource[] = next.map((s) => ({ userId: s, sessionId: v.talkers.get(s)!.sessionId, track: v.talkers.get(s)!.track }));
       this.send(c, { t: "voice_sources", sources });
     }
-    if (meter && pulled && this.meter) void this.meter.add(pulled, 1, now, VOICE_BITRATE_BPS).catch((e) => console.error("[voice] meter", e));
+    if (meter && pulled && this.meter) void this.meter.add(pulled, 1, now, VOICE_BITRATE_BPS, "voice").catch((e) => console.error("[voice] meter", e));
   }
 
   /** May this person publish a mic now? (in the room, allowed by the mode, keys, monthly cap) */

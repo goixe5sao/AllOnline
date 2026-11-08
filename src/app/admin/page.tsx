@@ -29,6 +29,7 @@ function OverviewTab() {
           {a.text}
         </p>
       ))}
+      <LiveUsageCard />
       <div className="grid grid-4">
         <div className="card stat">
           <span>Ngân sách slot</span>
@@ -771,28 +772,52 @@ export default function AdminPage() {
   );
 }
 
-/** Live camera: traffic used this month vs the cap (Cloudflare Realtime: first 1000 GB/month free). */
-function LiveUsageCard({ cap, onCap }: { cap: number; onCap: (v: number) => void }) {
-  const { data } = useApi<{ month: string; usedGb: number; capGb: number; configured: boolean }>("/api/admin/live-usage");
+interface LiveUsage {
+  month: string;
+  usedGb: number;
+  capGb: number;
+  configured: boolean;
+}
+
+/** "12.4 GB", "0.35 GB", "120 MB" — small amounts read better in MB. */
+const size = (n: number) => (n >= 10 ? `${n.toFixed(1)} GB` : n >= 0.1 ? `${n.toFixed(2)} GB` : `${Math.round(n * 1000)} MB`);
+
+/** Live camera + voice chat (one Cloudflare quota): used this month and what is left under the cap. */
+function LiveUsageCard({ cap: capIn, onCap }: { cap?: number; onCap?: (v: number) => void }) {
+  const { data } = useApi<LiveUsage>("/api/admin/live-usage", 10_000);
+  const cap = capIn ?? data?.capGb ?? 800;
   const used = data?.usedGb ?? 0;
+  const left = Math.max(0, cap - used);
   const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : 100;
   return (
-    <div className="card stack">
-      <h2>🔴 Live camera lên màn hình</h2>
-      {data && !data.configured && <p className="notice warn">Máy chủ chưa có mã Cloudflare Realtime — chưa ai live được. Dán mã vào deploy/windows/site.local.json rồi khởi động lại.</p>}
-      <div>
-        Tháng {data?.month ?? "…"}: đã dùng khoảng <b>{used.toFixed(1)} GB</b> / trần {cap} GB
-        <div className="live-meter" aria-hidden>
-          <span style={{ width: `${pct}%`, background: pct >= 90 ? "var(--danger, #e5484d)" : undefined }} />
+    <div className="card stack usage-card">
+      <h2>📡 Hạn mức live camera &amp; nói chuyện — tháng {data?.month ?? "…"}</h2>
+      {data && !data.configured && <p className="notice warn">Máy chủ chưa có mã Cloudflare Realtime — chưa ai live / bật mic được.</p>}
+      <div className="usage-split">
+        <div>
+          <b>Đã dùng</b>
+          <div className="usage-num">{size(used)}</div>
+        </div>
+        <div>
+          <b>Còn lại</b>
+          <div className="usage-num" style={{ color: pct >= 90 ? "var(--danger, #e5484d)" : undefined }}>{size(left)}</div>
+        </div>
+        <div>
+          <b>Trần tháng</b>
+          <div className="usage-num">{cap} GB</div>
         </div>
       </div>
-      <label className="field">
-        Trần live mỗi tháng (GB; 0 = tắt live toàn hệ thống)
-        <input type="number" min={0} max={100000} value={cap} onChange={(e) => onCap(Number(e.target.value))} />
-      </label>
-      <small>
-        Cloudflare miễn phí 1.000 GB mỗi tháng, vượt mức khoảng 0,05 USD/GB. Khi chạm trần, không mở được lượt live mới (lượt đang phát vẫn tiếp tục). Ước tính: 1 người xem × 1 giờ ≈ 0,8 GB.
-      </small>
+      <div className="live-meter usage-bar" aria-label={`Đã dùng ${Math.round(pct)}%`}>
+        <span style={{ width: `${pct}%`, background: pct >= 90 ? "var(--danger, #e5484d)" : undefined }} />
+      </div>
+      {onCap ? (
+        <label className="field">
+          Trần mỗi tháng (GB; 0 = tắt live camera và nói chuyện)
+          <input type="number" min={0} max={100000} value={cap} onChange={(e) => onCap(Number(e.target.value))} />
+        </label>
+      ) : (
+        <small className="muted">Đổi trần ở tab Cài đặt. Hết hạn mức thì không mở được lượt live / mic mới.</small>
+      )}
     </div>
   );
 }

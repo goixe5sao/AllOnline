@@ -51,13 +51,16 @@ export interface Config {
   turnKeyId?: string;
   turnKeyToken?: string;
   zaloAppSecret?: string;
-  /** Zalo Official Account bot: OA id (for the zalo.me link) and OA secret key (webhook signature). */
-  zaloOaId?: string;
-  zaloOaSecret?: string;
-  /** First OA refresh token (later ones are rotated and kept in app.kv). */
-  zaloOaRefreshToken?: string;
   /** Zalo domain verification meta tag value. */
   zaloSiteVerification?: string;
+  /** Zalo Bot Platform (bot.zapps.me) — replaces the OA bot. Token from Zalo Bot Creator. */
+  zaloBotToken?: string;
+  /** Bot account_name (e.g. bot.JwUidOjZ), resolved via getMe at startup for public links. */
+  zaloBotId?: string;
+  /** Official share link copied from the Zalo Bot dashboard; overrides the zalo.me/<account_name> guess. */
+  zaloBotUrl?: string;
+  /** Sent by Zalo as X-Bot-Api-Secret-Token on every webhook call (set via setWebhook). */
+  zaloBotWebhookSecret?: string;
   /** SePay webhook API key (bank transfers confirm orders automatically). */
   sepayApiKey?: string;
   /** Claude API key: reads payment screenshots sent to the bot (amount, content, time). */
@@ -107,10 +110,11 @@ export function readConfig(): Config {
     turnKeyId: env("REALTIME_TURN_KEY_ID"),
     turnKeyToken: env("REALTIME_TURN_KEY_TOKEN"),
     zaloAppSecret: env("ZALO_APP_SECRET"),
-    zaloOaId: env("ZALO_OA_ID"),
-    zaloOaSecret: env("ZALO_OA_SECRET"),
-    zaloOaRefreshToken: env("ZALO_OA_REFRESH_TOKEN"),
     zaloSiteVerification: env("ZALO_SITE_VERIFICATION"),
+    zaloBotToken: env("ZALO_BOT_TOKEN"),
+    zaloBotId: env("ZALO_BOT_ID"),
+    zaloBotUrl: env("ZALO_BOT_URL"),
+    zaloBotWebhookSecret: env("ZALO_BOT_WEBHOOK_SECRET"),
     sepayApiKey: env("SEPAY_API_KEY"),
     anthropicApiKey: env("ANTHROPIC_API_KEY"),
   };
