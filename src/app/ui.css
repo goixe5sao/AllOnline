@@ -112,3 +112,12 @@ textarea.ui-input { min-height:var(--space-80); resize:vertical; }
   .ui-sticky-actions .ui-button { flex:1; }
 }
 @media (prefers-reduced-motion:reduce) { .ui-spin,.ui-skeleton { animation:none; } }
+
+.ui-shell-tools > a { white-space: nowrap; flex-shrink: 0; }
+@media (max-width: 639px) { .ui-shell .brand-suffix { display: none; } }
+.event-menu { position: relative; }
+.event-menu summary { list-style: none; cursor: pointer; }
+.event-menu summary::-webkit-details-marker { display: none; }
+.event-menu-items { position: absolute; z-index: 5; top: 100%; right: 0; min-width: max-content; padding: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-2); }
+.event-menu-items > * { display: flex; align-items: center; min-height: 44px; padding: var(--space-2) var(--space-3); color: var(--text); background: transparent; border: 0; font: inherit; text-decoration: none; cursor: pointer; }
+.event-menu-items > *:hover { background: var(--surface-2); }

@@ -48,6 +48,7 @@ function EventBox({ code, data, me, onChange }: { code: string; data: InviteView
   const ownerName = useInviteHost();
   const [now, setNow] = useState(() => Date.now());
   const [msg, setMsg] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -58,10 +59,7 @@ function EventBox({ code, data, me, onChange }: { code: string; data: InviteView
     const text = r.startsAt ? `${r.name} — ${vnEventTime(r.startsAt)}` : r.name;
     try {
       if (navigator.share) await navigator.share({ title: r.name, text, url: link });
-      else {
-        await navigator.clipboard.writeText(`${text}\n${link}`);
-        setMsg("Đã sao chép link mời — dán vào Zalo, Messenger…");
-      }
+      else setShareOpen(v => !v);
     } catch {
       /* share sheet closed */
     }
@@ -85,7 +83,7 @@ function EventBox({ code, data, me, onChange }: { code: string; data: InviteView
         {r.startsAt && r.startsAt > now && (
           isAccount ? (
             <button
-              className="btn ui-button"
+              className="ui-button ui-button-secondary"
               onClick={async () => {
                 try {
                   const res = await api<{ on: boolean; zaloLinked: boolean }>(`/api/rooms/${r.id}/remind`, { body: { on: !data.reminded } });
@@ -99,27 +97,27 @@ function EventBox({ code, data, me, onChange }: { code: string; data: InviteView
               <Bell aria-hidden />{data.reminded ? "Bỏ nhắc" : "Nhắc tôi qua Zalo"}
             </button>
           ) : (
-            <Link className="btn ui-button" href={`/login?next=${encodeURIComponent(`/join/${code}`)}`}>
+            <Link className="ui-button ui-button-secondary" href={`/login?next=${encodeURIComponent(`/join/${code}`)}`}>
               <Bell aria-hidden /> Đăng nhập để được nhắc
             </Link>
           )
         )}
         {r.startsAt && (
-          <>
-            <a className="btn ui-button" href={`/api/invite/${encodeURIComponent(code)}/calendar.ics`}>
-              <CalendarDays aria-hidden /> Thêm vào lịch
-            </a>
-            <a className="btn ui-button" href={googleCalendarUrl({ title: r.name, description: r.description, startsAt: r.startsAt, url: link })} target="_blank" rel="noopener noreferrer">
-              Google Calendar
-            </a>
-          </>
+          <details className="event-menu">
+            <summary className="ui-button ui-button-ghost"><CalendarDays aria-hidden /> Thêm vào lịch</summary>
+            <div className="event-menu-items">
+              <a href={googleCalendarUrl({ title: r.name, description: r.description, startsAt: r.startsAt, url: link })} target="_blank" rel="noopener noreferrer">Google Calendar</a>
+              <a href={`/api/invite/${encodeURIComponent(code)}/calendar.ics`}>Tải file .ics</a>
+            </div>
+          </details>
         )}
-        <button className="btn ui-button" onClick={share}>
-          <Share2 aria-hidden /> Chia sẻ
-        </button>
-        <a className="btn ui-button" href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer">
-          Facebook
-        </a>
+        <div className="event-menu">
+          <button className="ui-button ui-button-ghost" onClick={share} aria-expanded={shareOpen}><Share2 aria-hidden /> Chia sẻ</button>
+          {shareOpen && <div className="event-menu-items">
+            <button onClick={async () => { try { await navigator.clipboard.writeText(`${r.startsAt ? `${r.name} — ${vnEventTime(r.startsAt)}` : r.name}\n${link}`); setMsg("Đã sao chép link mời — dán vào Zalo, Messenger…"); setShareOpen(false); } catch { setMsg("Không thể sao chép. Vui lòng thử lại."); } }}>Sao chép link</button>
+            <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer">Facebook</a>
+          </div>}
+        </div>
       </div>
       {isAccount && data.reminded && !data.zaloLinked && (
         <small className="notice">

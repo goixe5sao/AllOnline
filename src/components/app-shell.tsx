@@ -28,7 +28,7 @@ export function AppShell({ children, narrow, requireLogin }: { children: (me: Me
       )}
       <header className="topnav">
         <Link href="/" className="brand">
-          <span className="brand-mark">S</span> Sân Khấu Online
+          <span className="brand-mark">S</span> <span>Sân Khấu <span className="brand-suffix">Online</span></span>
         </Link>
         <Button className="ui-mobile-menu" variant="ghost" aria-label="Mở điều hướng" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)} icon={<Menu aria-hidden />} />
         <nav className="ui-desktop-nav" aria-label="Điều hướng chính">

@@ -61,6 +61,20 @@ try {
       assert.ok(await page.$('.event-count'));
       assert.ok(await page.$('a[href$="calendar.ics"]'));
       await capture('join');
+      assert.equal(await page.$eval('.ui-shell-tools > a', e => getComputedStyle(e).whiteSpace), 'nowrap');
+      await page.click('.event-menu summary');
+      assert.ok(await page.$eval('a[href$="calendar.ics"]', e => e.getBoundingClientRect().height >= 44));
+      await capture('join-calendar-menu');
+      await page.click('.event-menu summary');
+      await page.evaluate(() => Object.defineProperty(navigator, 'share', { configurable: true, value: undefined }));
+      await page.click('.event-menu > button');
+      assert.ok(await page.$('a[href*="facebook.com/sharer"]'));
+      await capture('join-share-menu');
+      await page.click('.event-menu-items button');
+      assert.ok((await page.evaluate(() => navigator.clipboard.readText())).endsWith(`/join/${fixture.inviteCode}`));
+      await page.evaluate(() => Object.defineProperty(navigator, 'share', { configurable: true, value: async value => { window.__sharePayload = value; } }));
+      await page.click('.event-menu > button');
+      assert.equal((await page.evaluate(() => window.__sharePayload)).url, `${base}/join/${fixture.inviteCode}`);
       const payloads = [];
       await page.setRequestInterception(true);
       page.on('request', r => {
