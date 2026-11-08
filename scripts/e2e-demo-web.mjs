@@ -69,19 +69,12 @@ async function host(code, name) {
   const opt = await p.evaluate(
     () =>
       [
-        ...document.querySelectorAll(".side-panel label.field select option"),
-      ].find((o) => o.value === "web")?.textContent ?? "",
+        ...document.querySelectorAll(".host-content-grid label"),
+      ].find((o) => o.querySelector('input[value="web"]'))?.textContent ?? "",
   );
-  check(/goixe5sao/.test(opt), `${name}: “${opt}” in the content list`);
+  check(opt === "Trang web", `${name}: “${opt}” in the content list`);
   await p.evaluate(() => {
-    const sel = [...document.querySelectorAll(".side-panel label.field")]
-      .find((l) => l.textContent?.includes("Loại nội dung"))
-      ?.querySelector("select");
-    Object.getOwnPropertyDescriptor(
-      HTMLSelectElement.prototype,
-      "value",
-    ).set.call(sel, "web");
-    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    document.querySelector('[name="host-content-type"][value="web"]').click();
   });
   await p.waitForSelector(".web-panel");
   return p;

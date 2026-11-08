@@ -40,9 +40,7 @@ await orb(owner, "control");
 await owner.waitForSelector(".side-panel");
 const panel = (fn, arg) => owner.evaluate(fn, arg);
 await panel(() => {
-  const sel = [...document.querySelectorAll(".side-panel label.field")].find((l) => l.textContent?.includes("Loại nội dung"))?.querySelector("select");
-  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(sel, "youtube");
-  sel.dispatchEvent(new Event("change", { bubbles: true }));
+  document.querySelector('[name="host-content-type"][value="youtube"]').click();
 });
 await owner.waitForSelector(".yt-panel");
 const addLinks = async (text) => {

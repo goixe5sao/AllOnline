@@ -18,12 +18,31 @@ import { CHART_INTERVALS, INDICATORS, INTERVAL_LABEL, type ChartInterval, type C
 import type { ClientMsg, PollViewDto, RoomInfoDto } from "@/core/protocol";
 import type { PublicMember } from "@/core/room-engine";
 import type { ChatLine } from "./use-room";
-import { SymbolPicker } from "./symbol-picker";
+import { Button, RadioCard, Tabs } from "@/components/ui";
+import { Type, Image, Video, Globe, Volume2, ChartNoAxesCombined, Square, X, Lightbulb, Orbit, Pause, Play } from "lucide-react";
 import { HandsList } from "./engage";
 import { HostsSection, ScheduleSection, StatsTab } from "./owner-extra";
 import { YouTubePanel } from "./youtube-panel";
 
 const STATUS_VI: Record<string, string> = { seated: "Đang ngồi", finding: "Đang tìm chỗ", invited: "Được mời vào chỗ", waiting: "Chờ ngoài cổng" };
+
+const CONTENT_TYPES = [
+  { value: "text", label: "Văn bản", icon: Type, hint: "Tối đa 500 ký tự" },
+  { value: "image", label: "Hình ảnh", icon: Image, hint: "Link https hoặc tải lên" },
+  { value: "youtube", label: "Video YouTube", icon: Video, hint: "Dán link để tạo danh sách phát" },
+  { value: "web", label: "Trang web", icon: Globe, hint: "Chụp trang và tự cuộn" },
+  { value: "audio", label: "Âm thanh", icon: Volume2, hint: "Link https hoặc tải lên" },
+  { value: "chart", label: "Biểu đồ VN-Index", icon: ChartNoAxesCombined, hint: "Cố định chỉ số VNINDEX" },
+  { value: "blank", label: "Màn hình trống", icon: Square, hint: "Ẩn nội dung đang chiếu" },
+] as const;
+function contentLabel(content: ScreenContent) {
+  if (content.kind === "tradingview") return `Biểu đồ TradingView · ${content.symbol}`;
+  if (content.kind === "chart") return `Biểu đồ ${content.symbol === "VNINDEX" ? "VN-Index" : content.symbol}`;
+  if (content.kind === "chat") return "Tin nhắn";
+  if (content.kind === "poll") return "Bình chọn";
+  if (content.kind === "question") return "Câu hỏi";
+  return CONTENT_TYPES.find(t => t.value === content.kind)?.label;
+}
 
 function StageStyleSwitch({ roomId, style, lights, send, furnished }: { roomId: string; style: "glam" | "plain"; lights: boolean; send: (m: ClientMsg) => void; furnished?: boolean }) {
   const [err, setErr] = useState("");
@@ -41,15 +60,15 @@ function StageStyleSwitch({ roomId, style, lights, send, furnished }: { roomId: 
         {!furnished && (
           <>
             <button className={`hud-btn ${style === "glam" ? "primary" : ""}`} aria-pressed={style === "glam"} onClick={() => set("glam")}>
-              🛸 Hành tinh tương lai
+              <Orbit aria-hidden /> Hành tinh tương lai
             </button>
             <button className={`hud-btn ${style === "plain" ? "primary" : ""}`} aria-pressed={style === "plain"} onClick={() => set("plain")}>
-              ◻ Đơn sắc
+              <Square aria-hidden /> Đơn sắc
             </button>
           </>
         )}
         <button className={`hud-btn ${lights ? "primary" : ""}`} aria-pressed={lights} onClick={() => send({ t: "stage_lights", on: !lights })}>
-          {furnished ? (lights ? "💡 Đèn phòng: bật" : "🌑 Đèn phòng: tắt") : lights ? "💡 Đèn sân khấu: bật" : "🌑 Đèn sân khấu: tắt"}
+          <Lightbulb aria-hidden /> {furnished ? "Đèn phòng" : "Đèn sân khấu"}: {lights ? "bật" : "tắt"}
         </button>
       </div>
       {err && <small>{err}</small>}
@@ -79,8 +98,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
       if (!id) return setErr("Link YouTube không hợp lệ.");
     } else if (kind === "image") content = value ? { kind: "image", url: value.trim() } : null;
     else if (kind === "audio") content = value ? { kind: "audio", url: value.trim(), title: title.trim() || "Âm thanh" } : null;
-    else if (kind === "chart") content = { kind: "chart", symbol: (value.trim() || "VNINDEX").toUpperCase(), source: "demo", interval, chartType, indicators: inds, layers: aLayers };
-    else if (kind === "tradingview") content = { kind: "tradingview", symbol: (value.trim() || "NASDAQ:AAPL").toUpperCase(), interval };
+    else if (kind === "chart") content = { kind: "chart", symbol: "VNINDEX", source: "demo", interval, chartType, indicators: inds, layers: aLayers };
     else if (kind === "blank") content = { kind: "blank" };
     if (!content) return setErr("Hãy nhập nội dung.");
     send({ t: "screen", action: "set", content });
@@ -108,15 +126,15 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
   return (
     <div className="stack">
       <div className="notice">
-        Đang chiếu: <strong>{screen.content.kind}</strong>
+        Đang chiếu: <strong>{contentLabel(screen.content)}</strong>
         {playable && ` · ${screen.playing ? "đang phát" : "tạm dừng"} · ${fmtDuration(pos * 1000)}`}
-        {screen.content.kind === "youtube" && screen.content.endMode === "loop" && " · 🔁 lặp lại"}
-        {screen.content.kind === "youtube" && screen.content.endMode === "next" && ` · ⏭ danh sách ${(screen.content.index ?? 0) + 1}/${screen.content.playlist?.length ?? 1}`}
+        {screen.content.kind === "youtube" && screen.content.endMode === "loop" && " · lặp lại"}
+        {screen.content.kind === "youtube" && screen.content.endMode === "next" && ` · danh sách ${(screen.content.index ?? 0) + 1}/${screen.content.playlist?.length ?? 1}`}
       </div>
       {playable && (
         <div className="row">
           <button className="hud-btn" onClick={() => send({ t: "screen", action: screen.playing ? "pause" : "play" })}>
-            {screen.playing ? "⏸ Dừng" : "▶ Phát"}
+            {screen.playing ? <Pause aria-hidden /> : <Play aria-hidden />} {screen.playing ? "Dừng" : "Phát"}
           </button>
           <button className="hud-btn" onClick={() => send({ t: "screen", action: "seek", positionSec: Math.max(0, pos - 10) })}>
             −10s
@@ -129,22 +147,13 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
           </button>
         </div>
       )}
-      <label className="field">
-        Loại nội dung
-        <select value={kind} onChange={(e) => {
-            setKind(e.target.value as ScreenContent["kind"]);
-            setValue("");
-          }}>
-          <option value="text">Văn bản</option>
-          <option value="image">{demo ? "Hình ảnh (dán link https)" : "Hình ảnh (https hoặc tải lên)"}</option>
-          <option value="youtube">Video YouTube</option>
-          <option value="web">{demo ? "Trang web goixe5sao.vn (tự cuộn)" : "Trang web (tự cuộn từ đầu đến cuối)"}</option>
-          <option value="audio">{demo ? "Âm thanh (dán link https)" : "Âm thanh (https hoặc tải lên)"}</option>
-          <option value="chart">Biểu đồ chứng khoán VN kiểu TradingView</option>
-          <option value="tradingview">TradingView chính thức — mã quốc tế (dữ liệu thật)</option>
-          <option value="blank">Màn hình trống</option>
-        </select>
-      </label>
+      <fieldset className="host-content-types" aria-describedby="host-content-hint">
+        <legend>Loại nội dung</legend>
+        <div className="host-content-grid">
+          {CONTENT_TYPES.map(({ value: type, label, icon: Icon }) => <RadioCard key={type} name="host-content-type" value={type} checked={kind === type} onChange={() => { setKind(type); setValue(""); setErr(""); }}><Icon aria-hidden />{label}</RadioCard>)}
+        </div>
+        <small id="host-content-hint">{demo && (kind === "image" || kind === "audio") ? "Dán link https" : CONTENT_TYPES.find(t => t.value === kind)?.hint}</small>
+      </fieldset>
       {kind === "text" && demo && (
         <select value="" onChange={(e) => e.target.value && setValue(e.target.value)} aria-label="Văn bản mẫu">
           <option value="">— Hoặc chọn câu mẫu —</option>
@@ -165,14 +174,13 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
           ))}
         </select>
       )}
-      {kind === "text" && <textarea rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
-      {kind === "chart" && <SymbolPicker value={value} onChange={setValue} />}
+      {kind === "text" && <textarea aria-label="Nội dung hiển thị" rows={3} value={value} onChange={(e) => setValue(e.target.value)} maxLength={500} placeholder="Nội dung hiển thị" />}
       {kind === "youtube" && <YouTubePanel send={send} screen={screen} />}
       {kind === "web" && <WebPanel send={send} screen={screen} roomId={roomId} demo={demo} />}
-      {(kind === "image" || kind === "audio" || kind === "tradingview") && (
-        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "tradingview" ? "Ví dụ NASDAQ:AAPL, BINANCE:BTCUSDT, OANDA:XAUUSD" : "https://…"} />
+      {(kind === "image" || kind === "audio") && (
+        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} aria-label={kind === "image" ? "Link hình ảnh" : "Link âm thanh"} placeholder="https://…" />
       )}
-      {kind === "audio" && <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tiêu đề" />}
+      {kind === "audio" && <input aria-label="Tiêu đề âm thanh" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tiêu đề" />}
       {demo && (kind === "image" || kind === "audio") && <small>Phòng trải nghiệm: dán link https (tải tệp từ máy lên có ở phòng thật của bạn).</small>}
       {!demo && (kind === "image" || kind === "audio") && (
         <label className="field">
@@ -180,7 +188,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
           <input type="file" accept={kind === "image" ? "image/png,image/jpeg,image/webp,image/gif" : "audio/*"} disabled={uploading} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
         </label>
       )}
-      {(kind === "chart" || kind === "tradingview") && (
+      {kind === "chart" && (
         <label className="field">
           Khung thời gian
           <select value={interval} onChange={(e) => setIntervalOpt(e.target.value as ChartInterval)}>
@@ -224,13 +232,12 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
           <small>Dữ liệu thật do server lấy mỗi phút từ API không chính thức (DNSE/Entrade, dự phòng SSI, VPS); nguồn ghi trên biểu đồ. Mã mới cần ~vài giây để tải lần đầu. Người xem bấm “Xem màn hình” để tự kéo/zoom/đổi chỉ báo.</small>
         </>
       )}
-      {kind === "tradingview" && <small>TradingView không cho nhúng mã sàn Việt Nam (HOSE/HNX). Dùng cho cổ phiếu quốc tế, crypto, vàng, ngoại tệ. Ở chế độ “Xem màn hình”, người xem dùng đủ công cụ vẽ/chỉ báo của TradingView.</small>}
       {kind !== "youtube" && kind !== "web" && (
-        <button className="hud-btn primary" onClick={show}>
+        <Button variant="primary" onClick={show}>
           Hiển thị lên màn hình
-        </button>
+        </Button>
       )}
-      {err && <p className="notice">{err}</p>}
+      {err && <p role="alert" className="notice">{err}</p>}
     </div>
   );
 }
@@ -448,7 +455,7 @@ function RoomTab({ room, serverNow }: { room: RoomInfoDto; serverNow: () => numb
       </Link>
       <button
         className="hud-btn"
-        style={{ color: "#ff9a8f" }}
+        style={{ color: "var(--danger)" }}
         onClick={async () => {
           const bill = room.openEnded ? " Phòng vô thời hạn sẽ được quyết toán theo số giờ đã mở." : "";
           if (!confirm("Đóng phòng ngay? Mọi người sẽ bị kết thúc phiên và slot được trả về hệ thống." + bill)) return;
@@ -486,29 +493,21 @@ export function OwnerPanel(p: {
   const liveReq = p.live?.requests.length ?? 0;
   const tabs: [typeof tab, string][] = [
     ["screen", "Màn hình"],
-    ["live", p.live?.onAir ? "🔴 Live" : liveReq ? `Live · 🙋${liveReq}` : "Live"],
+    ["live", p.live?.onAir ? "Live · đang phát" : liveReq ? `Live · ${liveReq}` : "Live"],
     ["polls", "Bình chọn"],
-    ["people", p.hands.length ? `Người tham dự · ✋${p.hands.length}` : "Người tham dự"],
+    ["people", p.hands.length ? `Người tham dự · ${p.hands.length}` : "Người tham dự"],
     ["chat", "Chat"],
     ["stats", "Thống kê"],
     ...(p.isOwner ? ([["room", "Phòng"]] as [typeof tab, string][]) : []),
   ];
   return (
-    <aside className="side-panel" aria-label="Điều khiển chủ phòng">
+    <aside className="side-panel host-panel" aria-label="Điều khiển chủ phòng">
       <div className="row between">
-        <strong>{p.demo ? "👑 Chủ phòng trải nghiệm" : p.isOwner ? "Điều khiển chủ phòng" : "Điều khiển (trợ lý)"}</strong>
-        <button className="hud-btn" onClick={p.onClose} aria-label="Đóng bảng điều khiển">
-          ✕
-        </button>
+        <strong>{p.demo ? "Chủ phòng trải nghiệm" : p.isOwner ? "Điều khiển chủ phòng" : "Điều khiển (trợ lý)"}</strong>
+        <Button variant="ghost" onClick={p.onClose} aria-label="Đóng bảng điều khiển" icon={<X aria-hidden />} />
       </div>
       {p.demo && <DemoMissions done={p.demo.missions} />}
-      <div className="tabs" role="tablist">
-        {tabs.map(([k, label]) => (
-          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs label="Điều khiển phòng" value={tab} onChange={v => setTab(v as typeof tab)} items={tabs.map(([value, label]) => ({ value, label, content: value === tab ? <>
       {tab === "screen" && (
         <>
           <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} lights={p.room.stageLights} send={p.send} furnished={MAP_INFO[p.room.map].furnished} />
@@ -539,6 +538,8 @@ export function OwnerPanel(p: {
         </div>
       )}
       {tab === "room" && p.isOwner && <RoomTab room={p.room} serverNow={p.serverNow} />}
+      </> : null }))} />
+
     </aside>
   );
 }

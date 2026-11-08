@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { api, fmtDuration } from "@/lib/api";
 import { parseYouTubeId, PLAYLIST_MAX, type ScreenState, type YouTubeEndMode } from "@/core/screen";
 import type { ClientMsg } from "@/core/protocol";
+import { Play, ArrowUp, ArrowDown, X, SkipForward } from "lucide-react";
 
 const MODES: [YouTubeEndMode, string, string][] = [
-  ["stop", "⏹ Dừng lại", "Hết video thì dừng ở khung cuối"],
-  ["loop", "🔁 Chiếu lặp lại", "Hết video thì chiếu lại từ đầu, liên tục"],
-  ["next", "⏭ Chiếu tiếp danh sách", "Hết video thì chiếu video kế tiếp trong danh sách; hết danh sách quay lại video đầu"],
+  ["stop", "Dừng lại", "Hết video thì dừng ở khung cuối"],
+  ["loop", "Chiếu lặp lại", "Hết video thì chiếu lại từ đầu, liên tục"],
+  ["next", "Chiếu tiếp danh sách", "Hết video thì chiếu video kế tiếp trong danh sách; hết danh sách quay lại video đầu"],
 ];
 
 type Info = { title: string | null; durationSec: number | null };
@@ -94,23 +95,23 @@ export function YouTubePanel({ send, screen }: { send: (m: ClientMsg) => void; s
             const onAir = cur?.videoId === id;
             return (
               <li key={id} className={onAir ? "on-air" : ""}>
-                <span className="yt-n">{onAir ? "▶" : i + 1}</span>
+                <span className="yt-n">{onAir ? <Play aria-label="Đang chiếu" /> : i + 1}</span>
                 <span className="yt-t" title={id}>
                   {info?.title || id}
                   {info?.durationSec ? <small> · {fmtDuration(info.durationSec * 1000)}</small> : null}
                 </span>
                 <span className="yt-b">
                   <button type="button" className="hud-btn" title="Chiếu video này ngay" aria-label={`Chiếu ngay video ${i + 1}`} onClick={() => playNow(i)}>
-                    ▶
+                    <Play aria-hidden />
                   </button>
                   <button type="button" className="hud-btn" aria-label={`Đưa video ${i + 1} lên`} disabled={i === 0} onClick={() => move(i, -1)}>
-                    ↑
+                    <ArrowUp aria-hidden />
                   </button>
                   <button type="button" className="hud-btn" aria-label={`Đưa video ${i + 1} xuống`} disabled={i === list.length - 1} onClick={() => move(i, 1)}>
-                    ↓
+                    <ArrowDown aria-hidden />
                   </button>
                   <button type="button" className="hud-btn" aria-label={`Xoá video ${i + 1}`} onClick={() => remove(i)}>
-                    ✕
+                    <X aria-hidden />
                   </button>
                 </span>
               </li>
@@ -138,7 +139,7 @@ export function YouTubePanel({ send, screen }: { send: (m: ClientMsg) => void; s
         </button>
         {cur && (cur.playlist?.length ?? 0) > 1 && (
           <button type="button" className="hud-btn" onClick={() => send({ t: "screen", action: "yt_next" })}>
-            ⏭ Video tiếp
+            <SkipForward aria-hidden /> Video tiếp
           </button>
         )}
       </div>

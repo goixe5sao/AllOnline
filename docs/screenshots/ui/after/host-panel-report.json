@@ -1,0 +1,122 @@
+[
+  {
+    "width": 390,
+    "theme": "dark",
+    "pass": true,
+    "chartPayload": {
+      "t": "screen",
+      "action": "set",
+      "content": {
+        "kind": "chart",
+        "symbol": "VNINDEX",
+        "source": "demo",
+        "interval": "D",
+        "chartType": "candles",
+        "indicators": [
+          "volume",
+          "ma20"
+        ],
+        "layers": [
+          "trendlines",
+          "channel",
+          "levels",
+          "patterns",
+          "common",
+          "breaks",
+          "mtf"
+        ]
+      }
+    },
+    "errors": []
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "pass": true,
+    "chartPayload": {
+      "t": "screen",
+      "action": "set",
+      "content": {
+        "kind": "chart",
+        "symbol": "VNINDEX",
+        "source": "demo",
+        "interval": "D",
+        "chartType": "candles",
+        "indicators": [
+          "volume",
+          "ma20"
+        ],
+        "layers": [
+          "trendlines",
+          "channel",
+          "levels",
+          "patterns",
+          "common",
+          "breaks",
+          "mtf"
+        ]
+      }
+    },
+    "errors": []
+  },
+  {
+    "width": 1440,
+    "theme": "dark",
+    "pass": true,
+    "chartPayload": {
+      "t": "screen",
+      "action": "set",
+      "content": {
+        "kind": "chart",
+        "symbol": "VNINDEX",
+        "source": "demo",
+        "interval": "D",
+        "chartType": "candles",
+        "indicators": [
+          "volume",
+          "ma20"
+        ],
+        "layers": [
+          "trendlines",
+          "channel",
+          "levels",
+          "patterns",
+          "common",
+          "breaks",
+          "mtf"
+        ]
+      }
+    },
+    "errors": []
+  },
+  {
+    "width": 1440,
+    "theme": "light",
+    "pass": true,
+    "chartPayload": {
+      "t": "screen",
+      "action": "set",
+      "content": {
+        "kind": "chart",
+        "symbol": "VNINDEX",
+        "source": "demo",
+        "interval": "D",
+        "chartType": "candles",
+        "indicators": [
+          "volume",
+          "ma20"
+        ],
+        "layers": [
+          "trendlines",
+          "channel",
+          "levels",
+          "patterns",
+          "common",
+          "breaks",
+          "mtf"
+        ]
+      }
+    },
+    "errors": []
+  }
+]
