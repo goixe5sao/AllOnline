@@ -7,7 +7,7 @@ import type { Auth } from "../auth";
 import type { Hub } from "../hub";
 import type { Storage } from "../storage";
 import { sniffMime } from "../storage";
-import { appendCookie, parseCookies, readJson, serializeCookie } from "../http";
+import { appendCookie, parseCookies, readJson, sendJson, serializeCookie } from "../http";
 import { AppError, confirmPayment, getOrder } from "../services/rooms";
 import { findOrCreateZaloUser, identitiesOf, linkIdentity, oaUserIdOf, userByIdentity } from "../services/identities";
 import type { AppUser } from "../services/users";
@@ -174,24 +174,42 @@ export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth
     return { ok: true };
   });
 
+  // Process-local retry suppression: 24 hours, at most 20,000 messages.
+  const seenMessages = new Map<string, number>();
+
   // ---------- Zalo Bot Platform webhook ----------
   route(
     "POST",
     "/api/zalo/bot-webhook",
-    async ({ req }) => {
+    async ({ req, res }) => {
       if (!verifyBotSecret(req.headers["x-bot-api-secret-token"], cfg.zaloBotWebhookSecret)) throw new AppError("BAD_SECRET", "Invalid bot secret.", 401);
       if (!cfg.zaloBotToken) throw new AppError("ZALO_DISABLED", "Bot is not configured.", 404);
       const evt = z.object({
         event_name: z.string(),
         message: z.object({
+          message_id: z.string().optional(),
           from: z.object({ id: z.string(), display_name: z.string().optional(), is_bot: z.boolean().optional() }).optional(),
           chat: z.object({ id: z.string(), chat_type: z.string() }).optional(),
           text: z.string().max(2000).optional(),
           photo_url: z.url().optional(),
         }).optional(),
       }).parse(await readJson(req, 256 * 1024));
-      await bot.handle(evt);
-      return { ok: true };
+      const now = Date.now();
+      for (const [id, expires] of seenMessages) {
+        if (expires > now) break;
+        seenMessages.delete(id);
+      }
+      const id = evt.message?.message_id;
+      const duplicate = !!id && seenMessages.has(id);
+      if (id && !duplicate) {
+        if (seenMessages.size >= 20_000) seenMessages.delete(seenMessages.keys().next().value!);
+        seenMessages.set(id, now + 24 * 60 * 60_000);
+      }
+      sendJson(res, 200, { ok: true });
+      if (!duplicate) setImmediate(() => {
+        void Promise.resolve().then(() => bot.handle(evt)).catch(() => console.error("[zalo] webhook processing failed"));
+      });
+      return undefined;
     },
     { public: true },
   );

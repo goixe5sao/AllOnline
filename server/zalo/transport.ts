@@ -56,15 +56,30 @@ export class BotTransport implements BotSender {
     return true;
   }
 
-  // Bot Platform has no OA profile endpoint; use a neutral name for new accounts.
+  // Bot Platform has no profile endpoint; sender names come from webhook payloads.
   async profile() { return null; }
 
   async fetchImage(url: string) {
     if (!/^https:\/\//.test(url)) return null;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    return buf.length > 8 * 1024 * 1024 ? null : buf;
+    const limit = 8 * 1024 * 1024;
+    if (Number(res.headers.get("content-length")) > limit) {
+      await res.body?.cancel();
+      return null;
+    }
+    if (!res.body) return null;
+    const reader = res.body.getReader();
+    const chunks: Buffer[] = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > limit) { await reader.cancel(); return null; }
+      chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks, size);
   }
 }
 

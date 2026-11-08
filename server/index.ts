@@ -27,6 +27,7 @@ import { getUser } from "./services/users";
 import { clientIp } from "./http";
 import path from "node:path";
 import { CaptureSender, BotTransport } from "./zalo/transport";
+import { discoverBotAccount } from "./zalo/startup";
 import { ZaloBot } from "./zalo/bot";
 
 async function main() {
@@ -51,7 +52,7 @@ async function main() {
   // Demo mode always captures messages, even when inherited env contains live credentials.
   const origin = () => cfg.publicOrigin ?? `http://localhost:${cfg.port}`;
   const zaloSender = cfg.mode !== "demo" && cfg.zaloBotToken ? new BotTransport(cfg.zaloBotToken) : new CaptureSender();
-  if (zaloSender instanceof BotTransport) cfg.zaloBotId = await zaloSender.accountName();
+  if (zaloSender instanceof BotTransport) discoverBotAccount(cfg, zaloSender);
   const bot = new ZaloBot({
     cfg,
     db,

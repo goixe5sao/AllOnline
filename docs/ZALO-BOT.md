@@ -8,7 +8,8 @@ The OA bot setup in ZALO-SEPAY.md is superseded by this document.
 - `ZALO_BOT_TOKEN`: Bot Creator token. Production bot availability depends on this token.
 - `ZALO_BOT_WEBHOOK_SECRET`: 8–256 characters, matching the registered webhook secret.
 - `ZALO_BOT_ID`: optional legacy setting; startup resolves `getMe.account_name` with the token,
-  so an old numeric value cannot produce a numeric public URL.
+  so an old numeric value cannot produce a numeric public URL. Discovery runs in the
+  background; failures leave botInfo null and retry every five minutes until successful.
 
 The selected public link is `https://zalo.me/bot.JwUidOjZ`, using the supplied
 `account_name`, rather than the API id `3431386737049524427`. This choice is inferred from
@@ -34,7 +35,15 @@ Messages use `chat_id` and `text`. The webhook is
 `X-Bot-Api-Secret-Token` and the configured secret using `timingSafeEqual`.
 Missing or incorrect secrets return 401 before reading the body. Only private messages
 from human senders enter account commands. Text and image events use the documented
-`message.text.received` / `message.image.received` payloads.
+`message.text.received` / `message.image.received` payloads. Validated requests are
+acknowledged with HTTP 200 before background handling; failures are logged without provider
+details. The documented `message.message_id`, when present, suppresses duplicates within
+this process for 24 hours (up to 20,000 entries); this cache does not survive restarts or
+coordinate multiple server processes. Events without IDs are processed independently.
+`from.id` identifies the account, `from.display_name` names new accounts, and `chat.id`
+is the destination for immediate replies. Image downloads time out after 15 seconds and
+reject bodies over 8 MiB, checking Content-Length before reading and enforcing the limit
+while streaming when the length is absent or inaccurate.
 
 The existing `zalo_oa` identity key is retained to avoid a database migration. Bot Platform
 ids are not automatically mapped to previous OA followers or OAuth identities; users can

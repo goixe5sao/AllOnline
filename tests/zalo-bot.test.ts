@@ -5,6 +5,8 @@ import { migrate, openPglite, type Db } from "../server/db";
 import type { Config } from "../server/config";
 import { Auth } from "../server/auth";
 import { createApi } from "../server/routes";
+import { discoverBotAccount } from "../server/zalo/startup";
+import { userByIdentity } from "../server/services/identities";
 import { ZaloBot } from "../server/zalo/bot";
 import { BOT_API, BotTransport, CaptureSender, botInfo, verifyBotSecret } from "../server/zalo/transport";
 
@@ -33,7 +35,7 @@ afterAll(async () => {
   if (server) await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve()));
   if (db) await db.close();
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 const post = (path: string, body: unknown, headers: Record<string, string> = {}) => fetch(base + path, {
   method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body),
@@ -59,6 +61,7 @@ describe("Bot Platform webhook and demo login", () => {
       "X-Bot-Api-Secret-Token": cfg.zaloBotWebhookSecret!,
     })).status).toBe(200);
     expect((await (await poll("wrong-claim")).json()).status).toBe("expired");
+    await vi.waitFor(() => expect(cap.sent.at(-1)?.to).toBe("test-person"));
     const signedIn = await poll(claim);
     expect((await signedIn.json()).status).toBe("ok");
     expect(signedIn.headers.get("set-cookie")).toContain("ao_acc=");
@@ -132,5 +135,117 @@ describe("Bot transport", () => {
     expect(fake).toHaveBeenCalledWith(`${BOT_API}/botfake-token/setWebhook`, expect.objectContaining({
       method: "POST", body: JSON.stringify(body),
     }));
+  });
+});
+
+
+describe("Review regressions", () => {
+  it("keeps discovery disabled on failure, retries every five minutes and stops after success", async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const accountName = vi.fn().mockRejectedValueOnce(new Error("secret-token"))
+      .mockRejectedValueOnce(new Error("secret-token")).mockResolvedValue("bot.Recovered");
+    const production = { ...cfg, mode: "supabase", zaloBotId: "bot.Stale" } as Config;
+    const stop = discoverBotAccount(production, { accountName });
+    try {
+      expect(botInfo(production)).toBeNull();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret-token");
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(accountName).toHaveBeenCalledTimes(2);
+      expect(botInfo(production)).toBeNull();
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(botInfo(production)?.url).toBe("https://zalo.me/bot.Recovered");
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(accountName).toHaveBeenCalledTimes(3);
+    } finally { stop(); }
+  });
+
+  it("acknowledges before handling finishes, dedupes message_id even on failure, and accepts id-less events", async () => {
+    let reject!: (e: Error) => void;
+    const pending = new Promise<void>((_, r) => { reject = r; });
+    const handle = vi.spyOn(bot, "handle").mockImplementation(() => pending);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const payload = { ...event("slow-person", "hello"), message: {
+      ...event("slow-person", "hello").message, message_id: "review-slow-message",
+    } };
+    const send = (body: unknown) => post("/api/zalo/bot-webhook", body, { "X-Bot-Api-Secret-Token": cfg.zaloBotWebhookSecret! });
+    try {
+      expect((await send(payload)).status).toBe(200);
+      await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(1));
+      expect((await send(payload)).status).toBe(200);
+      expect(handle).toHaveBeenCalledTimes(1);
+      reject(new Error("sendMessage failed"));
+      await vi.waitFor(() => expect(log).toHaveBeenCalledWith("[zalo] webhook processing failed"));
+      handle.mockResolvedValue(undefined);
+      expect((await send(payload)).status).toBe(200);
+      expect(handle).toHaveBeenCalledTimes(1);
+      await send(event("no-id", "hello"));
+      await send(event("no-id", "hello"));
+      await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(3));
+    } finally { reject(new Error("cleanup")); }
+  });
+
+  it("validates malformed authenticated payloads before acknowledging", async () => {
+    const res = await post("/api/zalo/bot-webhook", { event_name: 123 }, { "X-Bot-Api-Secret-Token": cfg.zaloBotWebhookSecret! });
+    expect(res.status).toBe(400);
+  });
+
+  it("uses sender identity and display name while replying to a different chat for text and images", async () => {
+    const e = event("review-identity", "dang ky");
+    e.message.chat.id = "review-chat";
+    e.message.from.display_name = "Webhook name";
+    await bot.handle(e);
+    const user = await userByIdentity(db, "zalo_oa", "review-identity");
+    expect(user?.display_name).toBe("Webhook name");
+    expect(await userByIdentity(db, "zalo_oa", "review-chat")).toBeNull();
+    expect(cap.sent.at(-1)?.to).toBe("review-chat");
+    const { code, claim } = bot.createWebLogin();
+    await bot.handle({ ...e, message: { ...e.message, text: `DN ${code}` } });
+    expect(bot.checkWebLogin(code, claim)).toEqual({ status: "ok", userId: user!.id });
+    expect(cap.sent.at(-1)?.to).toBe("review-chat");
+    await bot.handle({ event_name: "message.image.received", message: {
+      from: { id: "review-identity" }, chat: { id: "review-image-chat", chat_type: "PRIVATE" }, photo_url: "https://example.test/receipt",
+    } });
+    expect(cap.sent.at(-1)?.to).toBe("review-image-chat");
+  });
+
+  it("uses the webhook display name for a new DN account", async () => {
+    const { code, claim } = bot.createWebLogin();
+    const e = event("review-new-dn", `DN ${code}`);
+    e.message.chat.id = "review-new-dn-chat";
+    await bot.handle(e);
+    const user = await userByIdentity(db, "zalo_oa", e.message.from.id);
+    expect(user?.display_name).toBe(e.message.from.display_name);
+    expect(bot.checkWebLogin(code, claim)).toEqual({ status: "ok", userId: user!.id });
+    expect(cap.sent.at(-1)?.to).toBe(e.message.chat.id);
+  });
+
+  it("directs immediate payment confirmations to the receipt chat", async () => {
+    const query = vi.spyOn(db, "query").mockResolvedValueOnce({ rows: [{ code: "TEST", user_id: "payer", kind: "create_room", room_id: null }] });
+    await bot.notifyPaid("test-order", "receipt-chat");
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(cap.sent.at(-1)?.to).toBe("receipt-chat");
+  });
+
+  it("times out image fetches and rejects declared oversized bodies without reading", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const read = vi.fn();
+    const cancel = vi.fn();
+    const fake = vi.fn().mockResolvedValue({ ok: true, headers: new Headers({ "content-length": String(8 * 1024 * 1024 + 1) }), body: { cancel }, arrayBuffer: read });
+    vi.stubGlobal("fetch", fake);
+    const sender = new BotTransport("fake-token");
+    expect(await sender.fetchImage("https://example.test/image")).toBeNull();
+    expect(timeout).toHaveBeenCalledWith(15_000);
+    expect(fake).toHaveBeenCalledWith("https://example.test/image", { signal: expect.any(AbortSignal) });
+    expect(read).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalled();
+    fake.mockResolvedValue(new Response("image"));
+    expect(await sender.fetchImage("https://example.test/image")).toEqual(Buffer.from("image"));
+    fake.mockResolvedValue(new Response(new Uint8Array(8 * 1024 * 1024 + 1)));
+    expect(await sender.fetchImage("https://example.test/image")).toBeNull();
+    fake.mockRejectedValue(new DOMException("Timed out", "TimeoutError"));
+    await expect(sender.fetchImage("https://example.test/image")).rejects.toThrow("Timed out");
   });
 });
