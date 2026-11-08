@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, PageHeader, RadioCard, Stepper, StickyActionBar } from "@/components/ui";
-import { MapPin, Sparkles, Square } from "lucide-react";
+import { Armchair, Car, LayoutGrid, Presentation, Table, Sparkles, Square } from "lucide-react";
 import "./rooms-new.css";
 import { SymbolPicker } from "@/components/room/symbol-picker";
 import { useRouter } from "next/navigation";
@@ -38,7 +38,9 @@ interface Preview {
   trial: { eligible: boolean; reason?: string; used: number };
 }
 
-function CreateRoomForm({ catalog }: { catalog: Catalog }) {
+const mapIcons = { hall: Armchair, carpet: LayoutGrid, tables: Table, drive_in: Car, meeting: Presentation };
+
+function CreateRoomForm({ catalog, isAdmin }: { catalog: Catalog; isAdmin: boolean }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -195,19 +197,19 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={1000} rows={2} />
         </label>
         <div className="field">
-          <strong>MAP</strong>
+          <strong>Không gian</strong>
           <div className="choice-grid">
-            {catalog.maps.map((m) => (
-              <RadioCard key={m.code} name="map" value={m.code} checked={map === m.code} disabled={!m.enabled} onChange={() => chooseMap(m.code)}><MapPin aria-hidden />
+            {catalog.maps.map((m) => { const Icon = mapIcons[m.code]; return (
+              <RadioCard key={m.code} name="map" value={m.code} checked={map === m.code} disabled={!m.enabled} onChange={() => chooseMap(m.code)}><Icon aria-hidden />
                 <strong>{m.name}</strong>
                 <br />
                 <small>{m.description}</small>
               </RadioCard>
-            ))}
+            ); })}
           </div>
         </div>
         <div className="field">
-          <strong>Nhóm đối tượng đại diện được phép</strong>
+          <strong>Nhân vật (avatar) được dùng</strong>
           <div className="row">
             {allowedGroups.map((g) => (
               <label className="check" key={g}>
@@ -355,7 +357,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
 <h3>{name || "Phòng mới"}</h3><p>{description || "Chưa có mô tả"}</p>
         <dl className="room-review">
           <dt>Không gian</dt><dd>{mapInfo.name} · {MAP_INFO[map].furnished ? "Nội thất riêng" : stageStyle === "glam" ? "Hành tinh tương lai" : "Đơn sắc"}</dd>
-          <dt>Đại diện</dt><dd>{groups.map(g => AVATARS[g].label).join(", ")}</dd>
+          <dt>Nhân vật</dt><dd>{groups.map(g => AVATARS[g].label).join(", ")}</dd>
           <dt>Quy mô</dt><dd>{capText} chỗ · {waitingEnabled ? "Có chỗ chờ" : "Không chỗ chờ"}</dd>
           <dt>Thời hạn</dt><dd>{openEnded && !useTrial ? "Vô thời hạn" : `${hours} giờ`}</dd>
           <dt>Sự kiện</dt><dd>{startsAt || "Sau khi tạo phòng"}</dd>
@@ -367,7 +369,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
       </div>
       <aside className={`card stack room-summary ${summaryOpen ? "is-open" : ""}`} id="room-summary">
         <h2>
-          Slot & giá {quoting && <small className="muted">· đang tính…</small>}
+          Tóm tắt & giá {quoting && <small className="muted">· đang tính…</small>}
         </h2>
         {shownErr && (
           <p className="notice error" role="alert">
@@ -378,47 +380,27 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
         {trialTooBig && <p className="notice error">Dùng thử tối đa {catalog.trial.maxCapacity} chỗ chính thức — giảm số chỗ hoặc bỏ dùng thử.</p>}
         {preview && b ? (
           <>
-            <table className="data">
-              <tbody>
-                <tr>
-                  <td>Chỗ chính thức</td>
-                  <td>
-                    <strong>{Number.isFinite(capacity) ? capacity : "—"}</strong>
-                  </td>
-                </tr>
-                <tr>
-                  <td>Chỗ chờ ngoài cổng</td>
-                  <td>
-                    <strong>{preview.waitingCapacity}</strong> <small>= làm tròn xuống({Number.isFinite(capacity) ? capacity : "—"} × {Math.round(preview.waitingRatio * 100)}%)</small>
-                  </td>
-                </tr>
-                <tr>
-                  <td>Tổng slot hệ thống của phòng</td>
-                  <td>
-                    <strong>{preview.totalSlots}</strong>
-                  </td>
-                </tr>
-                <tr>
-                  <td>Ngân sách hệ thống</td>
-                  <td>
-                    {b.budget} (đã cấp {b.allocated}, đang giữ cho thanh toán {b.held})
-                  </td>
-                </tr>
-                <tr>
-                  <td>Còn lại hiện tại</td>
-                  <td>
-                    <strong>{b.remaining}</strong> → sau khi tạo: <strong style={{ color: over ? "var(--danger)" : undefined }}>{b.remaining - preview.totalSlots}</strong>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div className="slotbar" aria-hidden>
-              <span className="alloc" style={{ width: `${(b.allocated / Math.max(1, b.budget)) * 100}%` }} />
-              <span className="held" style={{ width: `${(b.held / Math.max(1, b.budget)) * 100}%` }} />
-              <span className="req" style={{ width: `${(Math.min(preview.totalSlots, b.remaining) / Math.max(1, b.budget)) * 100}%` }} />
-            </div>
-            <small>Phòng giữ toàn bộ slot kể cả khi chưa có ai, cho đến khi đóng/hết hạn.</small>
-            {over && <p className="notice error">Không đủ slot hệ thống cho cấu hình này.</p>}
+            <table className="data"><tbody>
+              <tr><td>Chỗ chính thức</td><td><strong>{Number.isFinite(capacity) ? capacity : "—"}</strong></td></tr>
+              <tr><td>Chỗ chờ</td><td><strong>{preview.waitingCapacity}</strong></td></tr>
+              <tr><td>Thời hạn</td><td>{openEnded && !useTrial ? "Vô thời hạn" : `${hours} giờ`}</td></tr>
+              <tr><td>Giá</td><td>{formatVnd(useTrial ? 0 : preview.quote?.promo?.amountBefore ?? preview.quote?.amount ?? 0)}</td></tr>
+              {preview.quote?.promo && !useTrial && <tr><td>Mã {preview.quote.promo.code} (−{preview.quote.promo.percentOff}%)</td><td>−{formatVnd(preview.quote.promo.discount)}</td></tr>}
+              <tr><td>Tổng</td><td><strong>{useTrial ? formatVnd(0) : preview.quote ? formatVnd(preview.quote.amount) : "Chưa có giá"}</strong></td></tr>
+            </tbody></table>
+            {isAdmin && <details className="room-system"><summary>Chi tiết hệ thống</summary><div className="stack">
+              <p>Tổng slot hệ thống của phòng: {preview.totalSlots}</p>
+              <p>Ngân sách hệ thống: {b.budget} (đã cấp {b.allocated}, đang giữ cho thanh toán {b.held})</p>
+              <p>Còn lại hiện tại: {b.remaining} → sau khi tạo: {b.remaining - preview.totalSlots}</p>
+              <small>Chỗ chờ = làm tròn xuống({Number.isFinite(capacity) ? capacity : "—"} × {Math.round(preview.waitingRatio * 100)}%)</small>
+              <div className="slotbar" aria-hidden>
+                <span className="alloc" style={{ width: `${b.allocated / Math.max(1, b.budget) * 100}%` }} />
+                <span className="held" style={{ width: `${b.held / Math.max(1, b.budget) * 100}%` }} />
+                <span className="req" style={{ width: `${Math.min(preview.totalSlots, b.remaining) / Math.max(1, b.budget) * 100}%` }} />
+              </div>
+              <small>Phòng giữ toàn bộ slot kể cả khi chưa có ai, cho đến khi đóng/hết hạn.</small>
+            </div></details>}
+            {over && <p className="notice error">Hệ thống đang hết chỗ cho cấu hình này, hãy giảm số chỗ hoặc thử lại sau</p>}
 
             {openEnded && !useTrial && preview.quote?.openEnded && (
               <div className="notice stack" style={{ gap: 4 }}>
@@ -435,25 +417,6 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
             {!useTrial &&
               (preview.quote ? (
                 <div className="notice stack" style={{ gap: 6 }}>
-                  {preview.quote.promo && (
-                    <>
-                      <div className="row between">
-                        <span>Giá gốc</span>
-                        <span style={{ textDecoration: "line-through" }}>{formatVnd(preview.quote.promo.amountBefore)}</span>
-                      </div>
-                      <div className="row between" style={{ color: "var(--ok)" }}>
-                        <span>
-                          Mã {preview.quote.promo.code} (−{preview.quote.promo.percentOff}%)
-                        </span>
-                        <span>−{formatVnd(preview.quote.promo.discount)}</span>
-                      </div>
-                    </>
-                  )}
-                  <div className="row between">
-                    <span>{preview.quote.openEnded ? "Đặt cọc cần thanh toán" : preview.quote.promo ? "Cần thanh toán" : "Giá"}</span>
-                    <strong>{formatVnd(preview.quote.amount)}</strong>
-                  </div>
-                  <small>{preview.quote.note}</small>
                   <div className="row">
                     <input type="text" value={promoInput} onChange={(e) => setPromoInput(e.target.value.toUpperCase())} placeholder="Mã giảm giá" maxLength={32} style={{ flex: 1, minWidth: 120 }} aria-label="Mã giảm giá" />
                     <button type="button" className="btn small" onClick={() => setPromo(promoInput.trim())}>
@@ -485,7 +448,7 @@ function CreateRoomForm({ catalog }: { catalog: Catalog }) {
           <strong>{quoting ? "Đang tính…" : useTrial ? formatVnd(0) : preview?.quote ? formatVnd(preview.quote.amount) : "Chưa có giá"}</strong>
         </button>
         <div className="room-cta">
-          {(over || err || shownErr || tooBig || trialTooBig || symbolBad) && <p className="ui-error" role="alert">{err || shownErr || (over ? "Không đủ slot hệ thống cho cấu hình này. Giảm số chỗ hoặc thử lại sau." : tooBig ? `Tối đa ${catalog.maxRoomCapacity} chỗ chính thức mỗi phòng.` : trialTooBig ? `Dùng thử tối đa ${catalog.trial.maxCapacity} chỗ chính thức.` : "Kiểm tra mã chứng khoán.")}</p>}
+          {(over || err || shownErr || tooBig || trialTooBig || symbolBad) && <p className="ui-error" role="alert">{err || shownErr || (over ? "Hệ thống đang hết chỗ cho cấu hình này, hãy giảm số chỗ hoặc thử lại sau" : tooBig ? `Tối đa ${catalog.maxRoomCapacity} chỗ chính thức mỗi phòng.` : trialTooBig ? `Dùng thử tối đa ${catalog.trial.maxCapacity} chỗ chính thức.` : "Kiểm tra mã chứng khoán.")}</p>}
           <div className="room-action-buttons">
           {step > 0 && <Button onClick={() => setStep(step - 1)}>Quay lại</Button>}
           {step < 3 && <Button variant="primary" onClick={nextStep}>Tiếp tục</Button>}
@@ -503,10 +466,10 @@ export default function NewRoomPage() {
   const { data } = useApi<Catalog>("/api/catalog");
   return (
     <AppShell requireLogin>
-      {() => (
+      {(me) => (
         <>
           <PageHeader title="Tạo phòng" subtitle="Thiết kế không gian cho sự kiện của bạn." />
-          {data ? <CreateRoomForm catalog={data} /> : <p className="muted">Đang tải…</p>}
+          {data ? <CreateRoomForm catalog={data} isAdmin={me.role === "app_owner"} /> : <p className="muted">Đang tải…</p>}
         </>
       )}
     </AppShell>

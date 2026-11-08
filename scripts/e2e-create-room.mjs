@@ -1,7 +1,7 @@
 import puppeteer from "puppeteer-core";
 /**
  * "Tạo phòng" page, every case, in real Chrome (no 3D on this page, light on the CPU):
- * the "Slot & giá" box must never hang on "Đang tính…" — every mistake shows a reason and is
+ * the "Tóm tắt & giá" box must never hang on "Đang tính…" — every mistake shows a reason and is
  * recoverable once fixed — and every kind of room can be created (trial, paid, promo 100 %,
  * open-ended deposit) with the chosen options stored.
  *   BASE=http://localhost:3100 node scripts/e2e-create-room.mjs <outDir>
@@ -27,14 +27,14 @@ async function login(name, asAppOwner = false) {
 }
 const api = (p, path, method = "GET", body) => p.evaluate(async (a) => { const r = await fetch(a.path, { method: a.method, headers: { "Content-Type": "application/json" }, body: a.body ? JSON.stringify(a.body) : undefined }); return { status: r.status, json: await r.json().catch(() => null) }; }, { path, method, body });
 
-/** State of the "Slot & giá" box once it settles (no request in flight). */
+/** State of the "Tóm tắt & giá" box once it settles (no request in flight). */
 async function box(p, waitMs = 6000) {
   const t0 = Date.now();
   let s;
   do {
     await sleep(150);
     s = await p.evaluate(() => {
-      const card = [...document.querySelectorAll(".card")].find((c) => c.querySelector("h2")?.textContent?.startsWith("Slot & giá"));
+      const card = [...document.querySelectorAll(".card")].find((c) => c.querySelector("h2")?.textContent?.startsWith("Tóm tắt & giá"));
       const txt = card?.textContent ?? "";
       const row = (label) => [...(card?.querySelectorAll("tr") ?? [])].find((tr) => tr.textContent?.includes(label))?.querySelector("strong")?.textContent ?? null;
       const btn = document.querySelector("form button.btn.primary");
@@ -44,8 +44,8 @@ async function box(p, waitMs = 6000) {
         error: [...(card?.querySelectorAll(".notice.error") ?? [])].map((e) => e.textContent).join(" | "),
         warn: [...(card?.querySelectorAll(".notice.warn") ?? [])].map((e) => e.textContent).join(" | "),
         waiting: row("Chỗ chờ"),
-        total: row("Tổng slot"),
-        price: card?.querySelector(".notice .row strong, .notice strong")?.textContent ?? null,
+        total: String(Number(row("Chỗ chính thức")) + Number(row("Chỗ chờ"))),
+        price: card?.querySelector("tr:last-child strong")?.textContent ?? null,
         amountText: txt,
         submit: btn?.textContent ?? "",
         submitEnabled: !!btn && !btn.disabled,
@@ -117,6 +117,7 @@ const p = await login("Khách tạo phòng");
 await openNew(p);
 let s = await box(p);
 if (!process.env.CREATE_ONLY) {
+check(await p.$('.room-system') === null, "customers never receive system-capacity UI");
 check(ok(s) && s.submitEnabled, `default: price box filled, no error, submit on (${s.total} slot, “${s.submit}”)`);
 check(Number(s.waiting) === Math.floor(20 * ratio) && Number(s.total) === 20 + Math.floor(20 * ratio), `default: waiting = floor(20 × ${ratio}) and total adds up (${s.waiting} / ${s.total})`);
 await p.screenshot({ path: `${OUT}/create-default.png`, fullPage: true });
@@ -148,8 +149,8 @@ check(ok(s) && s.submitEnabled, "capacity 20 again: normal");
 await api(admin, "/api/admin/settings", "PATCH", { total_slot_budget: 30 });
 await setCap(p, 40);
 s = await box(p);
-check(!s.stuck && /Không đủ slot/.test(s.error) && !s.submitEnabled, "system budget 30 < 48 slots: “Không đủ slot”, submit off");
-check(await p.$eval('.room-cta [role="alert"]', el => el.textContent.includes('Không đủ slot')), "not-enough-slots error is inline beside the CTA");
+check(!s.stuck && /Hệ thống đang hết chỗ/.test(s.error) && !s.submitEnabled, "system budget 30 < 48 slots: “Không đủ slot”, submit off");
+check(await p.$eval('.room-cta [role="alert"]', el => el.textContent.includes('Hệ thống đang hết chỗ')), "not-enough-slots error is inline beside the CTA");
 await api(admin, "/api/admin/settings", "PATCH", { total_slot_budget: 3000 });
 await setCap(p, 21);
 await setCap(p, 20);

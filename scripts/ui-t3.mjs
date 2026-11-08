@@ -36,6 +36,7 @@ try {
       }, fixtureName);
       await page.goto(base + '/rooms/new', { waitUntil: 'networkidle0' });
       await page.waitForSelector('.room-flow');
+      assert.ok(await page.$eval('.room-system', e => !e.open));
       assert.equal(await page.evaluate(async () => (await (await fetch('/api/me')).json()).user.displayName), fixtureName);
       await page.screenshot({ path: `${out}/header-${width}-${theme}.png` });
       await page.click('[aria-label="Mở menu tài khoản"]');
@@ -62,6 +63,7 @@ try {
         await page.screenshot({ path: `${out}/rooms-new-summary-${width}-${theme}.png`, fullPage: true });
         await page.click('.room-total');
       }
+      if (width === 390) assert.ok(await page.$eval('.room-flow', e => parseFloat(getComputedStyle(e).paddingBottom) >= document.querySelector('.room-actions').getBoundingClientRect().height));
       // The exact pre-redesign default payload, including every field and screen normalization.
       const quote = await page.evaluate(async () => {
         const catalog = await (await fetch('/api/catalog')).json();
