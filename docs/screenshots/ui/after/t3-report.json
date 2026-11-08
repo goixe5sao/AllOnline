@@ -1,0 +1,150 @@
+[
+  {
+    "width": 390,
+    "theme": "dark",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ],
+    "overflow": false,
+    "utf8Fixture": "Kiểm tra giao dịch",
+    "payload": {
+      "config": {
+        "name": "Đêm nhạc mùa thu",
+        "description": "Không gian gặp gỡ và âm nhạc",
+        "map": "hall",
+        "avatarGroups": [
+          "people"
+        ],
+        "officialCapacity": 20,
+        "waitingEnabled": true,
+        "entryMode": "auto_assign",
+        "durationHours": 6,
+        "openEnded": false,
+        "isPublic": true,
+        "password": "",
+        "initialScreen": {
+          "kind": "text",
+          "text": "Chào mừng đến với phòng!"
+        },
+        "scheduledAt": null,
+        "stageStyle": "glam"
+      },
+      "useTrial": false
+    },
+    "steps": 4,
+    "headerMenus": "pass",
+    "fieldset": "token border"
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ],
+    "overflow": false,
+    "utf8Fixture": "Kiểm tra giao dịch",
+    "payload": {
+      "config": {
+        "name": "Đêm nhạc mùa thu",
+        "description": "Không gian gặp gỡ và âm nhạc",
+        "map": "hall",
+        "avatarGroups": [
+          "people"
+        ],
+        "officialCapacity": 20,
+        "waitingEnabled": true,
+        "entryMode": "auto_assign",
+        "durationHours": 6,
+        "openEnded": false,
+        "isPublic": true,
+        "password": "",
+        "initialScreen": {
+          "kind": "text",
+          "text": "Chào mừng đến với phòng!"
+        },
+        "scheduledAt": null,
+        "stageStyle": "glam"
+      },
+      "useTrial": false
+    },
+    "steps": 4,
+    "headerMenus": "pass",
+    "fieldset": "token border"
+  },
+  {
+    "width": 1440,
+    "theme": "dark",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ],
+    "overflow": false,
+    "utf8Fixture": "Kiểm tra giao dịch",
+    "payload": {
+      "config": {
+        "name": "Đêm nhạc mùa thu",
+        "description": "Không gian gặp gỡ và âm nhạc",
+        "map": "hall",
+        "avatarGroups": [
+          "people"
+        ],
+        "officialCapacity": 20,
+        "waitingEnabled": true,
+        "entryMode": "auto_assign",
+        "durationHours": 6,
+        "openEnded": false,
+        "isPublic": true,
+        "password": "",
+        "initialScreen": {
+          "kind": "text",
+          "text": "Chào mừng đến với phòng!"
+        },
+        "scheduledAt": null,
+        "stageStyle": "glam"
+      },
+      "useTrial": false
+    },
+    "steps": 4,
+    "headerMenus": "pass",
+    "fieldset": "token border"
+  },
+  {
+    "width": 1440,
+    "theme": "light",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    ],
+    "overflow": false,
+    "utf8Fixture": "Kiểm tra giao dịch",
+    "payload": {
+      "config": {
+        "name": "Đêm nhạc mùa thu",
+        "description": "Không gian gặp gỡ và âm nhạc",
+        "map": "hall",
+        "avatarGroups": [
+          "people"
+        ],
+        "officialCapacity": 20,
+        "waitingEnabled": true,
+        "entryMode": "auto_assign",
+        "durationHours": 6,
+        "openEnded": false,
+        "isPublic": true,
+        "password": "",
+        "initialScreen": {
+          "kind": "text",
+          "text": "Chào mừng đến với phòng!"
+        },
+        "scheduledAt": null,
+        "stageStyle": "glam"
+      },
+      "useTrial": false
+    },
+    "steps": 4,
+    "headerMenus": "pass",
+    "fieldset": "token border"
+  }
+]
