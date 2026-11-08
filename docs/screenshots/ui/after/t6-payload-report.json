@@ -1,0 +1,12 @@
+[
+  {
+    "file": "src/app/admin/page.tsx",
+    "unchangedHandlersAndApiCalls": 54,
+    "settingsSerializationUnchanged": true
+  },
+  {
+    "file": "src/app/admin/proofs-tab.tsx",
+    "unchangedHandlersAndApiCalls": 4,
+    "settingsSerializationUnchanged": true
+  }
+]

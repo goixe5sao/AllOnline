@@ -100,9 +100,17 @@ Result (Codex, 2026-11-08):
 - Safety: demo PGlite only, port 3100 only; server stopped at end of session. No production directory, live payment calls, backend edits or push. Claude visual review pending.
 
 ### T-6: Admin + room logs
-Status: todo (after T-2)   Risk: low
+Status: review   Risk: low
 Goal: an admin layout with a side nav on desktop and tabs on mobile, KPI tiles, DataLists and consistent forms. Room logs become a filterable timeline.
 Acceptance: screenshots, lint, tsc.
+
+Result (Codex, 2026-11-08):
+- Branch: `codex/ui-system`; separate local T-6 commit, no push. Admin uses desktop side navigation, wrapping mobile tabs with arrow/Home/End navigation, KPI tiles, token surfaces/forms and responsive shared DataLists. The small AdminDataList adapter retains existing cell content and action handlers. Room logs use an event-type filter, text search, empty state and timeline; raw event JSON is expandable. Order log data uses DataList.
+- PASS `node scripts/ui-admin-payloads.mjs`: TypeScript AST comparison against the pre-T6 commit proves all existing admin API calls and onClick/onChange/onBlur/onSubmit handlers unchanged; the complete SettingsForm setup, normalization and save functions before JSX also match, apart from line endings. Evidence: `after/t6-payload-report.json`. No server or pricing implementation changed.
+- PASS lint (0 errors, 16 existing warnings), tsc --noEmit, unit/service tests (16 files / 174 tests), git diff --check. PASS existing `e2e-zalo.mjs`: bot signup/single-use login, account link, order lookup, SePay payment, proof file upload, review and admin approval; no page errors. Updated a stale checkmark assertion to the T-4 Badge label, added browser cleanup in finally and placeholder navigation for 3D destinations.
+- PASS `node scripts/ui-t5-t6.mjs --admin`: overview, all six other admin tabs and room logs at 390/1440 dark/light, no overflow/page errors; tab keyboard navigation, timeline search-empty state and type filter verified. Captures `after/admin-*`, `after/logs-*`, `after/admin-proofs.png`; `after/t6-report.json`. Extra viewport-only overview captures aid review of the long demo room list. Visually inspected mobile timeline.
+- Review nits verified with `ui-t4.mjs`: no header wrapping/overflow; calendar menu links, fallback share/copy/Facebook and mocked native share all pass in four size/theme combinations. Refreshed join/login evidence and open-menu captures.
+- Safety: only this worktree and local demo PGlite; demo server on 3100 stopped after final checks. No access to production directory, live API/payment calls, backend changes, deployment or push. Claude visual review pending.
 
 ### T-7: Home page + in-room HTML overlays
 Status: todo (last)   Risk: high (3D performance, the core experience)

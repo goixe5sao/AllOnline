@@ -1,11 +1,15 @@
 "use client";
 
+import { AdminDataList } from "./admin-data-list";
+
 import Link from "next/link";
 import { useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { api, ApiError, fmtTime, useApi } from "@/lib/api";
 import { formatVnd, type PriceTier } from "@/core/pricing";
 import { MAP_INFO, type MapCode } from "@/core/maps";
+import { PageHeader, Skeleton } from "@/components/ui";
+import "./admin.css";
 import { ProofsTab } from "./proofs-tab";
 import type { SlotBudget } from "@/core/slots";
 
@@ -20,7 +24,7 @@ interface Overview {
 
 function OverviewTab() {
   const { data, reload } = useApi<Overview>("/api/admin/overview", 5000);
-  if (!data) return <p className="muted">Đang tải…</p>;
+  if (!data) return <Skeleton />;
   const b = data.budget;
   return (
     <div className="stack">
@@ -77,7 +81,7 @@ function OverviewTab() {
       </p>
       <div className="card table-wrap">
         <h2>Phòng</h2>
-        <table className="data">
+        <AdminDataList>
           <thead>
             <tr>
               <th>Phòng</th>
@@ -133,7 +137,7 @@ function OverviewTab() {
               );
             })}
           </tbody>
-        </table>
+        </AdminDataList>
       </div>
     </div>
   );
@@ -169,7 +173,7 @@ function toLocalInput(v: unknown) {
 function SettingsTab() {
   const { data, reload } = useApi<{ settings: SettingsData; priceTiers: PriceTier[] }>("/api/admin/settings");
   const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
-  if (!data) return <p className="muted">Đang tải…</p>;
+  if (!data) return <Skeleton />;
   return <SettingsForm msg={msg} setMsg={setMsg} key={`${String(data.settings.updated_at)}-${JSON.stringify(data.priceTiers)}`} data={data} reload={reload} />;
 }
 
@@ -412,7 +416,7 @@ function OrdersTab() {
       <p className="notice">Chỉ xác nhận khi đã thấy tiền vào tài khoản (sao kê). Ảnh chụp chuyển khoản hay việc khách bấm “đã thanh toán” không phải bằng chứng.</p>
       {msg && <p className="notice warn">{msg}</p>}
       <div className="table-wrap">
-        <table className="data">
+        <AdminDataList>
           <thead>
             <tr>
               <th>Mã</th>
@@ -478,7 +482,7 @@ function OrdersTab() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </AdminDataList>
       </div>
     </div>
   );
@@ -559,7 +563,7 @@ function PromosTab() {
         {msg && <p className={"notice " + msg.kind}>{msg.text}</p>}
       </div>
       <div className="card table-wrap">
-        <table className="data">
+        <AdminDataList>
           <thead>
             <tr>
               <th>Mã</th>
@@ -598,7 +602,7 @@ function PromosTab() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </AdminDataList>
       </div>
     </div>
   );
@@ -609,7 +613,7 @@ function LogsTab() {
   return (
     <div className="card table-wrap">
       <h2>Log hệ thống</h2>
-      <table className="data">
+      <AdminDataList caption="Log hệ thống" labels={["Thời gian", "Sự kiện", "Người thực hiện", "Chi tiết"]}>
         <tbody>
           {data?.events.map((e) => (
             <tr key={e.id}>
@@ -622,7 +626,7 @@ function LogsTab() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </AdminDataList>
     </div>
   );
 }
@@ -664,12 +668,12 @@ function SettlementsTab() {
         {msg && <small>{msg}</small>}
       </div>
       {!data ? (
-        <p className="muted">Đang tải…</p>
+        <Skeleton />
       ) : !data.settlements.length ? (
         <p className="muted">Chưa có quyết toán nào.</p>
       ) : (
         <div className="table-wrap">
-          <table className="data">
+          <AdminDataList>
             <thead>
               <tr>
                 <th>Phòng</th>
@@ -724,7 +728,7 @@ function SettlementsTab() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </AdminDataList>
         </div>
       )}
     </div>
@@ -739,9 +743,17 @@ export default function AdminPage() {
         me.role !== "app_owner" ? (
           <p className="notice error">Chỉ chủ ứng dụng truy cập được trang này.</p>
         ) : (
-          <>
-            <h1>Quản trị hệ thống</h1>
-            <div className="tabs" role="tablist">
+          <div className="admin-page">
+            <PageHeader title="Quản trị hệ thống" subtitle="Theo dõi hoạt động và quản lý cấu hình." />
+            <div className="admin-layout">
+            <div className="tabs admin-nav" role="tablist" aria-label="Quản trị" onKeyDown={e => {
+              if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) return;
+              e.preventDefault();
+              const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]"));
+              const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+              const next = e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : (at + (["ArrowRight", "ArrowDown"].includes(e.key) ? 1 : -1) + buttons.length) % buttons.length;
+              buttons[next]?.click(); buttons[next]?.focus();
+            }}>
               {(
                 [
                   ["overview", "Tổng quan"],
@@ -753,19 +765,19 @@ export default function AdminPage() {
                   ["logs", "Log"],
                 ] as const
               ).map(([k, l]) => (
-                <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
+                <button key={k} id={`admin-tab-${k}`} role="tab" aria-controls="admin-panel" tabIndex={tab === k ? 0 : -1} aria-selected={tab === k} onClick={() => setTab(k)}>
                   {l}
                 </button>
               ))}
             </div>
-            {tab === "overview" && <OverviewTab />}
+            <div className="admin-content" id="admin-panel" role="tabpanel" aria-labelledby={`admin-tab-${tab}`}>{tab === "overview" && <OverviewTab />}
             {tab === "settings" && <SettingsTab />}
             {tab === "orders" && <OrdersTab />}
             {tab === "proofs" && <ProofsTab />}
             {tab === "settlements" && <SettlementsTab />}
             {tab === "promos" && <PromosTab />}
-            {tab === "logs" && <LogsTab />}
-          </>
+            {tab === "logs" && <LogsTab />}</div></div>
+          </div>
         )
       }
     </AppShell>
@@ -836,7 +848,7 @@ function DemoRoomsCard({ minutes, onMinutes }: { minutes: number; onMinutes: (v:
       </label>
       <small>Tính theo thiết bị (và theo mạng, tối đa 6 người/mạng/ngày) để mở tab ẩn danh không lách được. Phòng trải nghiệm không tính tiền, không trừ slot hệ thống.</small>
       {data?.rooms.length ? (
-        <table className="data">
+        <AdminDataList caption="Phòng trải nghiệm" labels={["Phòng", "Số chỗ", "Lịch sử", "Thao tác"]}>
           <tbody>
             {data.rooms.map((r) => (
               <tr key={r.id}>
@@ -864,7 +876,7 @@ function DemoRoomsCard({ minutes, onMinutes }: { minutes: number; onMinutes: (v:
               </tr>
             ))}
           </tbody>
-        </table>
+        </AdminDataList>
       ) : (
         <p className="muted">Chưa có phòng trải nghiệm nào đang mở.</p>
       )}

@@ -1,0 +1,62 @@
+[
+  {
+    "width": 390,
+    "theme": "dark",
+    "routes": [
+      [
+        "admin",
+        "/admin"
+      ],
+      [
+        "logs",
+        "/room/013ad21b-bf8a-43dd-b207-39bea9ba7251/logs"
+      ]
+    ],
+    "errors": []
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "routes": [
+      [
+        "admin",
+        "/admin"
+      ],
+      [
+        "logs",
+        "/room/fc772ce0-c6d8-4f8f-bb6f-b1737f99852f/logs"
+      ]
+    ],
+    "errors": []
+  },
+  {
+    "width": 1440,
+    "theme": "dark",
+    "routes": [
+      [
+        "admin",
+        "/admin"
+      ],
+      [
+        "logs",
+        "/room/9c8cd578-52f5-479a-a557-b6fee33afb63/logs"
+      ]
+    ],
+    "errors": []
+  },
+  {
+    "width": 1440,
+    "theme": "light",
+    "routes": [
+      [
+        "admin",
+        "/admin"
+      ],
+      [
+        "logs",
+        "/room/55f59723-4f7c-4828-bc0a-f8194aeef0cc/logs"
+      ]
+    ],
+    "errors": []
+  }
+]

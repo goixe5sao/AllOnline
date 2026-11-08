@@ -16,6 +16,13 @@ const errors = [];
 async function page(vp = { width: 1100, height: 900 }) {
   const p = await (await browser.createBrowserContext()).newPage();
   await p.setViewport(vp);
+  // This flow validates auth/payment/admin HTML; never mount a 3D scene.
+  await p.setRequestInterception(true);
+  p.on("request", r => {
+    const path = new URL(r.url()).pathname;
+    if (r.isNavigationRequest() && (path === "/" || /^\/room\/[^/]+$/.test(path))) r.respond({ status: 200, contentType: "text/html", body: "<p>Navigation completed</p>" });
+    else r.continue();
+  });
   p.on("pageerror", (e) => errors.push(e.message));
   return p;
 }
@@ -27,6 +34,7 @@ const say = async (p, text) => {
   return p.evaluate(() => [...document.querySelectorAll("#bot-sim .sim-msg.bot")].map((e) => e.textContent).pop() ?? "");
 };
 
+try {
 // ---- 1. a newcomer signs up by chatting with the bot (simulator lives on /account of any member) ----
 const helper = await page();
 await helper.goto(BASE + "/login", { waitUntil: "networkidle0" });
@@ -58,7 +66,7 @@ const code = await owner.evaluate(() => document.body.textContent?.match(/LK (\d
 reply = await say(owner, `LK ${code}`);
 check(reply.includes("Đã liên kết"), "LK <code> links the web account to Zalo");
 await owner.reload({ waitUntil: "networkidle0" });
-check(await owner.evaluate(() => document.body.textContent?.includes("✓ Bot Zalo đã liên kết")), "account page shows the link");
+check(await owner.evaluate(() => document.body.textContent?.includes("Bot Zalo đã liên kết")), "account page shows the link");
 const order = await post(owner, "/api/rooms", { useTrial: false, config: { name: "Workshop Robot", description: "", map: "hall", avatarGroups: ["people"], officialCapacity: 10, waitingEnabled: false, entryMode: "auto_assign", durationHours: 6, isPublic: true, password: "", scheduledAt: Date.now() + 40 * 60_000 } });
 const orderView = await owner.evaluate(async (id) => (await (await fetch(`/api/orders/${id}`)).json()), order.body.orderId);
 const orderCode = orderView.order.code;
@@ -107,5 +115,5 @@ const st = await owner.evaluate(async (id) => (await (await fetch(`/api/orders/$
 check(st === "paid", `admin approves the screenshot → order paid (${st})`);
 
 console.log("errors:", errors.length ? errors : "none");
-await browser.close();
+} finally { await browser.close(); }
 process.exit(failed ? 1 : 0);

@@ -1,5 +1,7 @@
 "use client";
 
+import { AdminDataList } from "./admin-data-list";
+
 import { useState } from "react";
 import { api, ApiError, fmtTime, useApi } from "@/lib/api";
 import { formatVnd } from "@/core/pricing";
@@ -45,7 +47,7 @@ export function ProofsTab() {
         <p className="muted">Chưa có ảnh nào.</p>
       ) : (
         <div className="table-wrap">
-          <table className="data">
+          <AdminDataList>
             <thead>
               <tr>
                 <th>Ảnh</th>
@@ -122,7 +124,7 @@ export function ProofsTab() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </AdminDataList>
         </div>
       )}
       <h2>Giao dịch ngân hàng (SePay)</h2>
@@ -130,7 +132,7 @@ export function ProofsTab() {
         <p className="muted">Chưa có giao dịch nào.</p>
       ) : (
         <div className="table-wrap">
-          <table className="data">
+          <AdminDataList>
             <thead>
               <tr>
                 <th>Thời gian</th>
@@ -155,7 +157,7 @@ export function ProofsTab() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </AdminDataList>
         </div>
       )}
     </div>

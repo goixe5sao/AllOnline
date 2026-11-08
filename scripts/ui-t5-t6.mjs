@@ -35,7 +35,20 @@ for(const width of [390,1440]) for(const theme of ['dark','light']) {
  assert.equal(await page.$eval('.order-qr',e=>e.getAttribute('src')),d.payment.qrImageUrl);
  for(const [index,value] of [[0,String(d.payment.due)],[1,d.payment.transferNote]]){await(await page.$$('.order-copy button'))[index].click();assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),value);}
  }
+ if(name==='logs'){
+ await page.type('input[type=search]','no-event-matches-this');
+ await page.waitForFunction(()=>document.querySelectorAll('.logs-timeline li').length===0);
+ assert.ok(await page.$('.ui-empty'));
+ await page.click('input[type=search]',{clickCount:3});await page.keyboard.press('Backspace');
+ const options=await page.$$eval('.logs-filters option',nodes=>nodes.map(n=>n.value));
+ if(options.length>1){await page.select('.logs-filters select',options[1]);assert.ok(await page.$('.logs-timeline li'));}
+ }
  if(name==='admin'){
+ await page.screenshot({path:`${out}/admin-overview-${width}-${theme}.png`,fullPage:false});
+ await page.focus('[role=tab][aria-selected=true]');await page.keyboard.press('End');
+ assert.equal(await page.$eval('[role=tab][aria-selected=true]', e=>e.textContent.trim()),'Log');
+ await page.keyboard.press('Home');
+ assert.equal(await page.$eval('[role=tab][aria-selected=true]', e=>e.textContent.trim()),'Tổng quan');
  for(const label of ['Cài đặt & giá','Giao dịch','Biên lai & ngân hàng','Quyết toán','Mã giảm giá','Log']){
  await page.evaluate(l=>[...document.querySelectorAll('[role=tab]')].find(e=>e.textContent.trim()===l).click(),label);
  await new Promise(r=>setTimeout(r,500));
