@@ -58,6 +58,12 @@ export interface Config {
   zaloOaRefreshToken?: string;
   /** Zalo domain verification meta tag value. */
   zaloSiteVerification?: string;
+  /** Zalo Bot Platform (bot.zapps.me) — replaces the OA bot. Token from Zalo Bot Creator. */
+  zaloBotToken?: string;
+  /** Bot id / username, used for the https://zalo.me/<id> link shown to users. */
+  zaloBotId?: string;
+  /** Sent by Zalo as X-Bot-Api-Secret-Token on every webhook call (set via setWebhook). */
+  zaloBotWebhookSecret?: string;
   /** SePay webhook API key (bank transfers confirm orders automatically). */
   sepayApiKey?: string;
   /** Claude API key: reads payment screenshots sent to the bot (amount, content, time). */
@@ -111,6 +117,9 @@ export function readConfig(): Config {
     zaloOaSecret: env("ZALO_OA_SECRET"),
     zaloOaRefreshToken: env("ZALO_OA_REFRESH_TOKEN"),
     zaloSiteVerification: env("ZALO_SITE_VERIFICATION"),
+    zaloBotToken: env("ZALO_BOT_TOKEN"),
+    zaloBotId: env("ZALO_BOT_ID"),
+    zaloBotWebhookSecret: env("ZALO_BOT_WEBHOOK_SECRET"),
     sepayApiKey: env("SEPAY_API_KEY"),
     anthropicApiKey: env("ANTHROPIC_API_KEY"),
   };
