@@ -57,6 +57,8 @@ export interface Config {
   zaloBotToken?: string;
   /** Bot account_name (e.g. bot.JwUidOjZ), resolved via getMe at startup for public links. */
   zaloBotId?: string;
+  /** Official share link copied from the Zalo Bot dashboard; overrides the zalo.me/<account_name> guess. */
+  zaloBotUrl?: string;
   /** Sent by Zalo as X-Bot-Api-Secret-Token on every webhook call (set via setWebhook). */
   zaloBotWebhookSecret?: string;
   /** SePay webhook API key (bank transfers confirm orders automatically). */
@@ -111,6 +113,7 @@ export function readConfig(): Config {
     zaloSiteVerification: env("ZALO_SITE_VERIFICATION"),
     zaloBotToken: env("ZALO_BOT_TOKEN"),
     zaloBotId: env("ZALO_BOT_ID"),
+    zaloBotUrl: env("ZALO_BOT_URL"),
     zaloBotWebhookSecret: env("ZALO_BOT_WEBHOOK_SECRET"),
     sepayApiKey: env("SEPAY_API_KEY"),
     anthropicApiKey: env("ANTHROPIC_API_KEY"),

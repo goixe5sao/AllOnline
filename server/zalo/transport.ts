@@ -21,6 +21,7 @@ export function verifyBotSecret(header: string | string[] | undefined, secret: s
 /** Public chat links use getMe.account_name, never the numeric API id. */
 export function botInfo(cfg: Config) {
   if (cfg.mode === "demo") return { url: "https://zalo.me/demo-bot" };
+  if (cfg.zaloBotToken && cfg.zaloBotUrl?.startsWith("https://")) return { url: cfg.zaloBotUrl };
   if (!cfg.zaloBotToken || !cfg.zaloBotId?.startsWith("bot.")) return null;
   return { url: `https://zalo.me/${encodeURIComponent(cfg.zaloBotId)}` };
 }
