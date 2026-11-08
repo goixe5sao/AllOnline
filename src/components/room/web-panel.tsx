@@ -6,6 +6,7 @@ import type { ScreenState } from "@/core/screen";
 import type { ClientMsg } from "@/core/protocol";
 import { WEB_SPEED_LABEL, WEB_SPEEDS, normalizeWebUrl, type WebSpeed } from "@/core/webscroll";
 import { DEMO_WEB_URL } from "@/core/demo";
+import { RefreshCw } from "lucide-react";
 
 interface Shot {
   shots: string[];
@@ -82,7 +83,7 @@ export function WebPanel({ send, screen, roomId, demo }: { send: (m: ClientMsg) 
         </button>
         {cur && !busy && !demo && (
           <button type="button" className="hud-btn" onClick={() => void shoot(cur.url)} title="Trang đã đổi nội dung? Chụp lại bản mới">
-            🔄 Chụp lại
+            <RefreshCw aria-hidden /> Chụp lại
           </button>
         )}
       </div>

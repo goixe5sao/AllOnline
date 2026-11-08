@@ -1,69 +1,46 @@
-import puppeteer from "puppeteer-core";
-import { closeOrb, orb, orbLabel, react } from "./orb.mjs";
-/**
- * Browser check (real Chrome, headless): room owner picks a stock in the owner panel and shows it.
- * Needs a running DEMO server (market data on), e.g.
- *   ALLOW_DEMO_MODE=1 DATABASE_URL= NODE_ENV=production PORT=3100 npx tsx server/index.ts
- *   BASE=http://localhost:3100 node scripts/e2e-browser-picker.mjs <outDir>
- */
-const BASE = process.env.BASE ?? "http://localhost:3100";
-const OUT = process.argv[2] ?? ".";
-const SYMBOL = process.env.SYMBOL ?? "FPT";
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: "new", protocolTimeout: 120000, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const p = await (await browser.createBrowserContext()).newPage();
-const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-await p.setViewport(process.env.MOBILE ? { width: 390, height: 844, isMobile: true, hasTouch: true } : { width: 1366, height: 800 });
-await p.goto(BASE + "/login", { waitUntil: "networkidle0" });
-await p.evaluate(async () => fetch("/api/auth/demo-login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "Chủ phòng", asAppOwner: true }) }));
-await p.evaluate(async () => fetch("/api/admin/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trial_rooms_per_account: 10 }) }));
-// close earlier test rooms (demo DB) so the slot budget is free
-await p.evaluate(async () => { const o = await (await fetch("/api/admin/overview")).json(); for (const r of o.rooms) if (r.status === "open") await fetch("/api/rooms/" + r.id + "/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); });
-const room = await p.evaluate(async () => (await fetch("/api/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ useTrial: true, config: { name: "Chọn cổ phiếu", description: "", map: "hall", avatarGroups: ["people"], officialCapacity: 12, waitingEnabled: false, entryMode: "auto_assign", durationHours: 6, password: "" } }) })).json());
-if (!room.roomId) throw new Error("room create failed: " + JSON.stringify(room));
-await p.goto(`${BASE}/room/${room.roomId}`, { waitUntil: "networkidle0" });
-await p.waitForSelector(".hud-top", { timeout: 60000 });
-await orb(p, "control");
-await sleep(800);
-await p.evaluate(() => {
-  const sel = [...document.querySelectorAll("select")].find((s) => [...s.options].some((o) => o.value === "chart"));
-  sel.value = "chart";
-  sel.dispatchEvent(new Event("change", { bubbles: true }));
-});
-await sleep(300);
-await p.click(".symbol-picker input");
-await p.type(".symbol-picker input", SYMBOL, { delay: 60 });
-await p.waitForFunction((s) => [...document.querySelectorAll(".symbol-hit b")].some((b) => b.textContent === s), { timeout: 15000 }, SYMBOL);
-await sleep(500);
-await p.screenshot({ path: `${OUT}/chon-co-phieu-danh-sach.png` });
-const hits = await p.evaluate(() => [...document.querySelectorAll(".symbol-hit")].slice(0, 5).map((e) => e.textContent));
-console.log("hits:", hits);
-await p.evaluate((s) => [...document.querySelectorAll(".symbol-hit")].find((e) => e.querySelector("b")?.textContent === s)?.click(), SYMBOL);
-await sleep(300);
-console.log("note:", await p.evaluate(() => document.querySelector(".symbol-picker > small")?.textContent));
-await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Hiển thị lên màn hình"))?.click());
-await sleep(1500);
-await orb(p, "control");
-// Wait for real data in the stage chart (first request waits for the backfill)
-await sleep(25000);
-await p.screenshot({ path: `${OUT}/chon-co-phieu-man-hinh.png` });
-await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Xem màn hình")?.click());
-await sleep(6000);
-await p.screenshot({ path: `${OUT}/chon-co-phieu-toan-man-hinh.png` });
-// zoom out (older candles): their candle patterns must load too
-await p.mouse.move(600, 400);
-for (let i = 0; i < 6; i++) { await p.mouse.wheel({ deltaY: 400 }); await sleep(150); }
-await sleep(20000);
-await p.screenshot({ path: `${OUT}/chon-co-phieu-thu-nho.png` });
-const r = await p.evaluate(async (s) => {
-  const d = await (await fetch(`/api/market/candles?symbol=${s}&interval=D&count=8000`)).json();
-  return { isDemo: d.isDemo, n: d.candles.length, first: new Date(d.candles[0].time * 1000).toISOString().slice(0, 10) };
-}, SYMBOL);
-const idx = await p.evaluate(async () => {
-  const d = await (await fetch(`/api/market/candles?symbol=VNINDEX&interval=D&count=8000`)).json();
-  return { isDemo: d.isDemo, n: d.candles.length, first: new Date(d.candles[0].time * 1000).toISOString().slice(0, 10), head: d.candles.slice(0, 3).map((c) => new Date(c.time * 1000).toISOString().slice(0, 10)) };
-});
-console.log(SYMBOL, r, "VNINDEX", idx, "errors:", errors);
-await browser.close();
-process.exit(r.isDemo || errors.length ? 1 : 0);
+import puppeteer from 'puppeteer-core';
+import assert from 'node:assert/strict';
+// --component runs the picker assertions without another 3D visit.
+if (process.argv.includes('--component')) {
+ await import('./ui-host-panel.mjs');
+ process.exit(0);
+}
+// Bounded replacement for the old arbitrary-stock picker E2E (T-8 fixes VNINDEX).
+// One context, one room visit, no market backfill waits. Always closes the browser.
+const base = 'http://localhost:3100';
+const out = process.argv[2] ?? 'docs/screenshots/ui/after';
+assert.equal((await (await fetch(base+'/api/me')).json()).mode,'demo');
+const browser=await puppeteer.launch({executablePath:process.env.CHROME_PATH ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader'],protocolTimeout:20000});
+let watchdog;
+try {
+ const context=await browser.createBrowserContext();
+ const page=await context.newPage(); const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.setViewport({width:390,height:844});
+ await page.evaluateOnNewDocument(()=>{localStorage.setItem('ao-gfx','lite');localStorage.setItem('ao-theme','dark');});
+ await page.goto(base+'/login',{waitUntil:'networkidle0'});
+ const room=await page.evaluate(async()=>{
+  const post=async(path,body)=>{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw Error(JSON.stringify(d));return d;};
+  await post('/api/auth/demo-login',{displayName:'Host panel audit',asAppOwner:true});
+  return post('/api/rooms',{useTrial:true,config:{name:'Host panel audit',description:'',map:'hall',avatarGroups:['people'],officialCapacity:10,waitingEnabled:false,entryMode:'auto_assign',durationHours:6,password:'',stageStyle:'plain',initialScreen:{kind:'text',text:'Host panel audit'}}});
+ });
+ assert.ok(room.roomId);
+ // Warm compilation without a browser/3D context.
+ await fetch(base+'/room/'+room.roomId);
+ watchdog=setTimeout(()=>{browser.process()?.kill();},20000);
+ const started=Date.now();
+ await page.goto(base+'/room/'+room.roomId,{waitUntil:'domcontentloaded'});
+ await page.waitForSelector('.orb',{timeout:12000});
+ await page.evaluate(()=>document.querySelector('.orb').click());
+ await page.waitForSelector('[data-orb="control"]',{timeout:2000});
+ await page.evaluate(()=>document.querySelector('[data-orb="control"]').click());
+ await page.waitForSelector('.host-content-grid',{timeout:2000});
+ await page.screenshot({path:out+'/host-panel-room-390-dark.png'});
+ await page.evaluate(()=>document.querySelector('[name="host-content-type"][value="chart"]').click());
+ await page.evaluate(()=>document.querySelector('.host-panel .ui-button-primary').click());
+ await page.waitForFunction(()=>document.querySelector('.host-panel .notice strong')?.textContent.includes('VN-Index'),{timeout:3000});
+ const state=await page.evaluate(async id=>{const d=await(await fetch('/api/rooms/'+id)).json();return typeof d.room.screen_state==='string'?JSON.parse(d.room.screen_state):d.room.screen_state;},room.roomId);
+ assert.equal(state.content.kind,'chart');assert.equal(state.content.symbol,'VNINDEX');
+ await context.close();clearTimeout(watchdog);
+ assert.deepEqual(errors,[]);
+ console.log('PASS bounded room/screen E2E: real host panel, VNINDEX persisted; room visit '+(Date.now()-started)+'ms; context closed');
+} finally {clearTimeout(watchdog);await browser.close();}

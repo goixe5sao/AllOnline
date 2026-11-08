@@ -54,9 +54,7 @@ await owner.waitForSelector(".orb", { timeout: 90000 });
 await orb(owner, "control");
 await owner.waitForSelector(".side-panel");
 await owner.evaluate(() => {
-  const sel = [...document.querySelectorAll(".side-panel label.field")].find((l) => l.textContent?.includes("Loại nội dung"))?.querySelector("select");
-  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(sel, "web");
-  sel.dispatchEvent(new Event("change", { bubbles: true }));
+  document.querySelector('[name="host-content-type"][value="web"]').click();
 });
 await owner.waitForSelector(".web-panel");
 await owner.type('.web-panel input[aria-label="Link trang web"]', "https://vnexpress.net");

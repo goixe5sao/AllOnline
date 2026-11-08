@@ -92,9 +92,7 @@ await a.evaluate(() => [...document.querySelectorAll(".side-panel button")].find
 check(await waitFor(async () => /chữ tự gõ/.test(await a.evaluate(() => document.querySelector(".screen-surface")?.textContent ?? "")), 8000), "A: free text on the stage screen");
 // YouTube: any link
 await a.evaluate(() => {
-  const sel = [...document.querySelectorAll(".side-panel label.field")].find((l) => l.textContent?.includes("Loại nội dung"))?.querySelector("select");
-  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(sel, "youtube");
-  sel.dispatchEvent(new Event("change", { bubbles: true }));
+  document.querySelector('[name="host-content-type"][value="youtube"]').click();
 });
 await a.waitForSelector(".yt-panel");
 await a.type('.yt-panel input[aria-label="Link YouTube"]', "https://youtu.be/aqz-KE-bpKQ");
