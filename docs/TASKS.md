@@ -36,3 +36,35 @@ Result (Codex):
 - Environment: only in-memory demo PGlite and a temporary loopback API test server; no live DB/API calls, live server/tunnel start/restart, setWebhook against the live bot, or `.env.local` access/edits. Existing unrelated `.gitignore` change left out of commit. Browser E2E was not run because no Next server was started.
 - Open questions: verify the selected account-name public link on a device signed into Zalo before rollout; anonymous HTTP responses do not distinguish the two candidates. Claude auth review and a separately authorized deployment/webhook registration remain pending. Bot Platform identities retain the `zalo_oa` storage key but are not automatically linked to old OA follower ids; existing accounts can use LK.
 - Review fixes (2026-11-08): nonblocking getMe discovery clears stale botInfo, logs a token-free line on failure and retries every 5 minutes until success; validated webhooks return 200 before background handling with caught failures and documented message.message_id dedupe (process-local, 24h/20,000 entries); private human messages use from.id for identities, chat.id for text/image replies (including immediate payment confirmation), and from.display_name for new accounts; image downloads use a 15s timeout, reject Content-Length over 8 MiB before reading, and enforce the size limit while streaming. Added regression coverage for all four items. PASS lint (0 errors, 16 existing warnings), tsc --noEmit, Zalo tests (2 files, 27 tests), git diff --check. Official webhook docs rechecked; only mocked outbound calls and local in-memory/loopback tests, no live API/DB calls or .env.local access/edits. Committed locally on codex/t-1-zalo-bot; no push.
+
+### T-2: Design-system foundation + UI audit
+Status: todo   Risk: low (no behaviour change)
+Goal: implement docs/DESIGN.md tokens, font, base styles and the `src/components/ui` components, and refactor `app-shell.tsx` and `theme-toggle.tsx` onto them. Add a dev-only `/styleguide` page that shows every component in both themes.
+Scope: `src/app/globals.css` (tokens/base only), a new `src/app/ui.css`, `src/components/ui/*`, `app-shell`, the layout font, and `/styleguide`. Out of scope: page-specific redesigns (T-3+), the 3D scenes.
+Acceptance: first save "before" screenshots of all 10 pages (390 and 1440, dark) to `docs/screenshots/ui/before/` (demo mode). `/styleguide` renders with no console errors; screenshots of it go in `docs/screenshots/ui/`. Existing pages still render (the old classes keep working until each page is migrated). lint, tsc and the existing tests pass.
+
+### T-3: /rooms/new redesign (owner's top complaint)
+Status: todo (after T-2)   Risk: medium (money/booking form)
+Goal: a polished create-room flow: a Stepper (1 Room type & stage → 2 Time & size → 3 Extras → 4 Review & pay), radio-cards with thumbnails or icons for stage types, a live price summary card (sticky sidebar on desktop, collapsible bottom summary + StickyActionBar on mobile), and clear validation.
+Scope: `src/app/rooms/new/*` and the components it needs. Keep the existing API calls, fields and pricing logic exactly the same. Presentation only.
+Acceptance: the same request payloads as before (prove it with a test or e2e capture), after screenshots at 390/1440 in both themes, the existing e2e for room creation passes, lint, tsc.
+
+### T-4: Login, account, join/[code]
+Status: todo (after T-2)   Risk: medium (auth UI; do not touch the auth logic)
+Goal: a centred auth card with Email/Zalo tabs and the brand header. Zalo tab: a large code, a copy button, an "Mở Zalo" button and a QR on desktop. Account becomes sections in Cards. The invite page becomes an event hero (name, time countdown, host, join CTA, add-to-calendar).
+Acceptance: screenshots, the existing e2e for login and join, lint, tsc.
+
+### T-5: Orders list + order detail (payment)
+Status: todo (after T-2)   Risk: medium (payments UI only)
+Goal: orders as a DataList with status Badges. Order detail is a payment card: a VietQR image, amount and content each with a copy button, a countdown, and a status timeline. Proof upload is a dropzone.
+Acceptance: screenshots, the SePay/order e2e, lint, tsc.
+
+### T-6: Admin + room logs
+Status: todo (after T-2)   Risk: low
+Goal: an admin layout with a side nav on desktop and tabs on mobile, KPI tiles, DataLists and consistent forms. Room logs become a filterable timeline.
+Acceptance: screenshots, lint, tsc.
+
+### T-7: Home page + in-room HTML overlays
+Status: todo (last)   Risk: high (3D performance, the core experience)
+Goal: overlays (toolbars, orb, panels, dialogs, chat) use the tokens and components. The home lobby text and CTAs get the same polish. The 3D scene itself is not changed.
+Acceptance: screenshots taken carefully (see DESIGN.md), no frame-rate regression, the existing room e2e passes.
