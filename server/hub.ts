@@ -1,3 +1,6 @@
+import { directStock, startStock } from "@/core/ai-stock";
+import { FixtureScanProvider, type ScanProvider } from "./ai-stock/provider";
+import { StockCommentary } from "./ai-stock/commentary";
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { z } from "zod";
@@ -106,6 +109,7 @@ const msgSchema = z.union([
   z.object({ t: z.literal("screen"), action: z.literal("seek"), positionSec: num.min(0).max(86400) }),
   z.object({ t: z.literal("screen"), action: z.literal("yt_options"), endMode: z.enum(YOUTUBE_END_MODES), playlist: z.array(z.string().regex(/^[A-Za-z0-9_-]{11}$/)).max(PLAYLIST_MAX) }),
   z.object({ t: z.literal("screen"), action: z.literal("yt_next") }),
+  z.object({ t: z.literal("screen"), action: z.literal("ai_stock"), command: z.enum(["start", "pause", "resume", "skip", "pin", "stop"]), symbol: z.string().regex(/^[A-Z0-9.]{1,12}$/).optional(), topN: z.number().int().min(1).max(100).optional(), seconds: z.number().int().min(10).max(300).optional() }),
   z.object({ t: z.literal("screen_ended"), rev: z.number().int().min(0) }),
   z.object({ t: z.literal("promote_chat"), id: z.string().max(64) }),
   z.object({ t: z.literal("kick"), userId: z.string().uuid() }),
@@ -133,6 +137,34 @@ const msgSchema = z.union([
 ] as const) as unknown as z.ZodType<ClientMsg>;
 
 export class Hub {
+  private stockProvider: ScanProvider = new FixtureScanProvider();
+  private stockCommentary = new StockCommentary();
+  setAiStock(provider: ScanProvider, commentary: StockCommentary) {
+    this.stockProvider = provider; this.stockCommentary = commentary;
+  }
+  async aiStockScan() { return { snapshot: await this.stockProvider.scan(), fixture: this.stockProvider.fixture }; }
+  private stockTick(room: LiveRoom, now: number) {
+    const c = room.screen.content;
+    if (c.kind !== "ai-stock") return;
+    const next = directStock(c, "tick", now);
+    if (next === c) return;
+    room.screen = applyScreenAction(room.screen, { action: "set", content: next }, now);
+    this.publishStock(room);
+  }
+  private publishStock(room: LiveRoom) {
+    const state = room.screen;
+    saveScreenState(this.db, room.row.id, state).catch(e => console.error("[ai-stock] save", e));
+    this.broadcast(room, { t: "screen", state });
+    const content = state.content;
+    if (content.kind !== "ai-stock" || content.fixture) return;
+    void this.stockCommentary.get(content.snapshot.picks[content.index], content.snapshot.asOf).then(commentary => {
+      // A late LLM response must never overwrite a new pick, pause, manual screen, or closed room.
+      if (room.screen !== state || !this.rooms.has(room.row.id) || commentary === content.commentary) return;
+      room.screen = { ...state, content: { ...content, commentary }, rev: state.rev + 1 };
+      saveScreenState(this.db, room.row.id, room.screen).catch(e => console.error("[ai-stock] save", e));
+      this.broadcast(room, { t: "screen", state: room.screen });
+    }).catch(() => {});
+  }
   private rooms = new Map<string, LiveRoom>();
   private loading = new Map<string, Promise<LiveRoom | null>>();
   /** One active attendance session per account. */
@@ -864,6 +896,7 @@ export class Hub {
     for (const room of this.rooms.values()) {
       room.engine.tick(now);
       this.autoAdvanceVideo(room, now);
+      this.stockTick(room, now);
       if (room.demo) this.demoTick(room, now);
       this.voicePick(room, now);
       this.pushLiveMarket(room);
@@ -973,6 +1006,24 @@ export class Hub {
       }
       case "screen": {
         requireOwner();
+        if (m.action === "ai_stock") {
+          if (m.command === "start") {
+            const previous = room.screen;
+            const result = room.row.is_demo ? { snapshot: await new FixtureScanProvider().scan(), fixture: true } : await this.aiStockScan();
+            if (room.screen !== previous || !this.rooms.has(room.row.id)) return;
+            room.screen = applyScreenAction(previous, { action: "set", content: startStock(result.snapshot, result.fixture, now, m.topN, m.seconds) }, now);
+          } else if (m.command === "stop") {
+            if (room.screen.content.kind !== "ai-stock") return;
+            room.screen = applyScreenAction(room.screen, { action: "set", content: { kind: "blank" } }, now);
+          } else {
+            const content = room.screen.content;
+            if (content.kind !== "ai-stock") return;
+            room.screen = applyScreenAction(room.screen, { action: "set", content: directStock(content, m.command, now, m.symbol) }, now);
+          }
+          this.publishStock(room);
+          await logRoomEvent(this.db, room.row.id, uid, "ai_stock_" + m.command, {});
+          return;
+        }
         if (m.action === "yt_next") {
           this.advanceVideo(room, now, uid, "screen_yt_next", true);
           return;

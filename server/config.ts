@@ -65,6 +65,8 @@ export interface Config {
   sepayApiKey?: string;
   /** Claude API key: reads payment screenshots sent to the bot (amount, content, time). */
   anthropicApiKey?: string;
+  aiStockModel?: string;
+  aiStockProvider?: string;
 }
 
 export function readConfig(): Config {
@@ -117,5 +119,7 @@ export function readConfig(): Config {
     zaloBotWebhookSecret: env("ZALO_BOT_WEBHOOK_SECRET"),
     sepayApiKey: env("SEPAY_API_KEY"),
     anthropicApiKey: env("ANTHROPIC_API_KEY"),
+    aiStockModel: env("AI_STOCK_MODEL") ?? "claude-opus-5-5",
+    aiStockProvider: env("AI_STOCK_PROVIDER") ?? "fixture",
   };
 }

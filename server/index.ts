@@ -1,3 +1,5 @@
+import { FixtureScanProvider, StockVnScanProvider } from "./ai-stock/provider";
+import { StockCommentary } from "./ai-stock/commentary";
 /**
  * AllOnline server: one Node.js process serving
  *   - the Next.js UI,
@@ -39,6 +41,8 @@ async function main() {
   const auth = new Auth(cfg, db);
   const hub = new Hub(db, auth);
   await hub.start();
+  if (cfg.aiStockProvider === "stockvn" && cfg.mode !== "demo" && (!cfg.stockvnUrl || !cfg.stockvnToken)) throw new Error("AI Stock requires STOCKVN_URL and STOCKVN_API_TOKEN");
+  hub.setAiStock(cfg.mode !== "demo" && cfg.aiStockProvider === "stockvn" ? new StockVnScanProvider(cfg.stockvnUrl!, cfg.stockvnToken!) : new FixtureScanProvider(), new StockCommentary(cfg.mode === "demo" ? undefined : cfg.anthropicApiKey, cfg.aiStockModel));
   const storage = createStorage(cfg);
   // Market data scheduler: 1-minute bars + daily bars every minute during the VN session.
   const market = new MarketService(db);
