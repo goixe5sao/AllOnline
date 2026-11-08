@@ -1,55 +1,51 @@
-:root {
-  --bg: #f6f7f4;
-  --surface: #ffffff;
-  --surface-2: #eef2ec;
-  --ink: #1d2a26;
-  --muted: #66746e;
-  --line: #dfe5df;
-  --brand: #2f6b57;
-  --brand-ink: #ffffff;
-  --brand-soft: #e2efe8;
-  --warn: #9a5b00;
-  --warn-soft: #fff3df;
-  --danger: #b3261e;
-  --danger-soft: #fde8e6;
-  --ok: #1f7a4d;
-  --ok-soft: #e1f4ea;
-  --radius: 12px;
-  --shadow: 0 6px 24px rgb(20 40 30 / 0.08);
-  color-scheme: light;
+/* Dark is the default. Legacy aliases keep unmigrated page classes working. */
+:root, :root[data-theme="dark"], [data-theme="dark"] {
+  --bg:#0B0D14; --surface:#131722; --surface-2:#1A1F2D; --border:#262C3D;
+  --text:#EEF0F6; --text-2:#A7AEC2; --text-3:#6F7891;
+  --accent:#F5B547; --accent-hover:#FFC866; --on-accent:#1A1206;
+  --link:#F5B547;
+  --success:#3DD68C; --warning:#F5B547; --danger:#F26D6D; --info:#6BA8FF;
+  --shadow-1:0 4px 12px rgb(0 0 0 / .16); --shadow-2:0 12px 32px rgb(0 0 0 / .32);
+  color-scheme:dark;
 }
-
-/* dark theme: chosen by the visitor (header ☀/🌙 or the stage light switch), see layout.tsx */
-:root[data-theme="dark"] {
-  --bg: #101614;
-  --surface: #18211e;
-  --surface-2: #1f2a26;
-  --ink: #e7efeb;
-  --muted: #9aaba4;
-  --line: #2c3934;
-  --brand: #5fb393;
-  --brand-ink: #08130f;
-  --brand-soft: #1d3a30;
-  --warn: #f0b860;
-  --warn-soft: #3a2c12;
-  --danger: #ff8a80;
-  --danger-soft: #3d1a17;
-  --ok: #6fd3a0;
-  --ok-soft: #173326;
-  --shadow: 0 6px 24px rgb(0 0 0 / 0.35);
-  color-scheme: dark;
+:root[data-theme="light"], [data-theme="light"] {
+  --bg:#F6F7FB; --surface:#FFFFFF; --surface-2:#F0F2F7; --border:#E2E5EE;
+  --text:#121521; --text-2:#4A5168; --text-3:#7A8199;
+  --accent:#D9901A; --accent-hover:#C58012;
+  /* White on light amber fails AA. Dark ink gives 7.02:1. */
+  --on-accent:#1A1206;
+  --link:#885600;
+  --success:#147849; --warning:#885600; --danger:#B73535; --info:#245DA8;
+  --shadow-1:0 4px 12px rgb(18 21 33 / .06); --shadow-2:0 12px 32px rgb(18 21 33 / .12);
+  color-scheme:light;
 }
-
+:root, [data-theme] {
+  --accent-soft:color-mix(in srgb,var(--accent) 14%,var(--surface));
+  --success-soft:color-mix(in srgb,var(--success) 14%,var(--surface));
+  --warning-soft:color-mix(in srgb,var(--warning) 14%,var(--surface));
+  --danger-soft:color-mix(in srgb,var(--danger) 14%,var(--surface));
+  --info-soft:color-mix(in srgb,var(--info) 14%,var(--surface));
+  --ink:var(--text); --muted:var(--text-2); --line:var(--border);
+  --brand:var(--accent); --brand-ink:var(--on-accent); --brand-soft:var(--accent-soft);
+  --warn:var(--warning); --warn-soft:var(--warning-soft); --ok:var(--success); --ok-soft:var(--success-soft);
+  --radius:var(--radius-card); --shadow:var(--shadow-1);
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px;
+  --space-8:32px; --space-10:40px; --space-14:56px; --space-80:80px;
+  --radius-input:8px; --radius-card:12px; --radius-modal:16px; --radius-pill:999px;
+  --type-12:12px; --type-14:14px; --type-16:16px; --type-18:18px; --type-22:22px;
+  --type-28:28px; --type-36:36px; --type-48:48px; --touch:44px; --motion:180ms ease-out;
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  font-size: 15px;
+  font-family: var(--font-be-vietnam), system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--type-16);
   line-height: 1.5;
 }
-a { color: var(--brand); }
+a { color: var(--link); }
 button, input, select, textarea { font: inherit; color: inherit; }
 h1, h2, h3 { line-height: 1.2; margin: 0 0 0.5em; }
 h1 { font-size: 1.6rem; }
@@ -99,7 +95,7 @@ label.field small { font-weight: 400; }
 input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="url"], input[type="datetime-local"], select, textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); min-height: 42px;
 }
-input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 45%, transparent); outline-offset: 1px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .check { display: flex; gap: 8px; align-items: center; font-weight: 500; }
 .check input { width: 18px; height: 18px; }
 .choice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
@@ -469,3 +465,9 @@ table.data th { color: var(--muted); font-weight: 600; font-size: 13px; }
 .usage-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .usage-split > div { padding: 10px 12px; border-radius: 10px; background: rgb(127 127 127 / 0.08); }
 .usage-num { font-size: 1.4rem; font-weight: 800; margin: 2px 0; }
+
+/* Accessible base interaction; legacy scene styles retain their own rendering. */
+:where(a,button,input,select,textarea,[tabindex]):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; scroll-behavior:auto !important; }
+}

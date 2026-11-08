@@ -1,0 +1,98 @@
+[
+  {
+    "width": 390,
+    "theme": "dark",
+    "errors": [],
+    "overflow": false,
+    "botUrl": "https://zalo.me/demo-bot",
+    "copy": "pass",
+    "demoLoginAndAccountSave": "pass",
+    "guestJoinPayloads": [
+      {
+        "path": "/api/guest",
+        "body": {
+          "displayName": "Khách Lan"
+        }
+      },
+      {
+        "path": "/api/join",
+        "body": {
+          "inviteCode": "7JQQ2QEM",
+          "password": ""
+        }
+      }
+    ]
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "errors": [],
+    "overflow": false,
+    "botUrl": "https://zalo.me/demo-bot",
+    "copy": "pass",
+    "demoLoginAndAccountSave": "pass",
+    "guestJoinPayloads": [
+      {
+        "path": "/api/guest",
+        "body": {
+          "displayName": "Khách Lan"
+        }
+      },
+      {
+        "path": "/api/join",
+        "body": {
+          "inviteCode": "VWP6H7VY",
+          "password": ""
+        }
+      }
+    ]
+  },
+  {
+    "width": 1440,
+    "theme": "dark",
+    "errors": [],
+    "overflow": false,
+    "botUrl": "https://zalo.me/demo-bot",
+    "copy": "pass",
+    "demoLoginAndAccountSave": "pass",
+    "guestJoinPayloads": [
+      {
+        "path": "/api/guest",
+        "body": {
+          "displayName": "Khách Lan"
+        }
+      },
+      {
+        "path": "/api/join",
+        "body": {
+          "inviteCode": "TWY4E69D",
+          "password": ""
+        }
+      }
+    ]
+  },
+  {
+    "width": 1440,
+    "theme": "light",
+    "errors": [],
+    "overflow": false,
+    "botUrl": "https://zalo.me/demo-bot",
+    "copy": "pass",
+    "demoLoginAndAccountSave": "pass",
+    "guestJoinPayloads": [
+      {
+        "path": "/api/guest",
+        "body": {
+          "displayName": "Khách Lan"
+        }
+      },
+      {
+        "path": "/api/join",
+        "body": {
+          "inviteCode": "Y5W6C9GW",
+          "password": ""
+        }
+      }
+    ]
+  }
+]

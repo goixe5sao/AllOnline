@@ -1,5 +1,9 @@
 "use client";
 
+import { CalendarDays, Share2, Bell, Theater } from "lucide-react";
+import { Input, Card, PageHeader, Skeleton, StickyActionBar } from "@/components/ui";
+import "../../auth-pages.css";
+import { useInviteHost } from "./invite-host";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -41,8 +45,10 @@ function googleCalendarUrl(e: { title: string; description: string; startsAt: nu
 /** Event box: start time + countdown, "Nhắc tôi" (Zalo bot), calendar, share. */
 function EventBox({ code, data, me, onChange }: { code: string; data: InviteView; me: Me | null; onChange: () => void }) {
   const r = data.room;
+  const ownerName = useInviteHost();
   const [now, setNow] = useState(() => Date.now());
   const [msg, setMsg] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -53,19 +59,19 @@ function EventBox({ code, data, me, onChange }: { code: string; data: InviteView
     const text = r.startsAt ? `${r.name} — ${vnEventTime(r.startsAt)}` : r.name;
     try {
       if (navigator.share) await navigator.share({ title: r.name, text, url: link });
-      else {
-        await navigator.clipboard.writeText(`${text}\n${link}`);
-        setMsg("Đã sao chép link mời — dán vào Zalo, Messenger…");
-      }
+      else setShareOpen(v => !v);
     } catch {
       /* share sheet closed */
     }
   };
   return (
-    <div className="card stack event-box">
+    <Card className="event-box event-hero stack">
+      <div className="auth-brand"><Theater aria-hidden /> Lời mời tham gia</div>
+      <PageHeader title={r.name} subtitle={r.description || "Hẹn gặp bạn tại Sân Khấu Online."} />
+      {(data.demo?.hostName || ownerName) && <p className="event-host">Chủ phòng: <strong>{data.demo?.hostName || ownerName}</strong></p>}
       {r.startsAt ? (
         <>
-          <div className="event-when">🗓 {vnEventTime(r.startsAt)}</div>
+          <div className="event-when"><CalendarDays aria-hidden /> {vnEventTime(r.startsAt)}</div>
           <div className="event-count" aria-live="off">
             {countdown(r.startsAt - now)}
           </div>
@@ -77,7 +83,7 @@ function EventBox({ code, data, me, onChange }: { code: string; data: InviteView
         {r.startsAt && r.startsAt > now && (
           isAccount ? (
             <button
-              className={`btn ${data.reminded ? "" : "primary"}`}
+              className="ui-button ui-button-secondary"
               onClick={async () => {
                 try {
                   const res = await api<{ on: boolean; zaloLinked: boolean }>(`/api/rooms/${r.id}/remind`, { body: { on: !data.reminded } });
@@ -88,30 +94,30 @@ function EventBox({ code, data, me, onChange }: { code: string; data: InviteView
                 }
               }}
             >
-              {data.reminded ? "🔕 Bỏ nhắc" : "🔔 Nhắc tôi qua Zalo"}
+              <Bell aria-hidden />{data.reminded ? "Bỏ nhắc" : "Nhắc tôi qua Zalo"}
             </button>
           ) : (
-            <Link className="btn primary" href={`/login?next=${encodeURIComponent(`/join/${code}`)}`}>
-              🔔 Đăng nhập để được nhắc
+            <Link className="ui-button ui-button-secondary" href={`/login?next=${encodeURIComponent(`/join/${code}`)}`}>
+              <Bell aria-hidden /> Đăng nhập để được nhắc
             </Link>
           )
         )}
         {r.startsAt && (
-          <>
-            <a className="btn" href={`/api/invite/${encodeURIComponent(code)}/calendar.ics`}>
-              📅 Thêm vào lịch
-            </a>
-            <a className="btn" href={googleCalendarUrl({ title: r.name, description: r.description, startsAt: r.startsAt, url: link })} target="_blank" rel="noopener noreferrer">
-              Google Calendar
-            </a>
-          </>
+          <details className="event-menu">
+            <summary className="ui-button ui-button-ghost"><CalendarDays aria-hidden /> Thêm vào lịch</summary>
+            <div className="event-menu-items">
+              <a href={googleCalendarUrl({ title: r.name, description: r.description, startsAt: r.startsAt, url: link })} target="_blank" rel="noopener noreferrer">Google Calendar</a>
+              <a href={`/api/invite/${encodeURIComponent(code)}/calendar.ics`}>Tải file .ics</a>
+            </div>
+          </details>
         )}
-        <button className="btn" onClick={share}>
-          ↗ Chia sẻ
-        </button>
-        <a className="btn" href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer">
-          Facebook
-        </a>
+        <div className="event-menu">
+          <button className="ui-button ui-button-ghost" onClick={share} aria-expanded={shareOpen}><Share2 aria-hidden /> Chia sẻ</button>
+          {shareOpen && <div className="event-menu-items">
+            <button onClick={async () => { try { await navigator.clipboard.writeText(`${r.startsAt ? `${r.name} — ${vnEventTime(r.startsAt)}` : r.name}\n${link}`); setMsg("Đã sao chép link mời — dán vào Zalo, Messenger…"); setShareOpen(false); } catch { setMsg("Không thể sao chép. Vui lòng thử lại."); } }}>Sao chép link</button>
+            <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`} target="_blank" rel="noopener noreferrer">Facebook</a>
+          </div>}
+        </div>
       </div>
       {isAccount && data.reminded && !data.zaloLinked && (
         <small className="notice">
@@ -126,7 +132,7 @@ function EventBox({ code, data, me, onChange }: { code: string; data: InviteView
         </small>
       )}
       {msg && <small>{msg}</small>}
-    </div>
+    </Card>
   );
 }
 
@@ -150,10 +156,10 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
 
   if (!isAccount && !data.guestJoinEnabled)
     return (
-      <div className="card stack">
+      <div className="ui-card join-form stack">
         <h1>{r.name}</h1>
         <p className="notice warn">Phòng này yêu cầu đăng nhập tài khoản trước khi vào.</p>
-        <Link className="btn primary" href={`/login?next=${encodeURIComponent(`/join/${code}`)}`}>
+        <Link className="btn primary ui-button ui-button-primary" href={`/login?next=${encodeURIComponent(`/join/${code}`)}`}>
           Đăng nhập
         </Link>
       </div>
@@ -161,7 +167,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
 
   return (
     <form
-      className="card stack"
+      className="ui-card join-form stack"
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
@@ -182,11 +188,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
         }
       }}
     >
-      <p className="muted" style={{ margin: 0 }}>
-        Lời mời tham gia
-      </p>
-      <h1>{r.name}</h1>
-      {r.description && <p>{r.description}</p>}
+      <h2>Chuẩn bị vào phòng</h2>
       <p className="muted">
         {MAP_INFO[r.map].name} · {r.entryMode === "auto_assign" ? "Tự xếp chỗ" : "Vào từ cổng, tự tìm chỗ"} · {r.isDemo ? "luôn mở" : r.openEnded ? "mở đến khi chủ phòng tắt" : `đến ${fmtTime(r.expiresAt)}`}
       </p>
@@ -214,7 +216,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
       {demo && demo.leftSec <= 0 ? (
         <div className="stack">
           <p className="notice warn">Bạn đã dùng hết {Math.round(demo.limitSec / 60)} phút trải nghiệm hôm nay. Quay lại vào ngày mai nhé!</p>
-          <Link className="btn primary" href="/login?mode=signup&next=%2Frooms%2Fnew">
+          <Link className="btn primary ui-button ui-button-primary" href="/login?mode=signup&next=%2Frooms%2Fnew">
             🎁 Mở phòng dùng thử miễn phí của riêng bạn
           </Link>
         </div>
@@ -226,7 +228,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
           </span>
           <button
             type="button"
-            className="btn"
+            className="btn ui-button"
             onClick={() => {
               sessionStorage.removeItem(`ao-mode-${r.id}`);
               router.push(`/room/${r.id}`);
@@ -244,7 +246,7 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
       ) : (
         <label className="field">
           Tên của bạn
-          <input type="text" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} placeholder="Tên hiển thị trong phòng" autoFocus />
+          <Input type="text" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} placeholder="Tên hiển thị trong phòng" autoFocus />
         </label>
       )}
 
@@ -282,14 +284,14 @@ function JoinForm({ code, data, me }: { code: string; data: InviteView; me: Me |
       {r.hasPassword && !data.isOwner && (
         <label className="field">
           Mật mã phòng
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="off" placeholder="Do chủ phòng cung cấp" />
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="off" placeholder="Do chủ phòng cung cấp" />
         </label>
       )}
 
       {err && <p className="notice error">{err}</p>}
-      <button className="btn primary" disabled={busy || (!!demo && demo.leftSec <= 0)}>
+      <StickyActionBar className="join-actions"><button className="btn primary ui-button ui-button-primary" disabled={busy || (!!demo && demo.leftSec <= 0)}>
         {busy ? "Đang vào…" : demo ? (demoRole === "host" && hostFree ? "👑 Vào làm chủ phòng" : "🎟 Vào làm khách") : data.isOwner ? "Vào như người tham dự" : "Vào phòng"}
-      </button>
+      </button></StickyActionBar>
       <small>
         {!isAccount && "Không cần tài khoản. "}Chat chỉ đến người ở gần bạn và không được lưu lại. Camera của bạn không bao giờ tự bật: chỉ người được chủ phòng cho phép mới live hình + tiếng lên màn hình, và không ghi lại.
         {!isAccount && (
@@ -310,9 +312,9 @@ export default function JoinPage() {
     <AppShell narrow>
       {(me) => {
         if (error) return <p className="notice error">{error.message}</p>;
-        if (!data) return <p className="muted">Đang tải…</p>;
+        if (!data) return <Skeleton />;
         return (
-          <div className="stack">
+          <div className="join-page stack">
             <EventBox code={code} data={data} me={me} onChange={reload} />
             <JoinForm code={code} data={data} me={me} />
           </div>

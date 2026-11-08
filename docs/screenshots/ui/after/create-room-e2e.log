@@ -1,0 +1,68 @@
+catalog: max 100 chỗ, trial ≤ 20 chỗ / 6 giờ, durations 6,12,24, waiting 0.2
+PASS  default: price box filled, no error, submit on (24 slot, “Tạo đơn & thanh toán”)
+PASS  default: waiting = floor(20 × 0.2) and total adds up (4 / 24)
+PASS  capacity 1: quoted (1 slot)
+PASS  capacity 100: quoted (120 slot)
+PASS  capacity 101: “Tối đa 100 chỗ chính thức mỗi phòng.”, submit off
+PASS  capacity 5000: “Tối đa 100 chỗ chính thức mỗi phòng. | Không đủ sl”, submit off
+PASS  capacity 20: quoted (24 slot)
+PASS  capacity empty: “Hãy nhập số chỗ chính thức (số nguyên từ”, submit off
+PASS  capacity fixed: back to normal
+PASS  clearing then typing 20 shows “20” (not “020”)
+PASS  capacity 0: “Hãy nhập số chỗ chính thức (số nguyên từ”, submit off
+PASS  capacity -5: “Hãy nhập số chỗ chính thức (số nguyên từ”, submit off
+PASS  capacity 2.5: “Hãy nhập số chỗ chính thức (số nguyên từ”, submit off
+PASS  capacity 20 again: normal
+PASS  system budget 30 < 48 slots: “Không đủ slot”, submit off
+PASS  not-enough-slots error is inline beside the CTA
+PASS  budget raised: back to normal
+PASS  name = spaces only: still quoted (falls back to “Phòng mới”)
+PASS  chart code “FPT CORP”: explained next to the field, submit off, price box not stuck
+PASS  chart code with a Vietnamese letter: same
+PASS  chart code fixed (fpt → FPT): back to normal
+PASS  screen text 800 chars: quoted, note “Chỉ hiện 500 ký tự đầu”
+PASS  YouTube bad link: flagged, box not stuck
+PASS  YouTube valid link: normal
+PASS  screen blank: normal
+PASS  waiting off: 0 waiting, total 20 (0/20)
+PASS  MAP Hội trường ghế ngồi: quoted, submit on
+PASS  MAP Khu thảm ngồi: quoted, submit on
+PASS  MAP Khu bàn: quoted, submit on
+PASS  MAP Rạp chiếu ngoài trời từ ô tô: quoted, submit on
+PASS  MAP Phòng họp: quoted, submit on
+PASS  no avatar group (2 boxes): explained, submit off
+PASS  group re-selected: normal
+PASS  gate entry + private + password + Đơn sắc: normal
+PASS  6 giờ: quoted (89.000 ₫)
+PASS  12 giờ: quoted (139.000 ₫)
+PASS  24 giờ: quoted (229.000 ₫)
+PASS  price changes with the duration (89.000 / 139.000 / 229.000)
+PASS  open-ended: deposit shown, button “Tạo đơn & đặt cọc”
+PASS  wrong promo code: reason shown, box not stuck
+PASS  ASDFG: 0 ₫, button “Tạo phòng (miễn phí với mã)”
+PASS  trial from 24 giờ: duration cut to 6 giờ, box OK, “Tạo phòng dùng thử”
+PASS  trial with 30 seats: “Dùng thử tối đa 20 chỗ chính thức — giảm số c”, submit off
+PASS  trial with 20 seats: normal
+PASS  fast typing 3→…→8: box shows 8 seats (9 slot)
+PASS  session lost: “Vui lòng nhập tên hoặc đăng nhập.”, submit off
+PASS  signed in again: normal
+PASS  exactly one create request
+PASS  payload preserves every config field
+PASS  create trial → straight into the room (/room/b35135e2-6250-45ac-a1a4-fdaa0626e9f0)
+PASS  trial payload: capacity, flag and omitted promo preserved
+PASS  exactly one create request
+PASS  payload preserves every config field
+PASS  create paid 30 chỗ / 12 giờ → order page (/orders/058dc8a1-6333-4ac5-9152-253d5694898f)
+PASS  paid payload: 30 seats / 12 hours preserved
+PASS  exactly one create request
+PASS  payload preserves every config field
+PASS  create with ASDFG (0 ₫) → straight into the room
+PASS  custom payload: promo, entry, visibility, password, stage and schedule preserved
+PASS  options stored: gate entry, private, Đơn sắc, scheduled (gate_entry, false, plain, true)
+PASS  room readable after creation
+PASS  exactly one create request
+PASS  payload preserves every config field
+PASS  create open-ended → deposit order page
+PASS  open-ended payload: deposit mode preserved
+errors: none
+PASS  no page errors

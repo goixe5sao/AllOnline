@@ -1,0 +1,43 @@
+
+> allonline@0.1.0 lint
+> eslint
+
+
+D:\ActiveProject\AllOnline-ui\scripts\e2e-browser-picker.mjs
+  2:10  warning  'closeOrb' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  2:25  warning  'orbLabel' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  2:35  warning  'react' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+
+D:\ActiveProject\AllOnline-ui\scripts\e2e-browser-view.mjs
+  2:35  warning  'react' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+D:\ActiveProject\AllOnline-ui\scripts\e2e-open-ended.mjs
+  2:10  warning  'closeOrb' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  2:25  warning  'orbLabel' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  2:35  warning  'react' is defined but never used. Allowed unused vars must match /^_/u     @typescript-eslint/no-unused-vars
+
+D:\ActiveProject\AllOnline-ui\scripts\e2e-youtube.mjs
+  135:7  warning  'revStop' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+D:\ActiveProject\AllOnline-ui\scripts\e2e-zalo-code.mjs
+  10:7  warning  'sleep' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+D:\ActiveProject\AllOnline-ui\scripts\load-test.mjs
+  70:80  warning  Expected an assignment or function call and instead saw an expression  @typescript-eslint/no-unused-expressions
+
+D:\ActiveProject\AllOnline-ui\src\components\app-shell.tsx
+  57:17  warning  Do not use `window.location.assign()` to navigate to internal Next.js pages. Use `redirect()` in the render phase, or `useRouter().push()` in Client Components' event handlers instead. See: https://nextjs.org/docs/messages/no-location-assign-relative-destination  @next/next/no-location-assign-relative-destination
+
+D:\ActiveProject\AllOnline-ui\src\components\home\home-nav.tsx
+  47:17  warning  Do not use `window.location.assign()` to navigate to internal Next.js pages. Use `redirect()` in the render phase, or `useRouter().push()` in Client Components' event handlers instead. See: https://nextjs.org/docs/messages/no-location-assign-relative-destination  @next/next/no-location-assign-relative-destination
+
+D:\ActiveProject\AllOnline-ui\src\components\room\room-view.tsx
+  708:19  warning  Do not use `window.location.href` to navigate to internal Next.js pages. Use `redirect()` in the render phase, or `useRouter().push()` in Client Components' event handlers instead. See: https://nextjs.org/docs/messages/no-location-assign-relative-destination  @next/next/no-location-assign-relative-destination
+  766:17  warning  Do not use `window.location.href` to navigate to internal Next.js pages. Use `redirect()` in the render phase, or `useRouter().push()` in Client Components' event handlers instead. See: https://nextjs.org/docs/messages/no-location-assign-relative-destination  @next/next/no-location-assign-relative-destination
+
+D:\ActiveProject\AllOnline-ui\tests\pure.test.ts
+  109:51  warning  Expected an assignment or function call and instead saw an expression  @typescript-eslint/no-unused-expressions
+  116:24  warning  Expected an assignment or function call and instead saw an expression  @typescript-eslint/no-unused-expressions
+
+✖ 16 problems (0 errors, 16 warnings)
+

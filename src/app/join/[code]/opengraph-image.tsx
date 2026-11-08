@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { MAP_INFO } from "@/core/maps";
 import { getInviteMeta } from "@/lib/home-data";
 import { vnEventTime } from "@/lib/vn-time";
+import { imagePalette as palette } from "@/lib/image-palette";
 
 export const alt = "Sự kiện trên Sân Khấu Online — sân khấu 3D";
 export const size = { width: 1200, height: 630 };
@@ -30,24 +31,24 @@ export default async function Image({ params }: { params: Promise<{ code: string
           flexDirection: "column",
           justifyContent: "space-between",
           padding: "56px 64px",
-          color: "#f4f6ff",
+          color: palette.text,
           fontFamily: "BeVietnam",
-          background: "radial-gradient(70% 60% at 50% 0%, #1d3b8a 0%, #0b0d24 60%), linear-gradient(#0b0d24, #05060f)",
+          background: `linear-gradient(${palette.surface}, ${palette.bg})`,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 30 }}>
-          <div style={{ width: 52, height: 52, borderRadius: 14, background: "linear-gradient(135deg,#3df5ff,#8b5cff 50%,#ff4fd8)", display: "flex" }} />
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: palette.accent, display: "flex" }} />
           <span>Sân Khấu Online · 3D</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
           {when && (
-            <div style={{ display: "flex", alignSelf: "flex-start", padding: "10px 22px", borderRadius: 999, background: "#ffd38a", color: "#1c1633", fontSize: 32 }}>
-              🗓 {when}
+            <div style={{ display: "flex", alignSelf: "flex-start", padding: "10px 22px", borderRadius: 999, background: palette.accent, color: palette.onAccent, fontSize: 32 }}>
+              {when}
             </div>
           )}
           <div style={{ display: "flex", fontSize: name.length > 40 ? 64 : 80, lineHeight: 1.1, maxWidth: 1050 }}>{name}</div>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 28, color: "#c3c9ee" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 28, color: palette.secondary }}>
           <span>{m ? MAP_INFO[m.map].name : "Khán phòng 3D trực tuyến"}</span>
           <span>Vào bằng trình duyệt · không cần cài đặt</span>
         </div>

@@ -1,0 +1,269 @@
+{
+  "fixture": {
+    "room": {
+      "roomId": "15837af1-b39a-427d-bd97-1ec60eb35b3c",
+      "inviteCode": "56SD37JD"
+    },
+    "order": {
+      "orderId": "e2d8d084-8053-4066-bea6-875a69100e32"
+    }
+  },
+  "report": [
+    {
+      "name": "login",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "login",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "login",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "login",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "account",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "account",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "account",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "account",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "rooms-new",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": true
+    },
+    {
+      "name": "rooms-new",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": true
+    },
+    {
+      "name": "rooms-new",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "rooms-new",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "orders",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "orders",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "orders",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "orders",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "order",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "order",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "order",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "order",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "admin",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "admin",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "admin",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "admin",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "join",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "join",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "join",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "join",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "logs",
+      "width": 390,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "logs",
+      "width": 390,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "logs",
+      "width": 1440,
+      "theme": "dark",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "name": "logs",
+      "width": 1440,
+      "theme": "light",
+      "status": 200,
+      "errors": [],
+      "overflow": false
+    }
+  ]
+}

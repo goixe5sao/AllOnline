@@ -1,18 +1,21 @@
 import puppeteer from "puppeteer-core";
 /**
  * "Tạo phòng" page, every case, in real Chrome (no 3D on this page, light on the CPU):
- * the "Slot & giá" box must never hang on "Đang tính…" — every mistake shows a reason and is
+ * the "Tóm tắt & giá" box must never hang on "Đang tính…" — every mistake shows a reason and is
  * recoverable once fixed — and every kind of room can be created (trial, paid, promo 100 %,
  * open-ended deposit) with the chosen options stored.
  *   BASE=http://localhost:3100 node scripts/e2e-create-room.mjs <outDir>
  */
 const BASE = process.env.BASE ?? "http://localhost:3100";
+const mode = await (await fetch(BASE + "/api/me")).json();
+if (BASE !== "http://localhost:3100" || mode.mode !== "demo") throw new Error("Requires demo on localhost:3100");
 const OUT = process.argv[2] ?? ".";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failed = 0;
 const check = (ok, msg) => (console.log(`${ok ? "PASS" : "FAIL"}  ${msg}`), ok || failed++);
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Application/chrome.exe", headless: "new", protocolTimeout: 120000 });
 const errors = [];
+try {
 
 async function login(name, asAppOwner = false) {
   const p = await (await browser.createBrowserContext()).newPage();
@@ -24,14 +27,14 @@ async function login(name, asAppOwner = false) {
 }
 const api = (p, path, method = "GET", body) => p.evaluate(async (a) => { const r = await fetch(a.path, { method: a.method, headers: { "Content-Type": "application/json" }, body: a.body ? JSON.stringify(a.body) : undefined }); return { status: r.status, json: await r.json().catch(() => null) }; }, { path, method, body });
 
-/** State of the "Slot & giá" box once it settles (no request in flight). */
+/** State of the "Tóm tắt & giá" box once it settles (no request in flight). */
 async function box(p, waitMs = 6000) {
   const t0 = Date.now();
   let s;
   do {
     await sleep(150);
     s = await p.evaluate(() => {
-      const card = [...document.querySelectorAll(".card")].find((c) => c.querySelector("h2")?.textContent?.startsWith("Slot & giá"));
+      const card = [...document.querySelectorAll(".card")].find((c) => c.querySelector("h2")?.textContent?.startsWith("Tóm tắt & giá"));
       const txt = card?.textContent ?? "";
       const row = (label) => [...(card?.querySelectorAll("tr") ?? [])].find((tr) => tr.textContent?.includes(label))?.querySelector("strong")?.textContent ?? null;
       const btn = document.querySelector("form button.btn.primary");
@@ -41,8 +44,8 @@ async function box(p, waitMs = 6000) {
         error: [...(card?.querySelectorAll(".notice.error") ?? [])].map((e) => e.textContent).join(" | "),
         warn: [...(card?.querySelectorAll(".notice.warn") ?? [])].map((e) => e.textContent).join(" | "),
         waiting: row("Chỗ chờ"),
-        total: row("Tổng slot"),
-        price: card?.querySelector(".notice .row strong, .notice strong")?.textContent ?? null,
+        total: String(Number(row("Chỗ chính thức")) + Number(row("Chỗ chờ"))),
+        price: card?.querySelector("tr:last-child strong")?.textContent ?? null,
         amountText: txt,
         submit: btn?.textContent ?? "",
         submitEnabled: !!btn && !btn.disabled,
@@ -54,6 +57,7 @@ async function box(p, waitMs = 6000) {
 }
 const capInput = "form input[type=number]";
 async function setCap(p, v) {
+  await showStep(p, 1);
   await p.click(capInput, { clickCount: 3 });
   await p.keyboard.press("Backspace");
   if (v !== "") await p.type(capInput, String(v));
@@ -61,6 +65,7 @@ async function setCap(p, v) {
 const field = (p, labelStart) => p.evaluateHandle((t) => [...document.querySelectorAll("label.field")].find((l) => l.textContent?.trim().startsWith(t))?.querySelector("input,textarea,select"), labelStart);
 async function typeInto(p, labelStart, text) {
   const el = await field(p, labelStart);
+  await showStep(p, await el.evaluate(e => Number(e.closest("[data-step]").dataset.step)));
   await el.click({ clickCount: 3 });
   await p.keyboard.press("Backspace");
   await el.type(text);
@@ -68,10 +73,11 @@ async function typeInto(p, labelStart, text) {
 const clickText = (p, sel, text) => p.evaluate((a) => [...document.querySelectorAll(a.sel)].find((e) => e.textContent?.includes(a.text))?.click(), { sel, text });
 const checkBox = (p, text, on) => p.evaluate((a) => { const l = [...document.querySelectorAll("label.check")].find((e) => e.textContent?.includes(a.text)); const i = l?.querySelector("input"); if (i && i.checked !== a.on) i.click(); return !!i; }, { text, on });
 async function screen(p, kind, value) {
+  await showStep(p, 2);
   await p.select("form .field .row select", kind);
   await sleep(100);
   if (value !== undefined) {
-    const inp = await p.$("form .field .row input[type=text]");
+    const inp = await p.$(kind === "chart" ? ".symbol-picker input" : "form .field .row input[type=text]");
     await inp.click({ clickCount: 3 });
     await p.keyboard.press("Backspace");
     await inp.type(value);
@@ -80,9 +86,19 @@ async function screen(p, kind, value) {
 async function duration(p, v) {
   await p.evaluate((v) => { const s = [...document.querySelectorAll("label.field")].find((l) => l.textContent?.trim().startsWith("Thời hạn"))?.querySelector("select"); if (s) { const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set; set.call(s, String(v)); s.dispatchEvent(new Event("change", { bubbles: true })); } }, v);
 }
+async function showStep(p, target) {
+  for (let i = 0; i < 6; i++) {
+    const current = await p.$eval('[data-step]:not([hidden])', e => Number(e.dataset.step));
+    if (current === target) return;
+    await clickText(p, ".room-actions button", current > target ? "Quay lại" : "Tiếp tục");
+    await sleep(30);
+  }
+  throw new Error(`Cannot reach step ${target}`);
+}
 async function openNew(p) {
   await p.goto(BASE + "/rooms/new", { waitUntil: "networkidle0" });
-  await p.waitForSelector(capInput);
+  await p.waitForSelector(".room-flow");
+  await typeInto(p, "Tên phòng", "Phòng kiểm thử");
 }
 const ok = (s) => !s.stuck && !s.error && s.total !== null;
 
@@ -100,6 +116,8 @@ console.log(`catalog: max ${maxCap} chỗ, trial ≤ ${tMax} chỗ / ${tHours} g
 const p = await login("Khách tạo phòng");
 await openNew(p);
 let s = await box(p);
+if (!process.env.CREATE_ONLY) {
+check(await p.$('.room-system') === null, "customers never receive system-capacity UI");
 check(ok(s) && s.submitEnabled, `default: price box filled, no error, submit on (${s.total} slot, “${s.submit}”)`);
 check(Number(s.waiting) === Math.floor(20 * ratio) && Number(s.total) === 20 + Math.floor(20 * ratio), `default: waiting = floor(20 × ${ratio}) and total adds up (${s.waiting} / ${s.total})`);
 await p.screenshot({ path: `${OUT}/create-default.png`, fullPage: true });
@@ -131,7 +149,8 @@ check(ok(s) && s.submitEnabled, "capacity 20 again: normal");
 await api(admin, "/api/admin/settings", "PATCH", { total_slot_budget: 30 });
 await setCap(p, 40);
 s = await box(p);
-check(!s.stuck && /Không đủ slot/.test(s.error) && !s.submitEnabled, "system budget 30 < 48 slots: “Không đủ slot”, submit off");
+check(!s.stuck && /Hệ thống đang hết chỗ/.test(s.error) && !s.submitEnabled, "system budget 30 < 48 slots: “Không đủ slot”, submit off");
+check(await p.$eval('.room-cta [role="alert"]', el => el.textContent.includes('Hệ thống đang hết chỗ')), "not-enough-slots error is inline beside the CTA");
 await api(admin, "/api/admin/settings", "PATCH", { total_slot_budget: 3000 });
 await setCap(p, 21);
 await setCap(p, 20);
@@ -175,11 +194,11 @@ await checkBox(p, "Cho người chờ", true);
 
 // every MAP (drive-in switches the avatar group to vehicles), no group selected
 for (const m of cat.maps.filter((x) => x.enabled)) {
-  await clickText(p, ".choice", m.name);
+  await clickText(p, ".choice, .ui-radio-card", m.name);
   s = await box(p);
   check(ok(s) && s.submitEnabled, `MAP ${m.name}: quoted, submit on`);
 }
-await clickText(p, ".choice", cat.maps[0].name);
+await clickText(p, ".choice, .ui-radio-card", cat.maps[0].name);
 await sleep(300);
 const groupBoxes = await p.$$eval("form .field .row label.check input", (els) => els.length);
 await p.evaluate(() => [...document.querySelectorAll("form .field .row label.check input")].forEach((i) => i.checked && i.click()));
@@ -190,10 +209,10 @@ s = await box(p);
 check(ok(s) && s.submitEnabled, "group re-selected: normal");
 
 // entry modes, public, password, schedule, stage style — the box keeps working
-await clickText(p, ".choice", "Vào từ cổng");
+await clickText(p, ".choice, .ui-radio-card", "Vào từ cổng");
 await checkBox(p, "Hiện phòng trên trang chủ", false);
 await typeInto(p, "Mật mã phòng", "1234");
-await clickText(p, ".choice", "Đơn sắc");
+await clickText(p, ".choice, .ui-radio-card", "Đơn sắc");
 s = await box(p);
 check(ok(s) && s.submitEnabled, "gate entry + private + password + Đơn sắc: normal");
 
@@ -255,15 +274,38 @@ await p.setCookie(...cookies);
 await setCap(p, 12);
 s = await box(p);
 check(ok(s), "signed in again: normal");
+}
 
 // ---------- create every kind of room ----------
 async function create(pg, setup) {
   await openNew(pg);
   await setup(pg);
+  if (!pg._t3Interception) {
+  pg._t3Interception = true;
+  await pg.setRequestInterception(true);
+  pg.on("request", req => {
+    if (new URL(req.url()).pathname.startsWith('/room/')) req.respond({ status: 200, contentType: "text/html", body: "<p>Room created</p>" });
+    else req.continue();
+  });
+  }
   const st = await box(pg);
+  const payloads = [];
+  const capture = req => { if (req.url() === BASE + "/api/rooms" && req.method() === "POST") payloads.push(JSON.parse(req.postData())); };
+  pg.on("request", capture);
+  await showStep(pg, 3);
+  await box(pg);
   await Promise.all([pg.waitForNavigation({ timeout: 30000 }).catch(() => null), pg.click("form button.btn.primary")]);
   await sleep(500);
-  return { url: pg.url(), st };
+  pg.off("request", capture);
+  check(payloads.length === 1, "exactly one create request");
+  if (!payloads.length) {
+    await pg.screenshot({ path: `${OUT}/create-failure.png`, fullPage: true });
+    throw new Error(JSON.stringify({ before: st, after: await box(pg), url: pg.url(), form: await pg.$eval('form', e => ({ step: e.querySelector('[data-step]:not([hidden])').dataset.step, name: e.querySelector('input[type=text]').value })) }));
+  }
+  const payload = payloads[0];
+  const expectedKeys = ["name", "description", "map", "avatarGroups", "officialCapacity", "waitingEnabled", "entryMode", "durationHours", "openEnded", "isPublic", "password", "initialScreen", "scheduledAt", "stageStyle"].sort();
+  check(JSON.stringify(Object.keys(payload.config).sort()) === JSON.stringify(expectedKeys), "payload preserves every config field");
+  return { url: pg.url(), st, payload: payloads[0] };
 }
 let r = await create(p, async (pg) => {
   await typeInto(pg, "Tên phòng", "Phòng dùng thử");
@@ -271,6 +313,7 @@ let r = await create(p, async (pg) => {
   await checkBox(pg, "Dùng thử miễn phí", true);
 });
 check(/\/room\//.test(r.url), `create trial → straight into the room (${r.url.replace(BASE, "")})`);
+check(r.payload.useTrial === true && r.payload.config.officialCapacity === 10 && !('promoCode' in r.payload), "trial payload: capacity, flag and omitted promo preserved");
 
 r = await create(p, async (pg) => {
   await typeInto(pg, "Tên phòng", "Phòng trả phí");
@@ -278,13 +321,14 @@ r = await create(p, async (pg) => {
   await duration(pg, 12);
 });
 check(/\/orders\//.test(r.url), `create paid 30 chỗ / 12 giờ → order page (${r.url.replace(BASE, "")})`);
+check(r.payload.useTrial === false && r.payload.config.officialCapacity === 30 && r.payload.config.durationHours === 12, "paid payload: 30 seats / 12 hours preserved");
 
 r = await create(p, async (pg) => {
   await typeInto(pg, "Tên phòng", "Phòng mã ASDFG");
-  await clickText(pg, ".choice", "Vào từ cổng");
+  await clickText(pg, ".choice, .ui-radio-card", "Vào từ cổng");
   await checkBox(pg, "Hiện phòng trên trang chủ", false);
   await typeInto(pg, "Mật mã phòng", "9999");
-  await clickText(pg, ".choice", "Đơn sắc");
+  await clickText(pg, ".choice, .ui-radio-card", "Đơn sắc");
   await pg.$eval('input[type="datetime-local"]', (el) => {
     const d = new Date(Date.now() + 3 * 86400_000);
     const v = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -295,6 +339,7 @@ r = await create(p, async (pg) => {
   await clickText(pg, "button", "Áp dụng");
 });
 check(/\/room\//.test(r.url), `create with ASDFG (0 ₫) → straight into the room`);
+check(r.payload.promoCode === "ASDFG" && r.payload.config.entryMode === "gate_entry" && r.payload.config.isPublic === false && r.payload.config.password === "9999" && r.payload.config.stageStyle === "plain" && Number.isFinite(r.payload.config.scheduledAt), "custom payload: promo, entry, visibility, password, stage and schedule preserved");
 const id = r.url.match(/room\/([0-9a-f-]+)/)?.[1];
 const mine = (await api(p, "/api/rooms/mine")).json;
 const room = (mine.rooms ?? mine).find?.((x) => x.id === id);
@@ -307,8 +352,9 @@ r = await create(p, async (pg) => {
   await duration(pg, "open");
 });
 check(/\/orders\//.test(r.url) && (await p.evaluate(() => /cọc|1\.000\.000/.test(document.body.textContent))), `create open-ended → deposit order page`);
+check(r.payload.config.openEnded === true && r.payload.useTrial === false, "open-ended payload: deposit mode preserved");
 
 console.log("errors:", errors.length ? errors : "none");
 check(errors.length === 0, "no page errors");
-await browser.close();
+} finally { await browser.close(); }
 process.exit(failed ? 1 : 0);

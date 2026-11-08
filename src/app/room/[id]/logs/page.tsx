@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { Badge, DataList, EmptyState, Input, PageHeader, Select, Skeleton } from "@/components/ui";
+import "./logs.css";
 import { LIVE_MODE_LABEL, type LiveMode } from "@/core/live";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -78,6 +81,8 @@ function detail(type: string, d: Record<string, unknown>): string | null {
 }
 
 export default function RoomLogsPage() {
+  const [filter, setFilter] = useState("");
+  const [search, setSearch] = useState("");
   const { id } = useParams<{ id: string }>();
   const { data, error } = useApi<{
     events: { id: string; type: string; data: Record<string, unknown>; created_at: string; actor_name: string | null }[];
@@ -87,7 +92,8 @@ export default function RoomLogsPage() {
     <AppShell requireLogin>
       {() => (
         <div className="stack">
-          <h1>Log phòng</h1>
+          <PageHeader title="Lịch sử phòng" subtitle="Sự kiện, kết nối và thanh toán của phòng." />
+          {!data && !error && <Skeleton />}
           <p className="notice">Chat gần thông thường không bao giờ được lưu. Chỉ tin chủ phòng đưa lên màn hình mới có trong log.</p>
           {error && <p className="notice error">{error.message}</p>}
           {data && (
@@ -95,48 +101,30 @@ export default function RoomLogsPage() {
               <div className="card">
                 <h2>Đơn & thanh toán</h2>
                 {data.orders.length ? (
-                  <table className="data">
-                    <tbody>
-                      {data.orders.map((o) => (
-                        <tr key={o.code}>
-                          <td>{o.code}</td>
-                          <td>{o.kind === "create_room" ? "Tạo phòng" : "Gia hạn"}</td>
-                          <td>{formatVnd(o.amount_vnd)}</td>
-                          <td>{o.status}</td>
-                          <td>{fmtTime(o.created_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataList caption="Đơn & thanh toán" rows={data.orders} rowKey={o => o.code} columns={[
+                    {key: "code", label: "Mã", render: o => o.code},
+                    {key: "kind", label: "Loại", render: o => o.kind === "create_room" ? "Tạo phòng" : "Gia hạn"},
+                    {key: "amount", label: "Số tiền", render: o => formatVnd(o.amount_vnd)},
+                    {key: "status", label: "Trạng thái", render: o => <Badge>{o.status}</Badge>},
+                    {key: "date", label: "Thời gian", render: o => fmtTime(o.created_at)},
+                  ]} />
                 ) : (
                   <p className="muted">Phòng dùng thử / không có đơn.</p>
                 )}
               </div>
-              <div className="card table-wrap">
+              <section className="card stack logs-timeline">
                 <h2>Sự kiện</h2>
-                <table className="data">
-                  <thead>
-                    <tr>
-                      <th>Thời gian</th>
-                      <th>Sự kiện</th>
-                      <th>Người thực hiện</th>
-                      <th>Chi tiết</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.events.map((e) => (
-                      <tr key={e.id}>
-                        <td style={{ whiteSpace: "nowrap" }}>{fmtTime(e.created_at)}</td>
-                        <td>{TYPE_VI[e.type] ?? e.type}</td>
-                        <td>{e.actor_name ?? "Hệ thống"}</td>
-                        <td>
-                          {detail(e.type, e.data) ?? <code style={{ fontSize: 12, wordBreak: "break-word" }}>{JSON.stringify(e.data)}</code>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                <div className="logs-filters">
+                  <label className="ui-field">Loại sự kiện<Select value={filter} onChange={e => setFilter(e.target.value)}><option value="">Tất cả sự kiện</option>{[...new Set(data.events.map(e => e.type))].map(type => <option key={type} value={type}>{TYPE_VI[type] ?? type}</option>)}</Select></label>
+                  <label className="ui-field">Tìm kiếm<Input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Tên, sự kiện hoặc chi tiết" /></label>
+                </div>
+                <ol>{data.events.filter(e => (!filter || e.type === filter) && `${e.actor_name ?? "Hệ thống"} ${TYPE_VI[e.type] ?? e.type} ${detail(e.type, e.data) ?? JSON.stringify(e.data)}`.toLocaleLowerCase("vi").includes(search.toLocaleLowerCase("vi"))).map(e => <li key={e.id}>
+                  <time dateTime={e.created_at}>{fmtTime(e.created_at)}</time>
+                  <h3>{TYPE_VI[e.type] ?? e.type}</h3><strong>{e.actor_name ?? "Hệ thống"}</strong>
+                  {detail(e.type, e.data) ? <p>{detail(e.type, e.data)}</p> : <details><summary>Chi tiết sự kiện</summary><pre><code>{JSON.stringify(e.data, null, 2)}</code></pre></details>}
+                </li>)}</ol>
+                {!data.events.some(e => (!filter || e.type === filter) && `${e.actor_name ?? "Hệ thống"} ${TYPE_VI[e.type] ?? e.type} ${detail(e.type, e.data) ?? JSON.stringify(e.data)}`.toLocaleLowerCase("vi").includes(search.toLocaleLowerCase("vi"))) && <EmptyState title="Không có sự kiện phù hợp" />}
+              </section>
             </>
           )}
         </div>

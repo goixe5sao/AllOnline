@@ -54,6 +54,22 @@ check(og.headers.get("content-type") === "image/png", "share image is a PNG");
 const fs = await import("node:fs/promises");
 await fs.writeFile(`${OUT}/event-share-image.png`, Buffer.from(await og.arrayBuffer()));
 
+// Bounded invite/auth regression mode: exercises the existing entry flow without mounting 3D.
+if (process.argv.includes('--join-only')) {
+  const guest = await page();
+  await guest.setRequestInterception(true);
+  guest.on('request', req => req.isNavigationRequest() && new URL(req.url()).pathname.startsWith('/room/')
+    ? req.respond({ status: 200, contentType: 'text/html', body: '<p>Joined room</p>' }) : req.continue());
+  await guest.goto(`${BASE}/join/${inviteCode}`, { waitUntil: 'networkidle0' });
+  await guest.type("form input[maxlength='60']", 'Khách Lan');
+  await guest.click('form button.btn.primary');
+  await guest.waitForFunction(() => location.pathname.startsWith('/room/'));
+  check(await guest.evaluate(id => !!sessionStorage.getItem(`ao-pass-${id}`) && !!sessionStorage.getItem(`ao-avatar-${id}`), roomId), 'guest join preserves pass and avatar');
+  check(errors.length === 0, 'no browser errors');
+  await browser.close();
+  process.exit(failed ? 1 : 0);
+}
+
 // ---- into the room ----
 async function enter(p, name) {
   await p.goto(`${BASE}/join/${inviteCode}`, { waitUntil: "networkidle0" });

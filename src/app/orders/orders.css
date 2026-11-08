@@ -1,0 +1,16 @@
+.order-page .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-6); box-shadow: var(--shadow-1); min-width: 0; }
+.order-page .row { flex-wrap: wrap; }
+.order-page h2 { margin: 0; }
+.order-qr { align-self: center; max-width: 100%; height: auto; border-radius: var(--radius-card); }
+.order-bank-details { margin: 0; }
+.order-bank-details > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: center; gap: var(--space-3); padding-block: var(--space-2); border-bottom: 1px solid var(--border); }
+.order-bank-details dt { color: var(--text-2); }
+.order-bank-details dd { margin: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); overflow-wrap: anywhere; }
+.order-page .order-cancel { color: var(--danger); }
+.order-page .order-cancel:hover { background: var(--danger-soft); }
+.order-page .order-actions { gap: var(--space-2); align-items: center; }
+.order-actions > button { min-height: var(--touch); }
+.order-timeline small { display: block; }
+@media (max-width: 767px) { .order-page .card { padding: var(--space-4); } }
+.order-timeline { display: grid; gap: var(--space-6); padding-left: var(--space-6); border-left: 1px solid var(--border); margin-left: var(--space-3); }
+.order-timeline li::marker { color: var(--accent); }

@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { MAP_INFO } from "@/core/maps";
 import { getInviteMeta } from "@/lib/home-data";
 import { vnEventTime } from "@/lib/vn-time";
+import { InviteHostProvider } from "./invite-host";
 
 /**
  * Server-rendered title / description for an invite link, so a link pasted into Zalo, Facebook
@@ -29,6 +30,9 @@ export async function generateMetadata({ params }: { params: Promise<{ code: str
   };
 }
 
-export default function InviteLayout({ children }: { children: React.ReactNode }) {
-  return children;
+export default async function InviteLayout({ children, params }: { children: React.ReactNode; params: Promise<{ code: string }> }) {
+  await connection();
+  const { code } = await params;
+  const meta = await getInviteMeta(code);
+  return <InviteHostProvider name={meta?.ownerName ?? ""}>{children}</InviteHostProvider>;
 }
