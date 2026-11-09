@@ -317,12 +317,12 @@ export function StageChart(p: StageChartProps) {
     aiSvg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2";
     if (ai) {
       el.appendChild(aiSvg);
-      const levels: [string, number, string][] = [
+      const levels: [string, number | null, string][] = [
         ...ai.levels.support.map(v => ["Hỗ trợ", v, C.up] as [string, number, string]),
         ...ai.levels.resistance.map(v => ["Kháng cự", v, C.down] as [string, number, string]),
         ["POC", ai.levels.poc, C.ma], ["VWAP", ai.levels.vwap, C.ema], ["Kijun-26", ai.levels.kijun, C.bb],
       ];
-      for (const [title, price, color] of levels) main.createPriceLine({ price, title, color, lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true });
+      for (const [title, price, color] of levels) if (price !== null) main.createPriceLine({ price, title, color, lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true });
     }
     const drawAi = () => {
       if (!ai) return;
@@ -332,7 +332,8 @@ export function StageChart(p: StageChartProps) {
         for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
         aiSvg.appendChild(node); return node;
       };
-      for (const zone of [{ label: "Value area 70%", low: ai.levels.valueArea[0], high: ai.levels.valueArea[1], from: 0, to: 0 }, ...ai.overlays.zones]) {
+      for (const zone of [{ label: "Value area 70%", low: ai.levels.valueArea?.[0], high: ai.levels.valueArea?.[1], from: 0, to: 0 }, ...ai.overlays.zones]) {
+        if (zone.low === undefined || zone.high === undefined) continue;
         const y1 = main.priceToCoordinate(zone.high), y2 = main.priceToCoordinate(zone.low);
         const x1 = zone.from ? chart.timeScale().timeToCoordinate(t(zone.from)) : 0;
         const x2 = zone.to ? chart.timeScale().timeToCoordinate(t(zone.to)) : el.clientWidth - chart.priceScale("right").width();

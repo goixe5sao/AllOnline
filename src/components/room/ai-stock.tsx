@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Button, Card, CardBody, Field, Input, Select, Badge, EmptyState, Skeleton } from "@/components/ui";
 import { StageChart } from "./stage-chart";
-import { STOCK_DISCLAIMER, type AiStockContent, type StockScan, type StockPick } from "@/core/ai-stock";
+import { STOCK_DISCLAIMER, stockMethodLabel, stockStatsLine, type AiStockContent, type StockScan, type StockPick } from "@/core/ai-stock";
 import type { ClientMsg } from "@/core/protocol";
 import type { ScreenState } from "@/core/screen";
 import { useApi } from "@/lib/api";
@@ -12,14 +12,13 @@ import { StockAlertBanner, StockAlertHistory, StockFollow, useStockAlerts } from
 import { vnSession as vnAlertDay } from "@/core/stock-alerts";
 
 const biasLabel = { up: "Thiên hướng tăng", down: "Thiên hướng giảm", neutral: "Trung tính" };
-const signalLabel: Record<string, string> = { poc_breakout: "Vượt POC", poc_breakdown: "Thủng POC", "pattern:ascending_triangle": "Tam giác tăng", sr_breakout: "Vượt hỗ trợ / kháng cự", ml_rank: "Xếp hạng mô hình" };
 export function StockSignal({ pick, snapshot, fixture, commentary }: { pick: StockPick; snapshot: StockScan; fixture: boolean; commentary?: string }) {
   return <section className="ai-stock-signal" aria-label={`Tín hiệu ${pick.symbol}`}>
     <div className="row"><strong>{pick.symbol}</strong><Badge>{biasLabel[pick.bias]}</Badge><span>Điểm {pick.score.toFixed(2)}</span></div>
-    <p>Giá {pick.price} · {pick.changePct.toFixed(2)}% · Đơn vị: nghìn đồng</p>
+    <p>Giá {pick.price} · Đơn vị: nghìn đồng</p>
     {fixture && <p className="ai-stock-fixture">Dữ liệu mẫu · Giá và thống kê giả lập, không phải kết quả backtest thực.</p>}
     <p>Ảnh chụp: {new Date(snapshot.asOf).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })} · Trễ {snapshot.dataDelayMin} phút · Nguồn không chính thức</p>
-    <ul>{pick.signals.slice(0,3).map((s,i) => <li key={i}><strong>{signalLabel[s.type] ?? `Tín hiệu ${s.type}`}</strong><br/>{(s.stats.hitRate * 100).toFixed(0)}% · n={s.stats.n} · {s.stats.horizon} phiên<br/><small>Khoảng tin cậy 95%: {(s.stats.ci95[0]*100).toFixed(0)}–{(s.stats.ci95[1]*100).toFixed(0)}% · {fixture ? "Thống kê mẫu" : "Tần suất thực nghiệm"}</small></li>)}</ul>
+    <ul>{pick.signals.slice(0,3).map((s,i) => <li key={i}><strong>{stockMethodLabel(s.type)}</strong>{s.level !== null && <> · {s.level}</>}{s.stats && <><br/>{stockStatsLine(s)}{s.stats.tier === "PASS" && <Badge>Đạt chuẩn 80%</Badge>}{fixture && <small> · Ví dụ EVIDENCE giả lập</small>}</>}</li>)}</ul>
     {commentary && <p className="ai-stock-commentary">{commentary}</p>}
     <small>{STOCK_DISCLAIMER}</small>
   </section>;

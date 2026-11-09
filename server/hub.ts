@@ -1009,7 +1009,7 @@ export class Hub {
         if (m.action === "ai_stock") {
           if (m.command === "start") {
             const previous = room.screen;
-            const result = room.row.is_demo ? { snapshot: await new FixtureScanProvider().scan(), fixture: true } : await this.aiStockScan();
+            const result = room.row.is_demo ? { snapshot: await new FixtureScanProvider(true).scan(), fixture: true } : await this.aiStockScan();
             if (room.screen !== previous || !this.rooms.has(room.row.id)) return;
             room.screen = applyScreenAction(previous, { action: "set", content: startStock(result.snapshot, result.fixture, now, m.topN, m.seconds) }, now);
           } else if (m.command === "stop") {

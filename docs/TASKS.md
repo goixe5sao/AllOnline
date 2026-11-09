@@ -21,6 +21,22 @@ Result (Codex): <branch, summary, checks run + output, open questions>
 ```
 
 ## Backlog
+### A-3 (AllOnline): consume the real StockVN scan
+Status: done   Risk: low (scan adapter and presentation; no live service enablement)
+Goal: accept StockVN's real scan and display historical percentages only for upstream-validated signals carrying stats.
+Scope: scan schema/provider, commentary guard, presenter/list, component evidence and tests. No live Zalo/Claude/StockVN calls, deployment or push.
+Design notes: owner decision 2026-11-09: StockVN alone supplies validation/evidence. PASS denotes its 80% gate; EVIDENCE denotes significance against its own base rate. AllOnline never computes statistics. Preserve levels/type without stats; display `Lịch sử: {hitRate}% · nền {baseRate}% · {n} lần · {horizon} phiên` when supplied, plus `Đạt chuẩn 80%` only for PASS. An absent baseRate is omitted rather than fabricated.
+Acceptance: real sample and improved payload mapping, nullable levels, timestamp overlays, no percentage without stats in UI/commentary, PASS/EVIDENCE rendering, 390/1440 component screenshots, lint/typecheck/tests, local commit.
+Result (Codex, 2026-11-09):
+- Branch/worktree: `codex/ai-stock`, `D:/ActiveProject/AllOnline-ui`; committed locally, no push.
+- Adapter: maps `items` and `method` to picks/types, normalizes offset/Z asOf, scalar/null support/resistance to arrays, preserves nullable equilibrium/value-area and signal levels. Uses numeric upstream score/rank when available; otherwise score follows payload order, rank defaults to one-based order. Mixed/empty directions are neutral. Legacy object scores are not treated as probabilities. Missing legacy dataDelayMin defaults to 0; improved payload delay is preserved.
+- Geometry: accepts timed points and boundaries and known internal line/zone/pattern shapes; safely drops unknown and legacy index-only shapes. No bar-index-to-time invention. Vietnamese method labels cover the sample families and common patterns/candles. Null chart levels/value-area are skipped.
+- Evidence: optional upstream stats with required PASS/EVIDENCE tier, optional baseRate/outcome/avgReturnPct. Presenter removes price-change percentages and standalone CI percentage copy; history line and PASS badge require stats. Missing baseRate is omitted. Commentary allows percent values only from stats/baseRate of signals with stats, rejecting percentages borrowed from price, score, sample count or other input numbers. Prompt repeats the restriction; deterministic fallback contains no percentages.
+- Fixture: all synthetic prices remain visibly labelled sample data; only one explicitly synthetic EVIDENCE example remains, exposed by FixtureScanProvider only with demo enabled. Non-demo fixture scans strip all stats/baseRate. Demo room selection explicitly opts into the sample.
+- PASS `npm.cmd run lint`: 0 errors, 13 existing warnings. PASS `npx.cmd tsc --noEmit`. PASS `npm.cmd test -- --maxWorkers=2 --silent`: 19 files / 211 tests. PASS focused scan suites: 2 files / 15 tests. PASS `git diff --check`. Tests use mocked outbound HTTP/SDK and local data only.
+- PASS `node scripts/ui-ai-stock-real.mjs`: real presenter/list, no Canvas/Three scene, no page errors or horizontal overflow, 390/1440 dark/light. Checks no percentage without stats and correct PASS/EVIDENCE copy. Four full-page screenshots: `docs/screenshots/ui/after/ai-stock-real-{390,1440}-{dark,light}.png`; report: `ai-stock-real-report.json`. Screenshot evidence examples are explicitly labelled synthetic separately from the supplied real payload. Visually inspected mobile dark output. Updated the previous component harness to expect the new history copy.
+- Safety: only this worktree, worktree-local `.data-a3` demo PGlite, credentials disabled and market scheduler off. One demo server on 3100, stopped and confirmed no listener. Temporary launcher/audit route removed. No access to the live project directory, no live Zalo/Claude/StockVN calls, no push. Real service interoperability is validated against the supplied payload and mocks; live endpoint availability is not claimed.
+
 ### T-1: Zalo Bot Platform login (replaces Zalo OA)
 Status: done (live, owner logged in via the bot on 2026-11-08)   Risk: high (auth)
 Goal: login page "Zalo" tab works through the Zalo Bot (bot.zapps.me). The user sends "DN <code>" to the bot and the page signs in, same flow as the existing OA version (commit c8e4003).

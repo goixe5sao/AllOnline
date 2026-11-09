@@ -41,7 +41,7 @@ try {
    assert.equal((await page.goto(base+'/ai-stock-audit',{waitUntil:'networkidle0'})).status(),200);
    await page.waitForSelector('.ai-stock-chart canvas');
    await page.waitForFunction(()=>document.querySelector('.ai-stock-chart svg rect'));
-   assert.ok(await page.$eval('.ai-stock-signal',e=>e.textContent.includes('n=214')));
+   assert.ok(await page.$eval('.ai-stock-signal',e=>e.textContent.includes('214 l\u1ea7n')));
    assert.ok(await page.$eval('.ai-stock-signal',e=>e.textContent.includes('Dữ liệu mẫu')));
    assert.ok(await page.$eval('body',e=>e.scrollWidth<=innerWidth));
    await page.screenshot({path:`${out}/ai-stock-stage-${width}-${theme}.png`});
