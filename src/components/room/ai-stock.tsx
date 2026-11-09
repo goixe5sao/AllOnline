@@ -5,7 +5,8 @@ import { StageChart } from "./stage-chart";
 import { STOCK_DISCLAIMER, stockMethodLabel, stockStatsLine, type AiStockContent, type StockScan, type StockPick } from "@/core/ai-stock";
 import type { ClientMsg } from "@/core/protocol";
 import type { ScreenState } from "@/core/screen";
-import { useApi } from "@/lib/api";
+import { useApi, useMe } from "@/lib/api";
+import { VIP_REASON } from "@/core/ai-plan";
 import { Pause, Play, SkipForward, Pin, Square } from "lucide-react";
 import "./ai-stock.css";
 import { StockAlertBanner, StockAlertHistory, StockFollow, useStockAlerts } from "./stock-alerts";
@@ -25,17 +26,21 @@ export function StockSignal({ pick, snapshot, fixture, commentary }: { pick: Sto
 }
 export function AiStockStage({ content }: { content: AiStockContent }) {
   const pick = content.snapshot.picks[content.index];
-  return <div className="ai-stock-stage"><StockAlertBanner symbol={pick.symbol}/><div className="ai-stock-chart"><StageChart key={pick.symbol + content.snapshot.asOf} symbol={pick.symbol} interval="D" layers={[]} indicators={[]} interactive={false} aiPick={pick} aiFixture={content.fixture}/></div><StockSignal pick={pick} snapshot={content.snapshot} fixture={content.fixture} commentary={content.commentary}/></div>;
+  return <div className="ai-stock-stage"><StockAlertBanner symbol={pick.symbol} fixture={content.fixture}/><div className="ai-stock-chart"><StageChart key={pick.symbol + content.snapshot.asOf} symbol={pick.symbol} interval="D" layers={[]} indicators={[]} interactive={false} aiPick={pick} aiFixture={content.fixture}/></div><StockSignal pick={pick} snapshot={content.snapshot} fixture={content.fixture} commentary={content.commentary}/></div>;
 }
-export function AiStockControls({ screen, send }: { screen: ScreenState; send: (m: ClientMsg) => void }) {
+export function AiStockControls({ screen, send, allowed }: { screen: ScreenState; send: (m: ClientMsg) => void; allowed?: boolean }) {
   const [topN, setTopN] = useState(8), [seconds, setSeconds] = useState(45);
+  const { user } = useMe();
+  const canStart = allowed ?? user?.aiPlan === "vip";
   const c = screen.content.kind === "ai-stock" ? screen.content : null;
   const command = (command: "start" | "pause" | "resume" | "skip" | "pin" | "stop", symbol?: string) => send({ t: "screen", action: "ai_stock", command, topN, seconds, symbol });
+  if (!canStart && !c) return <Card><CardBody><p>{VIP_REASON}</p></CardBody></Card>;
   return <Card><CardBody><div className="stack ai-stock-controls"><strong>AI dẫn chương trình</strong>
     <p>Quét VN100, lần lượt trình bày các mã. Các thống kê mẫu được ghi rõ trên sân khấu.</p>
     <Field label="Số mã hàng đầu"><Input type="number" min={1} max={100} value={topN} onChange={e=>setTopN(Number(e.target.value))}/></Field>
     <Field label="Giây mỗi mã"><Input type="number" min={10} max={300} value={seconds} onChange={e=>setSeconds(Number(e.target.value))}/></Field>
-    <Button disabled={!Number.isInteger(topN) || topN<1 || topN>100 || !Number.isInteger(seconds) || seconds<10 || seconds>300} onClick={()=>command("start")}>{c ? "Khởi động lại AI" : "Bật AI"}</Button>
+    {!canStart && <p>{VIP_REASON}</p>}
+    <Button disabled={!canStart || !Number.isInteger(topN) || topN<1 || topN>100 || !Number.isInteger(seconds) || seconds<10 || seconds>300} onClick={()=>command("start")}>{c ? "Khởi động lại AI" : "Bật AI"}</Button>
     {c && <><p role="status">{c.snapshot.picks[c.index].symbol} · {c.pinned ? "Đang ghim" : c.paused ? "Tạm dừng" : "Đang dẫn"} · {c.topN} mã · {c.seconds} giây/mã</p><div className="row">
       <Button variant="secondary" icon={c.paused || c.pinned ? <Play/> : <Pause/>} onClick={()=>command(c.paused || c.pinned ? "resume" : "pause")}>{c.paused || c.pinned ? "Tiếp tục" : "Tạm dừng"}</Button>
       <Button variant="secondary" icon={<SkipForward/>} onClick={()=>command("skip")}>Bỏ qua</Button>
@@ -47,10 +52,12 @@ export function AiStockControls({ screen, send }: { screen: ScreenState; send: (
 }
 /** Local selection has no send callback: it cannot change the stage. */
 export function AiStockList({ current }: { current?: AiStockContent }) {
-  const alerts = useStockAlerts();
-  const { data, error } = useApi<{ snapshot: StockScan; fixture: boolean }>(current ? null : "/api/ai-stock/scan");
+  const { user } = useMe();
+  const alerts = useStockAlerts(!!current?.fixture);
+  const { data, error } = useApi<{ snapshot: StockScan; fixture: boolean }>(current || user?.aiPlan !== "vip" ? null : "/api/ai-stock/scan");
   const [symbol, setSymbol] = useState<string | null>(null);
   const result = current ? { snapshot: current.snapshot, fixture: current.fixture } : data;
+  if (!current && user && user.aiPlan !== "vip") return <div className="stack"><p>{VIP_REASON}</p><a href="/account#ai-watchlist">Mã theo dõi</a><StockAlertHistory feed={alerts.data}/></div>;
   if (!error && !result) return <Skeleton/>;
   if (!result) return <EmptyState title="Chưa có bản quét" description={error?.message || "Vui lòng thử lại sau."}/>;
   const pick = result.snapshot.picks.find(p=>p.symbol===symbol);

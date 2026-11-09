@@ -78,7 +78,7 @@ function StageStyleSwitch({ roomId, style, lights, send, furnished }: { roomId: 
   );
 }
 
-function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: ClientMsg) => void; screen: ScreenState; serverNow: () => number; roomId: string; demo?: boolean }) {
+function ScreenTab({ send, screen, serverNow, roomId, demo, aiStockAllowed }: { send: (m: ClientMsg) => void; screen: ScreenState; serverNow: () => number; roomId: string; demo?: boolean; aiStockAllowed?: boolean }) {
   // a YouTube video on screen → open its controls straight away
   const [kind, setKind] = useState<ScreenContent["kind"]>(screen.content.kind === "youtube" || screen.content.kind === "web" ? screen.content.kind : "text");
   const [value, setValue] = useState("");
@@ -149,7 +149,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
           </button>
         </div>
       )}
-      <AiStockControls screen={screen} send={send} />
+      <AiStockControls screen={screen} send={send} allowed={demo || aiStockAllowed} />
       <fieldset className="host-content-types" aria-describedby="host-content-hint">
         <legend>Loại nội dung</legend>
         <div className="host-content-grid">
@@ -514,7 +514,7 @@ export function OwnerPanel(p: {
       {tab === "screen" && (
         <>
           <StageStyleSwitch roomId={p.room.id} style={p.room.stageStyle} lights={p.room.stageLights} send={p.send} furnished={MAP_INFO[p.room.map].furnished} />
-          <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} demo={!!p.demo} />
+          <ScreenTab send={p.send} screen={p.screen} serverNow={p.serverNow} roomId={p.room.id} demo={!!p.demo} aiStockAllowed={p.room.aiStockAllowed} />
         </>
       )}
       {tab === "live" && <LiveModeration live={p.live} send={p.send} selfId={p.selfId} onOpenCamera={p.onOpenCamera} />}

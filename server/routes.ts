@@ -1,3 +1,5 @@
+import { effectivePlan, PLAN_KINDS, PLAN_LIMIT } from "@/core/ai-plan";
+import { requireAi, setFollow } from "./services/ai-plan";
 import { botInfo } from "./zalo/transport";
 import type { StockAlerts } from "./ai-stock/alerts";
 import { captureWebPage } from "./webshot";
@@ -44,7 +46,7 @@ import {
   verifyPassword,
   paidTowards,
 } from "./services/rooms";
-import { setDisplayName, type AppUser } from "./services/users";
+import { getUser, setDisplayName, type AppUser } from "./services/users";
 import { toHomeRoom } from "@/lib/home-data";
 import { listPromos, promoInputSchema, upsertPromo } from "./services/promos";
 import { addModerator, listModerators, removeModerator, resolveNewOwner } from "./services/qa";
@@ -100,31 +102,26 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     if (room.owner_id !== u.id && !(allowAdmin && u.role === "app_owner")) throw new AppError("FORBIDDEN", "Bạn không phải chủ phòng này.", 403);
     return { u, room };
   };
-  const publicUser = (u: AppUser | null) => u && { id: u.id, displayName: u.display_name, email: u.email, role: u.role, isDemo: u.is_demo, isGuest: u.is_guest };
+  const publicUser = (u: AppUser | null) => u && { id: u.id, displayName: u.display_name, email: u.email, role: u.role, isDemo: u.is_demo, isGuest: u.is_guest, aiPlan: effectivePlan(u), allowedKinds: PLAN_KINDS[effectivePlan(u)], aiFollowLimit: PLAN_LIMIT[effectivePlan(u)] };
 
   // ----- session -----
-  route("GET", "/api/ai-stock/scan", async (ctx) => { needAttendee(ctx); return hub.aiStockScan(); });
+  route("GET", "/api/ai-stock/scan", async (ctx) => { await requireAi(db, needAttendee(ctx).id, true); return hub.aiStockScan(); });
   route("GET", "/api/ai-stock/alerts", async ctx => {
-    needAttendee(ctx);
+    const u = needAttendee(ctx);
+    await requireAi(db,u.id);
     if (!deps.alerts) throw new AppError("UNAVAILABLE", "Chưa có cảnh báo.", 503);
-    return deps.alerts.feed();
+    return deps.alerts.feed((await getUser(db,u.id))!);
   });
   route("GET", "/api/ai-stock/follows", async ctx => {
     const u = needUser(ctx);
+    await requireAi(db,u.id);
     const r = await db.query<{ symbol: string }>("select symbol from app.stock_follows where user_id=$1 order by symbol", [u.id]);
     return { symbols: r.rows.map(r=>r.symbol), zaloLinked: await hasZalo(db,u.id), deliveryAvailable: Number.isFinite(cfg.zaloAlertWindowSeconds) && (cfg.zaloAlertWindowSeconds ?? 0) > 0, dailyCap: 5 };
   });
   route("POST", "/api/ai-stock/follows", async ctx => {
     const u = needUser(ctx);
     const b = z.object({ symbol: z.string().regex(/^[A-Z0-9.]{1,12}$/), following: z.boolean() }).parse(await readJson(ctx.req,4096));
-    await db.tx(async q => {
-      await q.query("select id from app.users where id=$1 for update", [u.id]);
-      if (b.following) {
-        const n = await q.query<{ n: number }>("select case when exists(select 1 from app.stock_follows where user_id=$1 and symbol=$2) then 0 else count(*)::int end as n from app.stock_follows where user_id=$1", [u.id,b.symbol]);
-        if (n.rows[0].n >= 100) throw new AppError("LIMIT", "Tối đa 100 mã theo dõi.", 400);
-        await q.query("insert into app.stock_follows(user_id,symbol) values($1,$2) on conflict do nothing", [u.id,b.symbol]);
-      } else await q.query("delete from app.stock_follows where user_id=$1 and symbol=$2", [u.id,b.symbol]);
-    });
+    await db.tx(q => setFollow(q,u.id,b.symbol,b.following));
     return { ok: true };
   });
   route("GET", "/api/me", async ({ user }) => ({ user: publicUser(user), mode: cfg.mode }), { public: true });
@@ -972,6 +969,27 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
     const u = needAdmin(ctx);
     await upsertPromo(db, u.id, promoInputSchema.parse(await readJson(ctx.req)));
     return { promos: await listPromos(db) };
+  });
+
+  route("GET", "/api/admin/users", async ctx => {
+    needAdmin(ctx);
+    const term = (ctx.url.searchParams.get("q") ?? "").slice(0,100);
+    const page = z.coerce.number().int().min(0).max(100000).parse(ctx.url.searchParams.get("page") ?? 0);
+    const r = await db.query("select u.id,u.display_name,u.email,u.role,u.ai_plan,u.ai_plan_until,u.is_demo,u.is_guest, count(*) over()::int as total from app.users u where u.display_name ilike $1 or u.email ilike $1 or exists(select 1 from app.user_identities i where i.user_id=u.id and i.display_name ilike $1) order by u.display_name,u.id limit 20 offset $2", [`%${term}%`,page*20]);
+    return { users: r.rows, page };
+  });
+  route("PATCH", "/api/admin/users/:id/ai-plan", async ctx => {
+    const actor = needAdmin(ctx);
+    const id = z.string().uuid().parse(ctx.params[0]);
+    const b = z.object({ plan: z.enum(["off","basic","vip"]), until: z.string().datetime().nullable() }).strict().parse(await readJson(ctx.req));
+    await db.tx(async q => {
+      const old = await q.query("select ai_plan,ai_plan_until from app.users where id=$1 for update",[id]);
+      if (!old.rows.length) throw new AppError("NOT_FOUND","Không tìm thấy tài khoản.",404);
+      await q.query("update app.users set ai_plan=$2,ai_plan_until=$3,updated_at=now() where id=$1",[id,b.plan,b.until]);
+      await q.query("insert into app.system_events(actor_id,type,data) values($1,'ai_plan_changed',$2)",[actor.id,{ userId:id, before:old.rows[0], after:b }]);
+    });
+    auth.invalidate(id);
+    return { ok:true };
   });
 
   route("GET", "/api/admin/logs", async (ctx) => {

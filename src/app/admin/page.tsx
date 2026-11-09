@@ -1,4 +1,5 @@
 "use client";
+import { AccountsTab } from "./accounts-tab";
 
 import { AdminDataList } from "./admin-data-list";
 
@@ -734,7 +735,7 @@ function SettlementsTab() {
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<"overview" | "settings" | "orders" | "proofs" | "settlements" | "promos" | "logs">("overview");
+  const [tab, setTab] = useState<"accounts" | "overview" | "settings" | "orders" | "proofs" | "settlements" | "promos" | "logs">("overview");
   return (
     <AppShell requireLogin>
       {(me) =>
@@ -755,6 +756,7 @@ export default function AdminPage() {
               {(
                 [
                   ["overview", "Tổng quan"],
+                  ["accounts", "Tài khoản"],
                   ["settings", "Cài đặt & giá"],
                   ["orders", "Giao dịch"],
                   ["proofs", "Biên lai & ngân hàng"],
@@ -769,6 +771,7 @@ export default function AdminPage() {
               ))}
             </div>
             <div className="admin-content" id="admin-panel" role="tabpanel" aria-labelledby={`admin-tab-${tab}`}>{tab === "overview" && <OverviewTab />}
+            {tab === "accounts" && <AccountsTab />}
             {tab === "settings" && <SettingsTab />}
             {tab === "orders" && <OrdersTab />}
             {tab === "proofs" && <ProofsTab />}

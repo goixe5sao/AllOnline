@@ -1,13 +1,17 @@
 "use client";
 import { useState } from "react";
-import { alertCopy, alertLabel, vnSession as vnAlertDay, type AlertFeed } from "@/core/stock-alerts";
+import { alertCopy, alertLabel, fixtureAlerts, vnSession as vnAlertDay, type AlertFeed } from "@/core/stock-alerts";
 import { STOCK_DISCLAIMER } from "@/core/ai-stock";
 import { api, useApi } from "@/lib/api";
 import { Button } from "@/components/ui";
 
-export function useStockAlerts() { return useApi<AlertFeed>("/api/ai-stock/alerts", 15_000); }
-export function StockAlertBanner({ symbol }: { symbol: string }) {
-  const { data, error } = useStockAlerts();
+export function useStockAlerts(fixture = false) {
+  const result = useApi<AlertFeed>(fixture ? null : "/api/ai-stock/alerts", 15_000);
+  // Shared sample presentations remain visible to demo-room guests without private AI access.
+  return fixture ? { ...result, data: { ...fixtureAlerts(), fixture: true }, error: null } : result;
+}
+export function StockAlertBanner({ symbol, fixture = false }: { symbol: string; fixture?: boolean }) {
+  const { data, error } = useStockAlerts(fixture);
   // History remains available separately; yesterday's alert is never advertised as new.
   const alert = data?.alerts.find(a=>a.symbol===symbol && vnAlertDay(a.createdAt)===vnAlertDay(Date.now()));
   return <div className="stock-alert-banner" role="status">
@@ -38,7 +42,7 @@ export function StockFollow({ symbol }: { symbol: string }) {
     finally { setBusy(false); }
   };
   return <section className="stock-follow"><Button disabled={!data || busy} aria-pressed={!!following} onClick={toggle}>{following ? "Bỏ theo dõi" : "Theo dõi mã"} {symbol}</Button>
-    {error && <p role="status">Cần tài khoản để theo dõi mã. <a href="/login">Đăng nhập</a></p>}
+    {error && <p role="status">{error.message}</p>}
     {data && <><p>Tối đa {data.dailyCap} thông báo/ngày. Bạn có thể bỏ theo dõi bất kỳ lúc nào.</p>{!data.zaloLinked && <p><a href="/account">Liên kết Zalo trong Tài khoản</a> để nhận thông báo khi được phép.</p>}<p>{data.deliveryAvailable ? "Zalo chỉ gửi khi còn cửa sổ nhắn tin hợp lệ. Dữ liệu mẫu luôn dùng thông báo giả lập." : "Gửi Zalo đang tạm tắt trong khi xác minh chính sách nhắn chủ động."}</p></>}
     {message && <p role="alert">{message}</p>}
   </section>;
