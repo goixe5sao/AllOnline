@@ -45,6 +45,17 @@ const event = (id: string, text: string) => ({ event_name: "message.text.receive
 } });
 
 describe("Bot Platform webhook and demo login", () => {
+  it("records provider inbound time and private chat without reopening the window on replay", async () => {
+    const date=Date.now()-60000;
+    const incoming=(at?:number)=>({...event('alert-contact','help'),message:{...event('alert-contact','help').message,date:at,chat:{id:'different-private-chat',chat_type:'PRIVATE'}}});
+    await bot.handle(incoming(date));
+    await bot.handle(incoming(date-60000));
+    await bot.handle(incoming(Date.now()+60000));
+    await bot.handle(incoming());
+    const row=(await db.query<{chat_id:string;last_inbound_at:Date}>("select chat_id,last_inbound_at from app.stock_zalo_contacts where provider_uid='alert-contact'")).rows[0];
+    expect(row.chat_id).toBe('different-private-chat');
+    expect(new Date(row.last_inbound_at).getTime()).toBe(date);
+  });
   it.each([undefined, "bad", "\u00e9", "x".repeat(500)])("rejects missing/bad secret before processing (%s)", async secret => {
     const res = await post("/api/zalo/bot-webhook", {}, secret ? { "X-Bot-Api-Secret-Token": secret } : {});
     expect(res.status).toBe(401);
