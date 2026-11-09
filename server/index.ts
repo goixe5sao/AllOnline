@@ -70,10 +70,13 @@ async function main() {
     },
   });
   setInterval(() => void bot.tick().catch((e) => console.error("[zalo] tick", e)), 60_000);
-  const alertProvider = cfg.mode !== "demo" && cfg.aiStockProvider === "stockvn" ? new StockVnAlertsProvider(cfg.stockvnUrl!, cfg.stockvnToken!) : new FixtureAlertsProvider();
-  const alerts = new StockAlerts(db, alertProvider, alertProvider.fixture ? new CaptureSender() : zaloSender,
-    { verifiedWindowSeconds: cfg.zaloAlertWindowSeconds, dailyCap: 5 });
-  alerts.start();
+  // Alerts run only against real StockVN data, or with sample data in demo mode. Production with the
+  // default provider ("fixture") has NO alerts: sample statistics must never reach real users.
+  const realAlerts = cfg.mode !== "demo" && cfg.aiStockProvider === "stockvn" && !!cfg.stockvnUrl && !!cfg.stockvnToken;
+  const alertProvider = realAlerts ? new StockVnAlertsProvider(cfg.stockvnUrl!, cfg.stockvnToken!) : cfg.mode === "demo" ? new FixtureAlertsProvider() : null;
+  const alerts = alertProvider ? new StockAlerts(db, alertProvider, alertProvider.fixture ? new CaptureSender() : zaloSender,
+    { verifiedWindowSeconds: cfg.zaloAlertWindowSeconds, dailyCap: 5 }) : undefined;
+  alerts?.start();
   const api = createApi({ cfg, db, auth, hub, storage, market, analysis, bot, rtc, alerts });
   // Data for the server-rendered home page (same process as Next.js).
   registerHomeData(async () => {
@@ -176,7 +179,7 @@ async function main() {
   else server.listen(cfg.port, onListen);
 
   const shutdown = async () => {
-    alerts.stop();
+    alerts?.stop();
     hub.stop();
     market.stop();
     server.close();
