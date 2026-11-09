@@ -65,8 +65,8 @@ export class StockAlerts {
       for (const u of followers.rows) if (PLAN_KINDS[effectivePlan(u)].includes(a.kind)) await q.query("insert into app.stock_alert_deliveries(alert_key,user_id,day) values($1,$2,$3) on conflict do nothing", [key,u.id,vnSession(a.createdAt)]);
     });
   }
-  async feed(user?: AppUser): Promise<AlertFeed> {
-    const plan = user ? effectivePlan(user) : "vip";
+  async feed(user: AppUser): Promise<AlertFeed> {
+    const plan = effectivePlan(user);
     const rows = await this.db.query<{ alert: StockAlert }>("select alert from app.stock_alerts a where fixture=$1 and alert->>'kind'=any($2::text[]) and ($3::boolean or exists(select 1 from app.stock_follows f where f.user_id=$4 and f.symbol=a.alert->>'symbol')) order by alert->>'createdAt' desc, dedupe_key limit 100", [this.provider.fixture,PLAN_KINDS[plan],plan !== "basic",user?.id ?? null]);
     return { alerts: rows.rows.map(r => r.alert), fixture: this.provider.fixture, asOf: this.asOf, error: this.error };
   }

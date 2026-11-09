@@ -4,6 +4,7 @@ import { migrate, openPglite, type Db } from "../server/db";
 import { StockAlerts, FixtureAlertsProvider, StockVnAlertsProvider, zaloAlertEligibility } from "../server/ai-stock/alerts";
 import { alertCopy, alertKey, alertMessage, alertSchema, fixtureAlerts, type StockAlert } from "../src/core/stock-alerts";
 import { CaptureSender } from "../server/zalo/transport";
+const VIP = { id: "00000000-0000-0000-0000-000000000000", email: null, display_name: "Owner", role: "app_owner", is_demo: false, is_guest: false } as const;
 
 let db: Db, uid: string, sender: CaptureSender;
 const now = Date.parse("2026-11-09T08:00:00Z");
@@ -38,7 +39,7 @@ it("dedupes across IDs/kinds/restarts per symbol, numeric level, beat and VN ses
   await service().ingest(sample({id:'other',kind:'break_resistance'}));
   await s.ingest(sample({beat:'close'})); await s.ingest(sample({level:137}));
   await s.ingest(sample({createdAt:'2026-11-10T03:00:00Z'}));
-  expect((await s.feed()).alerts).toHaveLength(4);
+  expect((await s.feed(VIP)).alerts).toHaveLength(4);
   expect(alertKey(sample({createdAt:'2026-11-09T18:00:00Z'}))).toContain('2026-11-10');
 });
 it("persists isolated follows, supports unfollow, and cascades account deletion", async () => {
@@ -92,7 +93,7 @@ it("keeps real and fixture queues separate when the configured provider changes"
 it("ignores future alerts and does not queue deliveries for guests", async () => {
   await db.query('update app.users set is_guest=true where id=$1',[uid]);
   const s=service(); await s.tick(Date.parse('2026-11-09T04:00:00Z'));
-  expect((await s.feed()).alerts).toHaveLength(1);
+  expect((await s.feed(VIP)).alerts).toHaveLength(1);
   expect((await db.query('select * from app.stock_alert_deliveries')).rows).toHaveLength(0);
 });
 it("polls every 60 seconds and keeps history on upstream failure", async () => {
@@ -100,10 +101,10 @@ it("polls every 60 seconds and keeps history on upstream failure", async () => {
   const provider=new FixtureAlertsProvider(), load=vi.spyOn(provider,'load');
   const s=new StockAlerts(db,provider,sender,{log:()=>{}}); s.start();
   await vi.waitFor(()=>expect(load).toHaveBeenCalledTimes(1));
-  await vi.waitFor(async()=>expect((await s.feed()).alerts).toHaveLength(2));
+  await vi.waitFor(async()=>expect((await s.feed(VIP)).alerts).toHaveLength(2));
   await vi.advanceTimersByTimeAsync(60000); await vi.waitFor(()=>expect(load).toHaveBeenCalledTimes(2));
   s.stop(); load.mockRejectedValue(new Error('private token')); await s.tick(now);
-  expect((await s.feed()).alerts).toHaveLength(2); expect((await s.feed()).error).toBeTruthy();
+  expect((await s.feed(VIP)).alerts).toHaveLength(2); expect((await s.feed(VIP)).error).toBeTruthy();
 });
 it("uses Bearer/since, validates responses, and avoids polling real provider outside the session", async () => {
   const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify(fixtureAlerts(now)))); vi.stubGlobal('fetch',fetcher);
