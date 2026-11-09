@@ -33,3 +33,34 @@
 @media (min-width: 1024px) { .admin-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 379px) { .admin-kpis { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 767px) { .admin-page .card { padding: var(--space-4); } }
+
+/* Readability (owner 2026-11-10): small admin text up one step, scoped to /admin only. */
+.admin-page { font-size: var(--type-16); }
+.admin-page .stat span,
+.admin-page .muted,
+.admin-page small,
+.admin-page .notice { font-size: 15px; }
+.admin-page label.field,
+.admin-page .ui-field label { font-size: 15px; }
+.admin-page :is(table.data, .ui-data-list) { font-size: 15px; }
+.admin-page :is(table.data, .ui-data-list) th { font-size: 14px; }
+.admin-page .btn.small,
+.admin-page .ui-button-sm { font-size: 14px; }
+.admin-page :is(.badge, .ui-badge) { font-size: 13px; }
+.admin-page .admin-nav button { font-size: var(--type-16); }
+.admin-page :is(input, select, textarea) { font-size: var(--type-16); }
+@media (min-width: 768px) {
+  /* Wider text needs content-sized columns; phones keep the fixed, wrapping layout. */
+  .admin-page .ui-data-list { table-layout: auto; }
+  /* ui.css sets overflow-wrap:anywhere on cells, which lets auto layout squeeze "12+0=12" to 1-char columns. */
+  .admin-page .ui-data-list :is(th, td) { overflow-wrap: normal; }
+  .admin-page .ui-data-list th,
+  .admin-page .ui-data-list td .btn { white-space: nowrap; }
+  .admin-page .ui-data-list td:has(> .btn) { white-space: nowrap; }
+  .admin-page .ui-data-list td > .btn + .btn { margin-left: var(--space-2); }
+}
+/* Data-heavy admin tables: use more of wide screens; never spill outside the card. */
+@media (min-width: 1280px) { .page:has(.admin-page) { max-width: 1440px; } }
+@media (min-width: 768px) { .admin-page .table-wrap { overflow-x: auto; } }
+.admin-page .ui-data-list .btn { white-space: nowrap; overflow-wrap: normal; }
+@media (max-width: 767px) { .admin-page .ui-data-list td:has(> .btn) { flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); } }
