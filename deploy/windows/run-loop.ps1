@@ -22,8 +22,9 @@ switch ($Service) {
       PUBLIC_ORIGIN = "https://$($site.allonlineHosts[0])"
       STOCKVN_URL = 'http://127.0.0.1:3200'; STOCKVN_API_TOKEN = $site.stockvnApiToken
     }
-    # Live camera (Cloudflare Realtime): keys pasted into site.local.json by the owner
-    foreach ($k in @(@('realtimeAppId', 'REALTIME_APP_ID'), @('realtimeAppSecret', 'REALTIME_APP_SECRET'), @('turnKeyId', 'REALTIME_TURN_KEY_ID'), @('turnKeyToken', 'REALTIME_TURN_KEY_TOKEN'))) {
+    # Live camera (Cloudflare Realtime) and AI Stock: values set in site.local.json by the owner.
+    # aiStockProvider = "stockvn" turns on real scans/alerts; unset = sample data only, no alerts.
+    foreach ($k in @(@('aiStockProvider', 'AI_STOCK_PROVIDER'), @('anthropicApiKey', 'ANTHROPIC_API_KEY'), @('realtimeAppId', 'REALTIME_APP_ID'),@('realtimeAppSecret', 'REALTIME_APP_SECRET'), @('turnKeyId', 'REALTIME_TURN_KEY_ID'), @('turnKeyToken', 'REALTIME_TURN_KEY_TOKEN'))) {
       $v = $site.($k[0])
       if ($v -and -not "$v".StartsWith('DÁN_')) { $envs[$k[1]] = "$v" }
     }
