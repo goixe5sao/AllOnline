@@ -72,6 +72,13 @@ function mapOverlays(raw: unknown) {
   }
   return result;
 }
+const r2 = (v: number) => Math.round(v * 100) / 100;
+function roundDeep<T>(v: T): T {
+  if (typeof v === "number") return r2(v) as T;
+  if (Array.isArray(v)) return v.map(roundDeep) as T;
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, roundDeep(x)])) as T;
+  return v;
+}
 export function mapStockVnScan(input: unknown): StockScan {
   // Retain compatibility with already normalized snapshots.
   if (input && typeof input === "object" && "picks" in input) return stockScanSchema.parse(input);
@@ -79,8 +86,12 @@ export function mapStockVnScan(input: unknown): StockScan {
     dataDelayMin: z.number().nonnegative().default(0), items: z.array(rawItem).min(1).max(100) }).parse(input);
   return stockScanSchema.parse({ ...raw, asOf: new Date(raw.asOf).toISOString(), picks: raw.items.map((item, i) => {
     const directions = new Set(item.signals.map(s => s.direction));
-    return { ...item, score: typeof item.score === "number" ? item.score : (raw.items.length - i) / raw.items.length,
+    // Prices/levels in thousand VND: 2 decimals (HOSE tick is >= 0.01k). The commentary validator compares
+    // numbers against these rounded values, so the AI can quote exactly what the screen shows.
+    return { ...item, price: r2(item.price), changePct: r2(item.changePct), levels: roundDeep(item.levels),
+      score: typeof item.score === "number" ? item.score : (raw.items.length - i) / raw.items.length,
       rank: item.rank ?? i + 1, bias: directions.size === 1 ? item.signals[0].direction : "neutral",
-      signals: item.signals.map(({ method, ...signal }) => ({ ...signal, type: method })), overlays: mapOverlays(item.overlays) };
+      signals: item.signals.map(({ method, ...signal }) => ({ ...signal, level: roundDeep(signal.level), volumeRatio: signal.volumeRatio == null ? signal.volumeRatio : Math.round(signal.volumeRatio * 10) / 10, type: method })),
+      overlays: mapOverlays(item.overlays) };
   }) });
 }
