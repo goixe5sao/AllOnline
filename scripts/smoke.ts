@@ -82,6 +82,18 @@ async function main() {
 
   // privileges
   ok((await fetch(BASE + "/api/ai-stock/scan")).status === 401, "AI Stock scan requires an attendee session");
+  ok((await fetch(BASE + "/api/ai-stock/alerts")).status === 401, "alert history requires an attendee session");
+  ok((await fetch(BASE + "/api/ai-stock/follows")).status === 401, "follows require an account");
+  const feed = await owner.call("/api/ai-stock/alerts");
+  ok(feed.status === 200 && feed.data.fixture === true && Array.isArray(feed.data.alerts), "typed fixture alert feed available");
+  ok((await owner.call("/api/ai-stock/follows", { symbol: "FPT", following: true })).status === 200, "account follows FPT");
+  await owner.call("/api/ai-stock/follows", { symbol: "FPT", following: true });
+  const follows = (await owner.call("/api/ai-stock/follows")).data;
+  ok(follows.symbols.length === 1 && follows.symbols[0] === "FPT" && follows.dailyCap === 5 && !follows.deliveryAvailable, "follow is idempotent with daily cap and unknown policy disabled");
+  ok((await a.call("/api/ai-stock/follows")).data.symbols.length === 0, "follows isolated per account");
+  ok((await owner.call("/api/ai-stock/follows", { symbol: "bad symbol", following: true })).status === 400, "invalid follow symbol rejected");
+  await owner.call("/api/ai-stock/follows", { symbol: "FPT", following: false });
+  ok((await owner.call("/api/ai-stock/follows")).data.symbols.length === 0, "unfollow persisted");
   ok((await owner.call("/api/admin/overview")).status === 403, "normal user cannot open admin API");
   ok((await admin.call("/api/admin/overview")).status === 200, "app owner can open admin API");
   await admin.call("/api/admin/settings", { trial_rooms_per_account: 5, find_seat_seconds: 30, chat_radius: 2, device_limit_room_creator: false, ip_max_participants: 0 }, "PATCH");
@@ -256,6 +268,8 @@ async function main() {
   ok(inv.data.guestJoinEnabled === true && inv.data.isOwner === false, "invite page offers guest join");
   const gs = await g.call("/api/guest", { displayName: "Khách Hoa" });
   ok(gs.status === 200 && gs.data.user.isGuest === true, "guest identity created from just a name");
+  ok((await g.call("/api/ai-stock/alerts")).status === 200, "guests can read alert history");
+  ok((await g.call("/api/ai-stock/follows", { symbol: "FPT", following: true })).status === 403, "guests cannot follow symbols");
   ok((await g.call("/api/join", { inviteCode: room2.data.inviteCode, password: "sai" })).status === 403, "guest still needs the room password");
   const gj = await g.call("/api/join", { inviteCode: room2.data.inviteCode, password: "789" });
   ok(!!gj.data.pass, "guest joins with correct password");

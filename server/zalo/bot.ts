@@ -140,6 +140,9 @@ export class ZaloBot {
     const m = e.message;
     // Login and account commands are private: group chats must never become identities.
     if (!m?.from?.id || m.from.is_bot || m.chat?.chat_type !== "PRIVATE") return;
+    if (e.event_name === "message.text.received" || e.event_name === "message.image.received") {
+      await this.deps.db.query("insert into app.stock_zalo_contacts(provider_uid,chat_id) values($1,$2) on conflict(provider_uid) do update set chat_id=excluded.chat_id,last_inbound_at=now()", [m.from.id,m.chat.id]);
+    }
     if (e.event_name === "message.text.received") return this.onText(m.from.id, m.text ?? "", m.chat.id, m.from.display_name);
     if (e.event_name === "message.image.received" && m.photo_url) return this.onImage(m.from.id, m.photo_url, m.chat.id);
   }

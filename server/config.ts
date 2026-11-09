@@ -67,6 +67,8 @@ export interface Config {
   anthropicApiKey?: string;
   aiStockModel?: string;
   aiStockProvider?: string;
+  /** Unset until the operator verifies Bot proactive-messaging eligibility. */
+  zaloAlertWindowSeconds?: number;
 }
 
 export function readConfig(): Config {
@@ -121,5 +123,6 @@ export function readConfig(): Config {
     anthropicApiKey: env("ANTHROPIC_API_KEY"),
     aiStockModel: env("AI_STOCK_MODEL") ?? "claude-opus-5-5",
     aiStockProvider: env("AI_STOCK_PROVIDER") ?? "fixture",
+    zaloAlertWindowSeconds: env("ZALO_ALERT_VERIFIED_WINDOW_SECONDS") ? Number(env("ZALO_ALERT_VERIFIED_WINDOW_SECONDS")) : undefined,
   };
 }

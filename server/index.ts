@@ -1,5 +1,6 @@
 import { FixtureScanProvider, StockVnScanProvider } from "./ai-stock/provider";
 import { StockCommentary } from "./ai-stock/commentary";
+import { StockAlerts, FixtureAlertsProvider, StockVnAlertsProvider } from "./ai-stock/alerts";
 /**
  * AllOnline server: one Node.js process serving
  *   - the Next.js UI,
@@ -69,7 +70,11 @@ async function main() {
     },
   });
   setInterval(() => void bot.tick().catch((e) => console.error("[zalo] tick", e)), 60_000);
-  const api = createApi({ cfg, db, auth, hub, storage, market, analysis, bot, rtc });
+  const alertProvider = cfg.mode !== "demo" && cfg.aiStockProvider === "stockvn" ? new StockVnAlertsProvider(cfg.stockvnUrl!, cfg.stockvnToken!) : new FixtureAlertsProvider();
+  const alerts = new StockAlerts(db, alertProvider, alertProvider.fixture ? new CaptureSender() : zaloSender,
+    { verifiedWindowSeconds: cfg.zaloAlertWindowSeconds, dailyCap: 5 });
+  alerts.start();
+  const api = createApi({ cfg, db, auth, hub, storage, market, analysis, bot, rtc, alerts });
   // Data for the server-rendered home page (same process as Next.js).
   registerHomeData(async () => {
     const [rows, s, tiers] = await Promise.all([listPublicRooms(db), getSettings(db), getPriceTiers(db)]);
@@ -171,6 +176,7 @@ async function main() {
   else server.listen(cfg.port, onListen);
 
   const shutdown = async () => {
+    alerts.stop();
     hub.stop();
     market.stop();
     server.close();
