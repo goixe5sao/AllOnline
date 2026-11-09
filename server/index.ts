@@ -1,3 +1,6 @@
+import { FixtureScanProvider, StockVnScanProvider } from "./ai-stock/provider";
+import { StockCommentary } from "./ai-stock/commentary";
+import { StockAlerts, FixtureAlertsProvider, StockVnAlertsProvider } from "./ai-stock/alerts";
 /**
  * AllOnline server: one Node.js process serving
  *   - the Next.js UI,
@@ -39,6 +42,8 @@ async function main() {
   const auth = new Auth(cfg, db);
   const hub = new Hub(db, auth);
   await hub.start();
+  if (cfg.aiStockProvider === "stockvn" && cfg.mode !== "demo" && (!cfg.stockvnUrl || !cfg.stockvnToken)) throw new Error("AI Stock requires STOCKVN_URL and STOCKVN_API_TOKEN");
+  hub.setAiStock(cfg.mode !== "demo" && cfg.aiStockProvider === "stockvn" ? new StockVnScanProvider(cfg.stockvnUrl!, cfg.stockvnToken!) : new FixtureScanProvider(cfg.mode === "demo"), new StockCommentary(cfg.mode === "demo" ? undefined : cfg.anthropicApiKey, cfg.aiStockModel));
   const storage = createStorage(cfg);
   // Market data scheduler: 1-minute bars + daily bars every minute during the VN session.
   const market = new MarketService(db);
@@ -65,7 +70,14 @@ async function main() {
     },
   });
   setInterval(() => void bot.tick().catch((e) => console.error("[zalo] tick", e)), 60_000);
-  const api = createApi({ cfg, db, auth, hub, storage, market, analysis, bot, rtc });
+  // Alerts run only against real StockVN data, or with sample data in demo mode. Production with the
+  // default provider ("fixture") has NO alerts: sample statistics must never reach real users.
+  const realAlerts = cfg.mode !== "demo" && cfg.aiStockProvider === "stockvn" && !!cfg.stockvnUrl && !!cfg.stockvnToken;
+  const alertProvider = realAlerts ? new StockVnAlertsProvider(cfg.stockvnUrl!, cfg.stockvnToken!) : cfg.mode === "demo" ? new FixtureAlertsProvider() : null;
+  const alerts = alertProvider ? new StockAlerts(db, alertProvider, alertProvider.fixture ? new CaptureSender() : zaloSender,
+    { verifiedWindowSeconds: cfg.zaloAlertWindowSeconds, dailyCap: 5 }) : undefined;
+  alerts?.start();
+  const api = createApi({ cfg, db, auth, hub, storage, market, analysis, bot, rtc, alerts });
   // Data for the server-rendered home page (same process as Next.js).
   registerHomeData(async () => {
     const [rows, s, tiers] = await Promise.all([listPublicRooms(db), getSettings(db), getPriceTiers(db)]);
@@ -167,6 +179,7 @@ async function main() {
   else server.listen(cfg.port, onListen);
 
   const shutdown = async () => {
+    alerts?.stop();
     hub.stop();
     market.stop();
     server.close();

@@ -1,3 +1,4 @@
+import type { AiStockContent, AiStockCommand } from "./ai-stock";
 import { WEB_SPEEDS, type WebSpeed } from "./webscroll";
 import { z } from "zod";
 import { ANALYSIS_LAYERS, type AnalysisLayer } from "./analysis";
@@ -5,6 +6,7 @@ import { CHART_INTERVALS, CHART_TYPES, INDICATORS, type ChartInterval, type Char
 
 /** What the stage screen shows. Kept in the room row and in the room log on every change. */
 export type ScreenContent =
+  | AiStockContent
   | { kind: "blank" }
   | { kind: "text"; text: string }
   | { kind: "image"; url: string }
@@ -127,6 +129,7 @@ export function currentPosition(state: ScreenState, serverNow: number): number {
 }
 
 export type ScreenAction =
+  | AiStockCommand
   | { action: "set"; content: ScreenContent }
   | { action: "play" }
   | { action: "pause" }
@@ -158,6 +161,7 @@ export function advanceVideo(prev: ScreenState, now: number, force = false): Scr
 export function applyScreenAction(prev: ScreenState, a: ScreenAction, now: number): ScreenState {
   const pos = currentPosition(prev, now);
   switch (a.action) {
+    case "ai_stock": return prev; // server director handles this command
     case "set":
       return { content: a.content, playing: false, positionSec: 0, updatedAt: now, rev: prev.rev + 1 };
     case "play":

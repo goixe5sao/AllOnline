@@ -1,5 +1,6 @@
 "use client";
 
+import { AiStockControls } from "./ai-stock";
 import { WebPanel } from "./web-panel";
 import { MAP_INFO } from "@/core/maps";
 import { DEMO_IMAGES, DEMO_TEXTS } from "@/core/demo";
@@ -38,6 +39,7 @@ const CONTENT_TYPES = [
 function contentLabel(content: ScreenContent) {
   if (content.kind === "tradingview") return `Biểu đồ TradingView · ${content.symbol}`;
   if (content.kind === "chart") return `Biểu đồ ${content.symbol === "VNINDEX" ? "VN-Index" : content.symbol}`;
+  if (content.kind === "ai-stock") return "AI Stock";
   if (content.kind === "chat") return "Tin nhắn";
   if (content.kind === "poll") return "Bình chọn";
   if (content.kind === "question") return "Câu hỏi";
@@ -147,6 +149,7 @@ function ScreenTab({ send, screen, serverNow, roomId, demo }: { send: (m: Client
           </button>
         </div>
       )}
+      <AiStockControls screen={screen} send={send} />
       <fieldset className="host-content-types" aria-describedby="host-content-hint">
         <legend>Loại nội dung</legend>
         <div className="host-content-grid">

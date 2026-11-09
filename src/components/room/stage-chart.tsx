@@ -32,6 +32,8 @@ import { CHART_INTERVALS, CHART_TYPES, INDICATORS, INTERVAL_LABEL, bollinger, em
 import { subscribeLiveBars } from "./market-live";
 import { ANALYSIS_LAYERS, DEFAULT_LAYERS, LAYER_LABEL, LEVEL_COLORS, LINE_COLORS, type AnalysisLayer, type AnalysisOverlay, type OverlayLine } from "@/core/analysis";
 
+import type { StockPick } from "@/core/ai-stock";
+
 type AnalysisState = { available: true; overlay: AnalysisOverlay } | { available: false; reason: string };
 
 const C = { bg: "#131722", grid: "#1e222d", text: "#d1d4dc", muted: "#787b86", up: "#26a69a", down: "#ef5350", ma: "#f7c948", ema: "#2962ff", bb: "#9c6ade", rsi: "#7e57c2" };
@@ -40,6 +42,8 @@ const TYPE_LABEL: Record<ChartType, string> = { candles: "Nến", bars: "Thanh",
 const IND_LABEL: Record<Indicator, string> = { volume: "KL", ma20: "MA20", ema50: "EMA50", bb: "BB", rsi: "RSI" };
 
 export interface StageChartProps {
+  aiPick?: StockPick;
+  aiFixture?: boolean;
   symbol: string;
   interval?: ChartInterval;
   chartType?: ChartType;
@@ -236,6 +240,17 @@ export function StageChart(p: StageChartProps) {
 
   // Full fetch on open / interval change, then every minute (live bars fill the gaps in between).
   useEffect(() => {
+    if (p.aiPick && p.aiFixture) {
+      const pick = p.aiPick;
+      // Fixed synthetic candles for this fixture snapshot. No mixing fixture levels with live bars.
+      const candles = Array.from({ length: 50 }, (_, i) => {
+        const close = i === 49 ? pick.price : pick.price - (49-i)*0.12 + Math.sin(i)*1.1;
+        return { time: 1789689600 + i*86400, open: close-0.4, high: close+0.8, low: close-1, close, volume: 1000000 + i*10000 };
+      });
+      setData({ symbol: p.symbol, interval: "D", source: "AI Stock fixture", isDemo: true, candles });
+      setAnalysis({ available: false, reason: "Lớp phủ từ bản quét AI Stock · Chưa chọn đường cân bằng dẫn đầu (chờ S-1)" });
+      return;
+    }
     let cancelled = false;
     let have: CandleResult | null = null;
     // First load: the whole stored history (indices/watchlist: all of it, other stocks: since 2024);
@@ -258,16 +273,16 @@ export function StageChart(p: StageChartProps) {
     analysisFromRef.current = null;
     loadAnalysisRef.current = loadAnalysis;
     load();
-    loadAnalysis();
+    if (!p.aiPick) loadAnalysis();
     const id = setInterval(() => {
       load();
-      loadAnalysis();
+      if (!p.aiPick) loadAnalysis();
     }, 60_000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [p.symbol, interval]);
+  }, [p.symbol, interval, p.aiFixture, p.aiPick]);
 
   const intraday = interval !== "D" && interval !== "W";
   // Lightweight Charts renders in UTC: shift intraday bars to Vietnam time (UTC+7). Daily bars are
@@ -296,6 +311,45 @@ export function StageChart(p: StageChartProps) {
         : type === "line"
           ? chart.addSeries(LineSeries, { color: C.ema, lineWidth: 2 })
           : chart.addSeries(AreaSeries, { lineColor: C.ema, topColor: "rgba(41,98,255,0.35)", bottomColor: "rgba(41,98,255,0.02)", lineWidth: 2 });
+    // Snapshot overlays share candle price/time coordinates; no client-side signal calculations.
+    const ai = p.aiPick;
+    const aiSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    aiSvg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2";
+    if (ai) {
+      el.appendChild(aiSvg);
+      const levels: [string, number | null, string][] = [
+        ...ai.levels.support.map(v => ["Hỗ trợ", v, C.up] as [string, number, string]),
+        ...ai.levels.resistance.map(v => ["Kháng cự", v, C.down] as [string, number, string]),
+        ["POC", ai.levels.poc, C.ma], ["VWAP", ai.levels.vwap, C.ema], ["Kijun-26", ai.levels.kijun, C.bb],
+      ];
+      for (const [title, price, color] of levels) if (price !== null) main.createPriceLine({ price, title, color, lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true });
+    }
+    const drawAi = () => {
+      if (!ai) return;
+      aiSvg.replaceChildren();
+      const svgNode = (name: string, attrs: Record<string, string | number>) => {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+        for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+        aiSvg.appendChild(node); return node;
+      };
+      for (const zone of [{ label: "Value area 70%", low: ai.levels.valueArea?.[0], high: ai.levels.valueArea?.[1], from: 0, to: 0 }, ...ai.overlays.zones]) {
+        if (zone.low === undefined || zone.high === undefined) continue;
+        const y1 = main.priceToCoordinate(zone.high), y2 = main.priceToCoordinate(zone.low);
+        const x1 = zone.from ? chart.timeScale().timeToCoordinate(t(zone.from)) : 0;
+        const x2 = zone.to ? chart.timeScale().timeToCoordinate(t(zone.to)) : el.clientWidth - chart.priceScale("right").width();
+        if (y1 === null || y2 === null || x1 === null || x2 === null) continue;
+        svgNode("rect", { x: x1, y: Math.min(y1,y2), width: Math.max(0,x2-x1), height: Math.abs(y2-y1), fill: C.ma, opacity: 0.12 });
+        svgNode("text", { x: x1 + 8, y: y1 + 16, fill: C.ma, "font-size": 12 }).textContent = zone.label;
+      }
+      for (const pattern of [...ai.overlays.lines, ...ai.overlays.patterns]) {
+        const points = pattern.points.map(pt => [chart.timeScale().timeToCoordinate(t(pt.time)), main.priceToCoordinate(pt.value)]);
+        if (points.some(pt => pt.includes(null))) continue;
+        svgNode("polyline", { points: points.map(pt => pt.join(",")).join(" "), fill: "none", stroke: C.ma, "stroke-width": 2 });
+        if (points[0]) svgNode("text", { x: points[0][0]! + 8, y: Math.max(16, points[0][1]! - 8), fill: C.ma, "font-size": 12 }).textContent = pattern.label;
+      }
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(drawAi);
+    const aiResize = new ResizeObserver(drawAi); if (ai) aiResize.observe(el);
     const lineSeries = (color: string, pane = 0, width: 1 | 2 = 1) => chart.addSeries(LineSeries, { color, lineWidth: width, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane);
     const vol = inds.includes("volume") ? chart.addSeries(HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false }) : null;
     vol?.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
@@ -398,10 +452,12 @@ export function StageChart(p: StageChartProps) {
         if (cs.length > 120) chart.timeScale().setVisibleLogicalRange({ from: cs.length - 120, to: cs.length + 3 });
         else chart.timeScale().fitContent();
       } else if (range) chart.timeScale().setVisibleLogicalRange(range);
+      drawAi();
     };
     chartRef.current = ref;
     if (barsRef.current.length) ref.draw(barsRef.current);
     ref.drawOverlay(overlayRef.current, layersRef.current);
+    drawAi();
 
     const onMove = (param: MouseEventParams<Time>) => {
       if (!param.time || !param.seriesData) return setLegend(null);
@@ -425,6 +481,9 @@ export function StageChart(p: StageChartProps) {
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(relayout);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(wantOlder);
       clearTimeout(moreTimer);
+      aiResize.disconnect();
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(drawAi);
+      aiSvg.remove();
       chart.remove();
       labelLayer.remove();
       chartRef.current = null;

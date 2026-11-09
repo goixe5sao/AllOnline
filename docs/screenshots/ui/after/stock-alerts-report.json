@@ -1,0 +1,62 @@
+[
+  {
+    "width": 390,
+    "theme": "dark",
+    "pass": true,
+    "errors": [],
+    "checks": [
+      "banner without percentages",
+      "two-beat history with gated stats",
+      "warning badges",
+      "follow persists after reload",
+      "unfollow",
+      "no overflow",
+      "no Three scene"
+    ]
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "pass": true,
+    "errors": [],
+    "checks": [
+      "banner without percentages",
+      "two-beat history with gated stats",
+      "warning badges",
+      "follow persists after reload",
+      "unfollow",
+      "no overflow",
+      "no Three scene"
+    ]
+  },
+  {
+    "width": 1440,
+    "theme": "dark",
+    "pass": true,
+    "errors": [],
+    "checks": [
+      "banner without percentages",
+      "two-beat history with gated stats",
+      "warning badges",
+      "follow persists after reload",
+      "unfollow",
+      "no overflow",
+      "no Three scene"
+    ]
+  },
+  {
+    "width": 1440,
+    "theme": "light",
+    "pass": true,
+    "errors": [],
+    "checks": [
+      "banner without percentages",
+      "two-beat history with gated stats",
+      "warning badges",
+      "follow persists after reload",
+      "unfollow",
+      "no overflow",
+      "no Three scene"
+    ]
+  }
+]

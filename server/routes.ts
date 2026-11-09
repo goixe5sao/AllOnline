@@ -1,4 +1,5 @@
 import { botInfo } from "./zalo/transport";
+import type { StockAlerts } from "./ai-stock/alerts";
 import { captureWebPage } from "./webshot";
 import { createDemoRoom, ensureDemoRooms } from "./services/demo";
 import type { RealtimeClient } from "./live";
@@ -64,7 +65,7 @@ interface Ctx {
 
 type Handler = (ctx: Ctx) => Promise<unknown>;
 
-export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService; analysis: StockVnAnalysis; bot: ZaloBot; rtc: RealtimeClient }) {
+export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; storage: Storage; market: MarketService; analysis: StockVnAnalysis; bot: ZaloBot; rtc: RealtimeClient; alerts?: StockAlerts }) {
   const { cfg, db, auth, hub, storage, market, analysis, bot, rtc } = deps;
   const routes: { method: string; re: RegExp; handler: Handler; public?: boolean }[] = [];
   const route = (method: string, pattern: string, handler: Handler, opts: { public?: boolean } = {}) =>
@@ -102,6 +103,30 @@ export function createApi(deps: { cfg: Config; db: Db; auth: Auth; hub: Hub; sto
   const publicUser = (u: AppUser | null) => u && { id: u.id, displayName: u.display_name, email: u.email, role: u.role, isDemo: u.is_demo, isGuest: u.is_guest };
 
   // ----- session -----
+  route("GET", "/api/ai-stock/scan", async (ctx) => { needAttendee(ctx); return hub.aiStockScan(); });
+  route("GET", "/api/ai-stock/alerts", async ctx => {
+    needAttendee(ctx);
+    if (!deps.alerts) throw new AppError("UNAVAILABLE", "Chưa có cảnh báo.", 503);
+    return deps.alerts.feed();
+  });
+  route("GET", "/api/ai-stock/follows", async ctx => {
+    const u = needUser(ctx);
+    const r = await db.query<{ symbol: string }>("select symbol from app.stock_follows where user_id=$1 order by symbol", [u.id]);
+    return { symbols: r.rows.map(r=>r.symbol), zaloLinked: await hasZalo(db,u.id), deliveryAvailable: Number.isFinite(cfg.zaloAlertWindowSeconds) && (cfg.zaloAlertWindowSeconds ?? 0) > 0, dailyCap: 5 };
+  });
+  route("POST", "/api/ai-stock/follows", async ctx => {
+    const u = needUser(ctx);
+    const b = z.object({ symbol: z.string().regex(/^[A-Z0-9.]{1,12}$/), following: z.boolean() }).parse(await readJson(ctx.req,4096));
+    await db.tx(async q => {
+      await q.query("select id from app.users where id=$1 for update", [u.id]);
+      if (b.following) {
+        const n = await q.query<{ n: number }>("select case when exists(select 1 from app.stock_follows where user_id=$1 and symbol=$2) then 0 else count(*)::int end as n from app.stock_follows where user_id=$1", [u.id,b.symbol]);
+        if (n.rows[0].n >= 100) throw new AppError("LIMIT", "Tối đa 100 mã theo dõi.", 400);
+        await q.query("insert into app.stock_follows(user_id,symbol) values($1,$2) on conflict do nothing", [u.id,b.symbol]);
+      } else await q.query("delete from app.stock_follows where user_id=$1 and symbol=$2", [u.id,b.symbol]);
+    });
+    return { ok: true };
+  });
   route("GET", "/api/me", async ({ user }) => ({ user: publicUser(user), mode: cfg.mode }), { public: true });
 
   route(

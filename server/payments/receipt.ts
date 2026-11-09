@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { anthropicClient } from "../anthropic";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 
@@ -29,7 +30,7 @@ Nếu ảnh có dấu hiệu bị cắt ghép, chỉnh sửa, mờ hoặc thiế
  */
 export async function readReceipt(apiKey: string | undefined, image: Buffer, mime: "image/jpeg" | "image/png" | "image/webp" | "image/gif"): Promise<Receipt | null> {
   if (!apiKey) return null;
-  const client = new Anthropic({ apiKey });
+  const client = anthropicClient(apiKey);
   try {
     const response = await client.messages.parse({
       model: "claude-opus-5-5",

@@ -81,6 +81,19 @@ async function main() {
   for (const u of [owner, a, b, c]) await u.login();
 
   // privileges
+  ok((await fetch(BASE + "/api/ai-stock/scan")).status === 401, "AI Stock scan requires an attendee session");
+  ok((await fetch(BASE + "/api/ai-stock/alerts")).status === 401, "alert history requires an attendee session");
+  ok((await fetch(BASE + "/api/ai-stock/follows")).status === 401, "follows require an account");
+  const feed = await owner.call("/api/ai-stock/alerts");
+  ok(feed.status === 200 && feed.data.fixture === true && Array.isArray(feed.data.alerts), "typed fixture alert feed available");
+  ok((await owner.call("/api/ai-stock/follows", { symbol: "FPT", following: true })).status === 200, "account follows FPT");
+  await owner.call("/api/ai-stock/follows", { symbol: "FPT", following: true });
+  const follows = (await owner.call("/api/ai-stock/follows")).data;
+  ok(follows.symbols.length === 1 && follows.symbols[0] === "FPT" && follows.dailyCap === 5 && !follows.deliveryAvailable, "follow is idempotent with daily cap and unknown policy disabled");
+  ok((await a.call("/api/ai-stock/follows")).data.symbols.length === 0, "follows isolated per account");
+  ok((await owner.call("/api/ai-stock/follows", { symbol: "bad symbol", following: true })).status === 400, "invalid follow symbol rejected");
+  await owner.call("/api/ai-stock/follows", { symbol: "FPT", following: false });
+  ok((await owner.call("/api/ai-stock/follows")).data.symbols.length === 0, "unfollow persisted");
   ok((await owner.call("/api/admin/overview")).status === 403, "normal user cannot open admin API");
   ok((await admin.call("/api/admin/overview")).status === 200, "app owner can open admin API");
   await admin.call("/api/admin/settings", { trial_rooms_per_account: 5, find_seat_seconds: 30, chat_radius: 2, device_limit_room_creator: false, ip_max_participants: 0 }, "PATCH");
@@ -169,6 +182,33 @@ async function main() {
   const wC = await sC.wait((m) => m.t === "welcome");
   ok(wC?.screen?.content?.kind === "youtube" && wC.screen.playing && wC.serverNow - wC.screen.updatedAt >= 1000, "late joiner receives current screen state with server timestamps");
 
+  // AI Stock uses the same authoritative screen channel and moderator permission gate.
+  sA.send({ t: "screen", action: "ai_stock", command: "start" });
+  ok(!!(await sA.wait((m) => m.t === "error" && m.code === "FORBIDDEN")), "AI Stock start is moderator-only");
+  so.send({ t: "screen", action: "ai_stock", command: "start", topN: 2, seconds: 10 });
+  const aiStart = (await sA.wait((m) => m.t === "screen" && m.state.content.kind === "ai-stock"))?.state;
+  ok(aiStart?.content.fixture && aiStart.content.index === 0 && aiStart.content.topN === 2, "AI Stock starts with typed fixture and configured timing");
+  const aiNext = (await sA.wait((m) => m.t === "screen" && m.state.content.kind === "ai-stock" && m.state.content.index === 1, 12000))?.state;
+  ok(!!aiNext, "AI Stock rotates on the server without viewer commands");
+  so.send({ t: "screen", action: "ai_stock", command: "pause" });
+  ok(!!(await sA.wait((m) => m.t === "screen" && m.state.content.paused)), "AI Stock pauses for all viewers");
+  so.send({ t: "screen", action: "ai_stock", command: "pin", symbol: "VNM" });
+  const aiPinned = (await sA.wait((m) => m.t === "screen" && m.state.content.pinned))?.state;
+  ok(aiPinned?.content.snapshot.picks[aiPinned.content.index].symbol === "VNM", "AI Stock pins any symbol in the snapshot");
+  const aiObserver = await new Sock().open(admin);
+  aiObserver.send({ t: "join", roomId });
+  const aiWelcome = await aiObserver.wait((m) => m.t === "welcome");
+  ok(aiWelcome?.screen.rev === aiPinned?.rev && aiWelcome?.screen.content.pinned && aiWelcome?.screen.content.paused, "AI Stock late join gets identical snapshot, pin, pause and revision");
+  aiObserver.ws.close();
+  const privateScan = await a.call("/api/ai-stock/scan");
+  ok(privateScan.status === 200 && privateScan.data.fixture && privateScan.data.snapshot.picks.length === 8, "viewer can read fixture list privately");
+  so.send({ t: "screen", action: "ai_stock", command: "resume" });
+  ok(!!(await sA.wait((m) => m.t === "screen" && m.state.content.kind === "ai-stock" && !m.state.content.paused && !m.state.content.pinned)), "AI Stock resumes and unpins");
+  so.send({ t: "screen", action: "ai_stock", command: "skip" });
+  ok(!!(await sA.wait((m) => m.t === "screen" && m.state.content.kind === "ai-stock" && m.state.content.index === 0)), "AI Stock skip wraps within top N");
+  so.send({ t: "screen", action: "ai_stock", command: "stop" });
+  ok(!!(await sA.wait((m) => m.t === "screen" && m.state.content.kind === "blank")), "AI Stock stop hands the screen back to manual controls");
+
   // poll
   so.send({ t: "poll_create", question: "Bạn thích phim nào?", options: ["A", "B"] });
   const poll = (await sA.wait((m) => m.t === "poll"))?.poll;
@@ -228,6 +268,8 @@ async function main() {
   ok(inv.data.guestJoinEnabled === true && inv.data.isOwner === false, "invite page offers guest join");
   const gs = await g.call("/api/guest", { displayName: "Khách Hoa" });
   ok(gs.status === 200 && gs.data.user.isGuest === true, "guest identity created from just a name");
+  ok((await g.call("/api/ai-stock/alerts")).status === 200, "guests can read alert history");
+  ok((await g.call("/api/ai-stock/follows", { symbol: "FPT", following: true })).status === 403, "guests cannot follow symbols");
   ok((await g.call("/api/join", { inviteCode: room2.data.inviteCode, password: "sai" })).status === 403, "guest still needs the room password");
   const gj = await g.call("/api/join", { inviteCode: room2.data.inviteCode, password: "789" });
   ok(!!gj.data.pass, "guest joins with correct password");
