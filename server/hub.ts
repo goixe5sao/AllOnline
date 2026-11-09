@@ -1,3 +1,5 @@
+import { effectivePlan, requireAi } from "./services/ai-plan";
+import { getUser } from "./services/users";
 import { directStock, startStock } from "@/core/ai-stock";
 import { FixtureScanProvider, type ScanProvider } from "./ai-stock/provider";
 import { StockCommentary } from "./ai-stock/commentary";
@@ -1008,6 +1010,7 @@ export class Hub {
         requireOwner();
         if (m.action === "ai_stock") {
           if (m.command === "start") {
+            if (!room.row.is_demo) await requireAi(this.db, room.row.owner_id, true);
             const previous = room.screen;
             const result = room.row.is_demo ? { snapshot: await new FixtureScanProvider(true).scan(), fixture: true } : await this.aiStockScan();
             if (room.screen !== previous || !this.rooms.has(room.row.id)) return;
@@ -1029,6 +1032,7 @@ export class Hub {
           return;
         }
         if (m.action === "set" && this.demoLimited(room, uid) && !demoContentAllowed(m.content)) return this.error(c, "DEMO_LIBRARY", "Phòng trải nghiệm chiếu trang web goixe5sao.vn.");
+        if (m.action === "set" && m.content.kind === "ai-stock" && !room.row.is_demo) await requireAi(this.db, room.row.owner_id, true);
         room.screen = applyScreenAction(room.screen, m, now);
         if (room.screen.content.kind === "youtube") knownDuration(room.screen.content.videoId); // learn the length early
         await saveScreenState(this.db, room.row.id, room.screen);
@@ -1317,7 +1321,7 @@ export class Hub {
       t: "welcome",
       role,
       you: { userId: uid, name: c.user.display_name, isGuest: c.user.is_guest, isRoomOwner: isOwner, isModerator: room.mods.has(uid) || room.demo?.hostId === uid },
-      room: this.roomInfo(room.row, room.lights),
+      room: { ...this.roomInfo(room.row, room.lights), aiStockAllowed: !!room.row.is_demo || effectivePlan(await getUser(this.db, room.row.owner_id)) === "vip" },
       live: this.liveDto(room),
       demo: room.demo ? this.demoDto(room, c) : null,
       voice: this.voiceDto(room),

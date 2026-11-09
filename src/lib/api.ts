@@ -31,6 +31,9 @@ export interface Me {
   role: "app_owner" | "user";
   isDemo: boolean;
   isGuest: boolean;
+  aiPlan?: import("@/core/ai-plan").AiPlan;
+  allowedKinds?: readonly import("@/core/stock-alerts").StockAlert["kind"][];
+  aiFollowLimit?: number;
 }
 
 export function useMe() {

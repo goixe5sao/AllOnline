@@ -1,6 +1,9 @@
+import type { AiPlan } from "@/core/ai-plan";
 import type { Queryable } from "../db";
 
 export interface AppUser {
+  ai_plan?: AiPlan;
+  ai_plan_until?: Date | string | null;
   id: string;
   email: string | null;
   display_name: string;
@@ -10,7 +13,7 @@ export interface AppUser {
 }
 
 export async function getUser(q: Queryable, id: string): Promise<AppUser | null> {
-  return (await q.query<AppUser>("select id, email, display_name, role, is_demo, is_guest from app.users where id = $1", [id])).rows[0] ?? null;
+  return (await q.query<AppUser>("select id, email, display_name, role, is_demo, is_guest, ai_plan, ai_plan_until from app.users where id = $1", [id])).rows[0] ?? null;
 }
 
 /**
@@ -23,7 +26,7 @@ export async function upsertUser(q: Queryable, id: string, email: string | null,
     await q.query<AppUser>(
       `insert into app.users (id, email, display_name, is_demo) values ($1, $2, $3, $4)
        on conflict (id) do update set email = excluded.email, updated_at = now()
-       returning id, email, display_name, role, is_demo, is_guest`,
+       returning id, email, display_name, role, is_demo, is_guest, ai_plan, ai_plan_until`,
       [id, email, name, isDemo],
     )
   ).rows[0];
@@ -40,7 +43,7 @@ export async function createGuest(q: Queryable, id: string, displayName: string)
   const name = displayName.trim().slice(0, 60) || "Khách";
   return (
     await q.query<AppUser>(
-      "insert into app.users (id, email, display_name, is_guest) values ($1, null, $2, true) returning id, email, display_name, role, is_demo, is_guest",
+      "insert into app.users (id, email, display_name, is_guest) values ($1, null, $2, true) returning id, email, display_name, role, is_demo, is_guest, ai_plan, ai_plan_until",
       [id, name],
     )
   ).rows[0];

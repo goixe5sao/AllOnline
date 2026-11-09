@@ -1,0 +1,62 @@
+[
+  {
+    "width": 390,
+    "theme": "dark",
+    "pass": true,
+    "checks": [
+      "admin edit and restore",
+      "basic/VIP/off account UI",
+      "real symbol search",
+      "follow persists after reload",
+      "unfollow",
+      "no overflow",
+      "no page errors",
+      "no Three scene"
+    ]
+  },
+  {
+    "width": 390,
+    "theme": "light",
+    "pass": true,
+    "checks": [
+      "admin edit and restore",
+      "basic/VIP/off account UI",
+      "real symbol search",
+      "follow persists after reload",
+      "unfollow",
+      "no overflow",
+      "no page errors",
+      "no Three scene"
+    ]
+  },
+  {
+    "width": 1440,
+    "theme": "dark",
+    "pass": true,
+    "checks": [
+      "admin edit and restore",
+      "basic/VIP/off account UI",
+      "real symbol search",
+      "follow persists after reload",
+      "unfollow",
+      "no overflow",
+      "no page errors",
+      "no Three scene"
+    ]
+  },
+  {
+    "width": 1440,
+    "theme": "light",
+    "pass": true,
+    "checks": [
+      "admin edit and restore",
+      "basic/VIP/off account UI",
+      "real symbol search",
+      "follow persists after reload",
+      "unfollow",
+      "no overflow",
+      "no page errors",
+      "no Three scene"
+    ]
+  }
+]

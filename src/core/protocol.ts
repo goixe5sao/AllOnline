@@ -39,6 +39,8 @@ export interface PollViewDto {
 }
 
 export interface RoomInfoDto {
+  /** Whether the room owner's current AI plan permits starting AI (demo rooms always do). */
+  aiStockAllowed?: boolean;
   id: string;
   name: string;
   description: string;

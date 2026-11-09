@@ -1,4 +1,5 @@
 "use client";
+import { Watchlist } from "./watchlist";
 
 import { useRef, useState } from "react";
 import { Camera, MessageCircle, UserRound } from "lucide-react";
@@ -102,6 +103,7 @@ function Account({ me }: { me: Me }) {
   return (
     <div className="account-page stack">
       <PageHeader title="Tài khoản" subtitle="Thông tin cá nhân và kết nối của bạn." />
+      <Watchlist me={me}/>
       <Card className="account-section stack">
         <h2><UserRound aria-hidden /> Thông tin cá nhân</h2>
         {params?.get("linked") === "zalo" && <p className="notice ok">Đã liên kết Zalo.</p>}
