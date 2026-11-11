@@ -60,7 +60,7 @@ Cài lại từ đầu / thêm dịch vụ: `ssh vps 'bash -s' < deploy/linux/in
 DB StockVN (sao lưu online bằng `sqlite3 .backup`, kiểm `quick_check`, nén zstd ~95 MB) + file upload AllOnline.
 
 - Trên VPS: `/var/backups/sankhau/daily`, giữ 7 bản. Log: `/var/log/sankhau/backup.log`.
-- Ngoài VPS: Cloudflare R2, rclone remote `offsite`, bucket `sankhau-backup`: `daily/` giữ 30 ngày, `monthly/`
+- Ngoài VPS: Cloudflare R2, rclone remote `offsite`, bucket `allonline-backup`: `daily/` giữ 30 ngày, `monthly/`
   (ngày 1) giữ 12 tháng. Chưa có remote `offsite` thì script chỉ lưu trên VPS và ghi cảnh báo vào log.
 - Chạy tay: `ssh vps sankhau-backup`.
 
@@ -76,5 +76,5 @@ mv stockpilot.sqlite.restore stockpilot.sqlite && chown sankhau:sankhau stockpil
 systemctl start stockvn-web stockvn-zalo   # trong giờ phiên thêm: systemctl start stockvn-live
 ```
 
-Lấy từ R2: `rclone copy offsite:sankhau-backup/daily/<file> .` Khôi phục thử ngày 2026-11-11: hash OK,
+Lấy từ R2: `rclone copy offsite:allonline-backup/daily/<file> .` Khôi phục thử ngày 2026-11-11: hash OK,
 `integrity_check` ok, số nến ngày khớp DB đang chạy, đủ file upload.

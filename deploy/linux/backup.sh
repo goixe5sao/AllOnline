@@ -6,7 +6,7 @@
 #  - Ngoài VPS: nếu có rclone remote "offsite" (Cloudflare R2), đẩy lên offsite:$BUCKET/daily (giữ 30 ngày)
 #    và mỗi ngày 1 của tháng thêm offsite:$BUCKET/monthly (giữ 12 tháng).
 set -euo pipefail
-BUCKET=${SANKHAU_BACKUP_BUCKET:-sankhau-backup}
+BUCKET=${SANKHAU_BACKUP_BUCKET:-allonline-backup}
 DIR=/var/backups/sankhau/daily
 STAMP=$(date +%Y%m%d-%H%M)
 LOG=/var/log/sankhau/backup.log
