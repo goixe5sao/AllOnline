@@ -1,20 +1,32 @@
 #!/bin/bash
-# Cập nhật code lên VPS rồi build + restart. Chạy từ PC (Git Bash), ở thư mục repo AllOnline:
+# Cập nhật code lên VPS rồi build + restart. Chạy ở thư mục repo AllOnline, từ PC (Git Bash, qua
+# `ssh vps`) HOẶC ngay trên VPS (VS Code Remote-SSH: tự nhận ra /srv/<app> và chạy bằng sudo):
 #   bash deploy/linux/deploy.sh allonline [git-ref=master]
 #   bash deploy/linux/deploy.sh stockvn   [git-ref=master]
+# Ép chế độ: DEPLOY_LOCAL=1 (chạy tại chỗ bằng sudo) hoặc DEPLOY_LOCAL=0 (qua ssh vps).
 # Chỉ gửi file trong git (không gửi .env.local, data, node_modules). Code cũ được thay bằng
 # rsync --delete trên VPS; giữ nguyên .env.local, .data, data/, .venv, node_modules.
 set -e
 app=${1:?allonline|stockvn}; ref=${2:-master}
 case $app in
   allonline) repo=$(cd "$(dirname "$0")/../.." && pwd); services="allonline" ;;
-  stockvn)   repo=${STOCKVN_REPO:-/d/ActiveProject/StockVN}; services="stockvn-web" ;;
+  stockvn)   default=/d/ActiveProject/StockVN; [ -d "$HOME/work/StockVN/.git" ] && default=$HOME/work/StockVN
+             repo=${STOCKVN_REPO:-$default}; services="stockvn-web" ;;
   *) echo "app = allonline | stockvn"; exit 1 ;;
 esac
+# Trên VPS (có /srv/<app> và sudo) thì chạy tại chỗ; `ssh vps` không trỏ được về chính nó.
+if [ -z "${DEPLOY_LOCAL:-}" ]; then
+  if [ -d "/srv/$app" ] && command -v systemctl >/dev/null; then DEPLOY_LOCAL=1; else DEPLOY_LOCAL=0; fi
+fi
+if [ "$DEPLOY_LOCAL" = 1 ]; then
+  vps_cmd() { sudo bash -c "$1"; }; vps_script() { sudo bash -s; }
+else
+  vps_cmd() { ssh vps "$1"; };      vps_script() { ssh vps "bash -s"; }
+fi
 rev=$(git -C "$repo" rev-parse --short "$ref")
 echo "== $app @ $rev"
-git -C "$repo" archive --format=tar "$ref" | ssh vps "rm -rf /srv/$app.src && mkdir -p /srv/$app.src && tar x -C /srv/$app.src"
-ssh vps "bash -s" <<EOF
+git -C "$repo" archive --format=tar "$ref" | vps_cmd "rm -rf /srv/$app.src && mkdir -p /srv/$app.src && tar x -C /srv/$app.src"
+vps_script <<EOF
 set -e
 cd /srv/$app
 lock_before=\$(sha256sum package-lock.json 2>/dev/null | cut -c1-64)
