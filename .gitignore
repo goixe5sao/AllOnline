@@ -50,5 +50,6 @@ next-env.d.ts
 /deploy/windows/cloudflared.local.yml
 /deploy/windows/logs/
 /deploy/windows/pids/
+/deploy/windows/MOVED-TO-VPS
 /.next-test/
 .claude/settings.local.json

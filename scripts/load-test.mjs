@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import WebSocket from "ws";
 /**
  * Load test without browsers: ROOMS rooms × PER_ROOM guests over WebSocket, like real viewers
@@ -101,6 +102,11 @@ class Viewer extends Client {
 function sample() {
   if (!SERVER_PID) return null;
   try {
+    if (process.platform === "linux") {
+      // /proc/<pid>/stat: utime(14) + stime(15) in clock ticks (100/s); rss(24) in pages (4 KiB)
+      const f = fs.readFileSync(`/proc/${SERVER_PID}/stat`, "utf8").split(") ")[1].split(" ");
+      return { rss: (Number(f[21]) * 4096) / 1048576, cpuMs: (Number(f[11]) + Number(f[12])) * 10, at: Date.now() };
+    }
     const out = execFileSync("powershell.exe", ["-NoProfile", "-Command", `$p=Get-Process -Id ${SERVER_PID}; "$($p.WorkingSet64) $($p.TotalProcessorTime.TotalMilliseconds)"`], { encoding: "utf8" }).trim();
     const [ws, cpu] = out.split(" ").map(Number);
     return { rss: ws / 1048576, cpuMs: cpu, at: Date.now() };

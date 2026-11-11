@@ -1,0 +1,10 @@
+tunnel: 33533ab5-4ea8-47b8-8702-bde1a21117c8
+credentials-file: /etc/cloudflared/33533ab5-4ea8-47b8-8702-bde1a21117c8.json
+ingress:
+  - hostname: sankhau.pro.vn
+    service: http://127.0.0.1:3000
+  - hostname: www.sankhau.pro.vn
+    service: http://127.0.0.1:3000
+  - hostname: stockvn.sankhau.pro.vn
+    service: http://127.0.0.1:3200
+  - service: http_status:404
