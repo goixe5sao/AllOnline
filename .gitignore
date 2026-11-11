@@ -51,3 +51,4 @@ next-env.d.ts
 /deploy/windows/logs/
 /deploy/windows/pids/
 /.next-test/
+.claude/settings.local.json

@@ -236,3 +236,355 @@ Result (Codex):
 - PASS `node scripts/ui-ai-plan.mjs`: `PASS AI plan UI: 16 captures, 390/1440 dark/light, admin editing, follows, no page errors or overflow`. Uses real demo HTTP APIs for search, admin update/restore, add/remove and persistence after reload; seeded basic/VIP/off local accounts. Screenshots: `docs/screenshots/ui/after/ai-plan-{admin,account-basic,account-vip,account-off}-{390,1440}-{dark,light}.png`; report: `ai-plan-report.json`. Visually inspected mobile dark admin, desktop light admin and mobile light basic account. No Three scene mounted.
 - Corrected during verification: Windows shell encoding damaged new Vietnamese copy; rewrote it as UTF-8 and checked the screenshots. Browser search caught the shared Button's default non-submit behavior; added explicit submit. Captured-socket testing needed `OPEN=1`; the Zalo-name test needed separate text/UUID SQL parameters. These intermediate failures were corrected before the final passing checks.
 - Safety/reproduction: `node --import tsx scripts/demo-t9.mjs` refuses a different worktree, blanks every Config credential before env loading, uses `.data-t9/pglite`, fixture provider and `MARKET_DATA=off`, and binds port 3100 only. One dev server at a time, stopped before production build; final port check shows no listener. No live project directory, live DB, Zalo, StockVN or Claude API access, deployment or push. Review the migration/entitlement/admin changes before rollout; live-provider interoperability was deliberately not exercised.
+
+## Reports (owner request 2026-11-10); run in the StockVN repo, worktree D:/ActiveProject/StockVN-dev, branch `codex/reports`
+
+### R-1 (StockVN): Report engine + `/reports` page (reports 01–05)
+Status: done (codex/reports bdb817d; result StockVN-dev docs/R-1-RESULT.md)   Risk: medium (new table + new page; no auth change)
+Goal: an owner-facing **Báo cáo** page in StockVN with five daily reports, built so that a new report later = one Python function + one registry entry (the page renders any report generically). The owner explicitly asked for this page, which overrides the old "no more UI" note in StockVN's CLAUDE.md.
+Universe: `universe_members` group `LIQUID` (filled by Claude's overnight ingest: every HOSE/HNX/UPCOM symbol whose last-20-session average traded value close×volume ≥ 1 tỷ VND, traded ≥ 18/20 sessions, last bar ≤ 10 days old) ∪ VN100. Daily bars only. Claude's prototype is `C:/Users/admin/AppData/Local/Temp/claude/5f230f645edcf8a6/dec56bfd-bbde-4d18-a675-5d1b53ec8985/scratchpad/ingest_liquid.py`: port it into the repo as `ml/liquid.py` (same rule, resumable, `--db`, throttled HttpClient), with tests on a fake fetcher. Also make the existing daily job refresh LIQUID symbols incrementally (recent sessions only, not a full re-download). Do NOT run network downloads yourself: the ingest is running in this worktree's DB right now (`data/stockpilot.sqlite`, writes may be in progress). Use temp DB copies for tests.
+Shared per-symbol features (as of the last session): close, %change, ATR14 (`ml.indicators.atr`), avg traded value 20, volume ratio = volume / prior-20 average, last-session candle (`ml.candles.detect`), nearest resistance above / support below exactly as `ml.ai_scan.next_zones` (the same levels as the live alerts), equilibrium from `ml.equilibrium.levels` / `detect` (POC + value area, anchored VWAP, Kijun-26).
+Report rules (fixed before seeing results; do not tune them on the output):
+- **01 Tiến đến kháng cự:** resistance R exists, 0 ≤ (R − close)/ATR ≤ 1.0, and close > close 5 sessions ago. Sort by distance in ATR, ascending.
+- **02 Quay về hỗ trợ:** support S exists, 0 ≤ (close − S)/ATR ≤ 1.0, and close < close 5 sessions ago. Sort ascending.
+- **03 Mất cân bằng:** group (a) "Vừa phá cân bằng": a *confirmed* break (volume ≥ 1.5×) of POC, VWAP or Kijun in the last 5 sessions and close still on the broken side; show which level(s) and the direction. Group (b) "Lệch xa cân bằng": close outside the value area and |close − POC| ≥ 2 ATR. Sort by distance, descending.
+- **04 Vừa vào cân bằng (đáng chú ý):** group (a) "Vừa lấy lại cân bằng": an up-cross (confirmed or weak) or `retest_up` of POC/VWAP/Kijun in the last 3 sessions, close now inside the value area or above POC, and within the prior 20 sessions some close was below value_low or ≥ 1 ATR below POC. Group (b) "Tích lũy quanh cân bằng": max−min of (POC, VWAP, Kijun) ≤ 1 ATR and |close − their mean| ≤ 0.5 ATR. Copy says "đáng chú ý, bạn tự quyết", never "nên mua".
+- **05 Đúng indicator nhất (VN100):** from `approved_methods`, horizon 10. Table A: per symbol, its best method with OOS n ≥ 30, ranked by the Wilson 95% lower bound; columns OOS hit, wins/n, Wilson LB, IS hit (n), base rate, lift, OOS net, BH significance, status, and a "nhất quán" flag (IS hit ≥ base AND OOS hit ≥ base). Table B: per symbol, all methods pooled (OOS wins/n vs n-weighted base), the top 15 and bottom 10 by lift. Header: "x PASS / y EVIDENCE trên N phép thử", the gate rules and a plain note that 0 PASS means no method is reliable yet.
+- Rows in 01–04 show historical % ONLY through `ml.validation.displayable()` (PASS/EVIDENCE) for the matching method × symbol (res_touch, sup_touch, eq_*). Otherwise show "chưa đạt chuẩn" (VN100) or "chưa kiểm định" (others). Never compute or show ungated percentages.
+Storage: additive table `report_snapshot(report_key, as_of, generated_at, payload_json, PRIMARY KEY(report_key, as_of))`. Payload is generic: `{title, description, asOf, universeSize, groups:[{title, note, columns:[{key,label,type: text|price|pct|atr|int|vnd|badge}], rows:[…]}]}`. `ml/reports.py` holds the registry and a CLI `python -m ml.reports [--db] [--only 01]`. Run it at the end of the daily pipeline after the scan.
+Web: `GET /api/ai/reports` (list of reports + latest asOf) and `GET /api/ai/reports/[key]` (latest snapshot), under the existing `/api/ai` gate. The page `/reports` has tabs 01–05 (`?r=01`) and one generic table renderer: sortable columns, the symbol links to the existing chart/backtest page, horizontal scroll inside the table on phones, freshness time, universe size and the disclaimer "Thông tin phân tích kỹ thuật để tham khảo, không phải khuyến nghị mua bán." Add a nav link. Vietnamese UI, existing StockVN styling, works at 390 px.
+Docs: add every rule above with its source to `docs/METHODS.md` (Edwards & Magee; Murphy 1999; Wilder 1978 for ATR; Dalton/CBOT for value area; Hosoda for Kijun; Wilson 1927; Benjamini–Hochberg 1995). Operational thresholds (1 ATR, 5 sessions, 2 ATR…) are labelled as fixed local choices.
+Acceptance: pytest on synthetic series for each of the rules 01–04 (positive and negative cases) and for 05 ranking/flags; API tests; `npm.cmd run lint`, `npm.cmd run test`, `npm.cmd run build`, `.venv\Scripts\python.exe -m pytest ml\tests -q` all pass. Run `python -m ml.reports` on this worktree's real DB and paste the row counts per report. Start ONE dev server on port 3300 (never 3200, which is live), capture `/reports` for every tab at 1440 and 390 into `docs/screenshots/reports/`, check there are no page errors, stop the server and confirm the port is free. Commit locally on `codex/reports`; do not push, do not touch `D:/ActiveProject/StockVN`.
+Result (Codex):
+
+### R-2 (StockVN): zone alerts for the watchlist + fast chart loading
+Status: done (0f36299; result StockVN-dev docs/R-2-RESULT.md)   Risk: medium (alert scope + caching)
+Goal 1 (owner 2026-11-10): the two-beat zone alerts (`ml/ai_alerts.py`: near/break resistance, support, POC/VWAP/Kijun) must also cover the owner's **watchlist** (`db.watchlist_symbols`, currently VDS, IDC, VSC, HDC, VGS), not only VN100. Today `ml.ai_common.universe()` returns VN100 only, so VDS touching resistance raises nothing.
+- Add one function for the alert/scan universe = VN100 ∪ watchlist (minus VNINDEX), with an optional setting (env `STOCKVN_ALERT_UNIVERSE`, values `VN100+WATCHLIST` default, `VN100+WATCHLIST+LIQUID`) for later. Use it in `ai_scan.run` (so the pre-session snapshot has levels for every alerted symbol) and in `ai_alerts.intraday` / `close`.
+- `ml.live` must keep 1-minute bars fresh for every symbol in that universe during the session (it already refreshes the watchlist; check VN100 and avoid duplicate fetches), staying within the current throttle.
+- Alerts are delivered through the existing StockVN Zalo path to the owner exactly as for VN100 today (beat 1 "vào vùng ... chờ nến kết phiên", beat 2 the closing candle). Keep once per symbol × level × beat per session. Percentages only through `ml.validation.displayable()`.
+- Tests: a watchlist symbol outside VN100 entering a resistance zone produces a beat-1 alert and a beat-2 alert at the close; a symbol outside both sets produces none; no duplicates.
+Goal 2: `/chart/[symbol]` is slow (VDS daily ≈ 6 s) because `/api/ai/replay` runs the whole Python analysis on every request. Add a cache keyed by (symbol, interval, from, to, last stored bar time): reuse while the data has not changed. Intraday intervals during the session: at most 60 s old; daily outside the session: until a new daily bar is stored. After the daily pipeline, pre-warm the watchlist symbols for 1d and 15m. Bound the cache size (no unbounded memory or disk growth). Second load of `/chart/VDS` should answer in < 300 ms.
+Acceptance: pytest + vitest for both goals, `npm.cmd run lint`, `npm.cmd run test`, `npm.cmd run build`, `.venv\Scripts\python.exe -m pytest ml\tests -q`. Measure the first and second `/api/ai/replay?symbol=VDS&interval=1d` times on a dev server on port 3300 (never 3200) against this worktree's DB, and paste them. Commit locally; no push; do not touch D:/ActiveProject/StockVN. Result into `docs/R-2-RESULT.md` in the worktree.
+Result (Codex):
+
+### R-1b (StockVN): readability polish for `/reports` (Claude review of R-1, 2026-11-10)
+Status: done (a92b17a)   Risk: low
+Fix, without changing any report rule:
+- Default row order = the server's order (each report's own ranking, e.g. 01/02 nearest first, 03 farthest first). Today the table starts sorted by symbol A→Z. Clicking a header still sorts; a "Mặc định" option restores the server order.
+- Per-report column sets, key columns first, the rest behind a "Thêm cột" toggle. 01: Mã, Sàn, Giá, Thay đổi, Kháng cự, Khoảng cách (% and ATR), KL/TB20, Nến, Lịch sử kiểm định. 02: the same with Hỗ trợ. 03/04: Mã, Sàn, Giá, Thay đổi, Mức/hướng, POC, Vùng giá trị (low–high), VWAP, Kijun, Khoảng cách ATR, KL/TB20, Lịch sử. 05: Mã, Phương pháp, OOS hit, Thắng/n, Nền, Lift, Nhất quán, Trạng thái; the rest behind the toggle. Add the exchange (HOSE/HNX/UPCOM from `listed_symbols`) to every row and a filter by exchange.
+- Vietnamese labels instead of codes: methods (eq_vwap_weak_down → "VWAP ↓ (yếu)", res_touch → "Chạm kháng cự", candle_* → the Vietnamese candle name from `ml.candles.PATTERNS`, pat_* → the pattern name), statuses (chua_dat_chuan → "Chưa đạt chuẩn", PASS → "Đạt chuẩn 80%", EVIDENCE → "Có bằng chứng").
+- Times in Vietnam time, e.g. "02:47 10/11/2026"; session dates as dd/mm/yyyy.
+- Re-run `python -m ml.reports` on the worktree DB, retake the 10 screenshots (1440 and 390) against a fresh backup of the real DB (universe 279, not 100), lint/test/build/pytest, commit locally on `codex/reports`. Result in `docs/R-1-RESULT.md` (append a "R-1b" section).
+Result (Codex):
+
+### R-2b (StockVN): fix two regressions found in Claude's review of R-2 (0f36299)
+Status: done (b293d5f)   Risk: high (owner's Zalo delivery)
+1. **Zalo flood.** `ai_alerts.send_pending` now sends every VN100 + watchlist zone alert to the owner's Zalo, one message each. Before R-2 these VN100 alerts were only stored (for the AllOnline feed), never sent. With up to five levels per symbol this can mean hundreds of messages a session and Zalo 429s. Fix: the owner's Zalo receives alerts ONLY for watchlist symbols (`db.watchlist_symbols`); VN100-only alerts stay stored and are marked as not-for-Zalo (no delivery row, no send). Batch all pending watchlist alerts of one run into ONE message (split only above the 2,000-character Bot limit), and cap owner AI alert messages at 20 per VN calendar day (log and skip the rest). Keep receipts and the "acknowledge only after a successful send" rule. Tests: VN100-only alerts never reach the sender; 7 watchlist alerts → 1 message; the cap holds; retries after a failed send don't duplicate.
+2. **Charts lost the network fallback.** R-2 made `/api/ai/replay` read stored candles only. Before R-2, a symbol without stored bars was fetched from VCI, and watchlist minute charts topped up the latest ~1 session from VCI. Now any symbol outside the stored set fails, and minute charts are stale unless `ml.live` runs. Restore the original data loading exactly (stored first, VCI fallback/top-up as before) on a cache miss; keep the cache in front of it. Cache identity: if the result used any network data, the entry lives at most 60 s during the session (Mon–Fri 09:00–15:00 VN) and at most 10 min otherwise; results built only from stored data keep the stored-bar stamp rule from R-2. Tests with fake fetchers: unknown symbol → fetched and charted; watchlist 15m → includes the fetched latest bars; cached hit does not call the fetcher; expiry rules.
+Acceptance: pytest, `npm.cmd run test`, `npm.cmd run lint`, `npm.cmd run build`. On a 3300 dev server: time `/api/ai/replay?symbol=VDS&interval=1d` first and second load again, and confirm `/api/ai/replay?symbol=HPG&interval=15m` and a symbol outside the DB (pick one from `listed_symbols` that is not in `daily_candles`) both return 200 (this is the only network use allowed: one or two chart fetches). Commit locally on `codex/alerts-watchlist`; append an "R-2b" section to `docs/R-2-RESULT.md`.
+Result (Codex):
+
+### R-3 (StockVN): zone alerts for every liquid stock, 5-minute checks, close status + reversal statistics
+Status: done (Codex ce44e7f + Claude zone_stats 316a20f, review fixes 7ddd16d)   Risk: high (owner's Zalo delivery, new statistic shown to the owner)   Branch: `codex/zone-reversal` from `claude/nightly-2026-11-10`
+Owner request (2026-11-10, verbatim): "Trong phiên liên tục định kỳ 5 phút 1 lần kiểm tra nến ngày. Bất cứ cổ nào rơi vào vùng cảnh báo thì lập tức nhắn tin cho cổ đó (chỉ nhắn tin 1 lần). Kết phiên hãy nhắn lại trạng thái cổ phiếu đó. Phân tích tỉ lệ % đảo chiều tại vùng đó (dựa vào nến đóng cửa, cụm nến ... ví dụ sẽ hình thành bộ nến sao mai ...)". This replaces R-2b's "watchlist only" Zalo rule.
+1. **Universe.** Default `STOCKVN_ALERT_UNIVERSE` becomes `VN100+WATCHLIST+LIQUID` (≈280 symbols). `ai_scan` must therefore write pre-session levels for all of them; check the scan time stays reasonable and report it.
+2. **5-minute checks.** `ml.live`: watchlist keeps 1-minute refresh (charts); every other symbol in the universe is refreshed every 5 minutes (aligned 09:05, 09:10, …), within the current throttle. The zone check runs every 5 minutes on the forming daily candle: a symbol is "in the zone" when a minute bar since the open has its low ≤ level + zoneWidth and high ≥ level − zoneWidth (fall back to close if high/low missing) for any level in the pre-session snapshot (resistance, support, POC, VWAP, Kijun; value area excluded as today).
+3. **One message per stock per session.** The first time a symbol enters any zone in a session it goes into that run's batch; later touches of the same symbol that day are stored but never sent again. One Zalo message per 5-minute run listing all new symbols (one line each: mã, vùng (loại + mức), giá hiện tại, "chờ nến kết phiên"), split only above the 2,000-character limit. Replace the 20/day cap with 80/day (log and skip the rest). Keep "acknowledge only after a successful send", no duplicates after a failed send, serialized senders.
+4. **Close status.** After the daily pipeline stores today's daily bar, send ONE batched message (split at the limit) with one block per symbol touched today: zone touched, close vs the zone (giữ vùng / đóng vượt lên / đóng thủng xuống, using close vs level ± zoneWidth), the completed candle pattern(s) ending today (`ml.candles.detect`, Vietnamese names), any **pattern in progress** (today could be candle 1 or 2 of a 2–3-candle pattern, e.g. a long red candle at support = possible first leg of Sao mai), and the reversal statistics below. For a symbol with a pattern in progress, send a short follow-up at the next 1–2 closes ("Sao mai đã hình thành" / "không hình thành"), then stop.
+5. **Reversal statistics (new module `ml/zone_stats.py`).** Built nightly from history, stored in an additive table, read at message time; never computed from today's data.
+   - Event: a daily session that touches a level (same touch rule as item 2, daily high/low) where the levels are computed **point in time** from data up to the previous session only, with the same functions as the live scan (`ml.ai_scan.next_zones` / `ml.equilibrium`). Test explicitly that no future bar leaks into the levels. If computing levels for every session is too slow, compute them every 5 sessions and say so in the result.
+   - Outcome "đảo chiều" (fixed before looking at results, do not tune): from the confirmation close (touch day, or the day the pattern completes), price reaches +1 ATR14 in the reversal direction (up at support, down at resistance) before it reaches −1 ATR14 the other way, judged on closes, within 10 sessions; neither = not a reversal.
+   - Conditions: zone type × touch-day closing candle group (bullish reversal pattern / bearish reversal pattern / neutral / closed beyond the zone) and, separately, completed 2–3-candle patterns (morning/evening star, engulfing, harami …) at that zone. Base rate = all touches of that zone type.
+   - Pooled over LIQUID (per-symbol samples are too small); also per symbol when n ≥ 30.
+   - Display rule (owner asked for it explicitly; this is the EVIDENCE style): show a % only when n ≥ 30, always together with n, the Wilson 95% interval and the base rate, e.g. "Lịch sử chạm hỗ trợ + Sao mai: đảo chiều 61% (n=148, 53–68%) — mọi lần chạm hỗ trợ: 49%". n < 30 → "chưa đủ dữ liệu". Never "nên mua/bán". Each message ends with "Thông tin tham khảo, không phải khuyến nghị mua bán."
+   - Add the rule, the outcome definition and sources to `docs/METHODS.md` (Nison 1991 for candle patterns; Edwards & Magee / Murphy 1999 for support/resistance; Wilder 1978 ATR; Wilson 1927). The thresholds (±1 ATR, 10 sessions, n ≥ 30) are fixed local choices; label them so.
+   - Run it on this worktree's real DB and paste the table of rates (zone × candle group, top patterns) in the result.
+**Split (owner 2026-11-10: Codex ~70%, Claude ~30%).** Codex does items 1–4 plus the message wiring. Claude writes item 5 (`ml/zone_stats.py`, its tests, the METHODS.md section, the nightly build hook) on branch `claude/zone-stats` in a separate worktree, merged afterwards. Codex must NOT create `ml/zone_stats.py`; code against this interface and use a fake in tests:
+`zone_stats.lookup(conn, *, side: "support"|"resistance", level_type: str, candle: str | None, pattern: str | None, symbol: str | None = None) -> dict | None` → `{"rate": 0.61, "n": 148, "lo": 0.53, "hi": 0.68, "baseRate": 0.49, "baseN": 9800, "scope": "pooled"|"symbol", "label": "chạm hỗ trợ + Sao mai"}`, or `None` when the table is missing (render nothing) — n < 30 returns a dict with `rate=None` (render "chưa đủ dữ liệu"). `zone_stats.candle_group(candle_key) -> "bull_reversal"|"bear_reversal"|"neutral"` and `zone_stats.pending_patterns(df) -> list[{"pattern": key, "name_vi": str, "needs": 1|2}]` (patterns today could be leg 1 or 2 of) also come from Claude; import lazily (`try: from ml import zone_stats except ImportError: zone_stats = None`) so your branch runs before the merge.
+Tests: synthetic sessions — a LIQUID symbol outside VN100/watchlist entering a zone produces exactly one message line all day even when it touches 3 levels; a batch of 12 new symbols = 1 message; close status lists each touched symbol with the right zone verdict; the pattern-in-progress follow-up fires on day 2/3 and then stops; point-in-time levels; outcome labelling (up first / down first / neither); n < 30 shows "chưa đủ dữ liệu"; failed send retries without duplicates; cap.
+Acceptance: `.venv\Scripts\python.exe -m pytest ml\tests -q`, `npm.cmd run lint`, `npm.cmd run test`, `npm.cmd run build` pass. A dry-run replay of session 2026-11-07 (or the last full session with stored minute bars) on a temp DB copy, printing the 5-minute messages and the close message exactly as Zalo would receive them; paste them. No real Zalo sends, no network downloads, never port 3200, do not touch D:/ActiveProject/StockVN. Commit locally on `codex/zone-reversal`; result in `docs/R-3-RESULT.md`.
+Result (Codex):
+
+### R-3b (StockVN): one alert per touch episode + "Đang ở vùng cảnh báo" list on the page and by Zalo command
+Status: done (Codex 8d74e79, review fixes 3a51b0d: Zalo has no update_id)   Risk: high (owner's Zalo; inbound commands)   Branch: `codex/zone-reversal` (after R-3, merged with Claude's `claude/zone-stats`)
+Owner (2026-11-10): "1 lần chạm trong đợt thì chỉ báo 1 lần, người dùng có thể vào danh sách báo cáo để xem những mã nào đang ở vùng cảnh báo. Hoặc zalo có thể nhắn lệnh để gửi về danh sách này."
+1. **Episodes.** A touch belongs to an ongoing episode when the same symbol × level type was touched in any of the previous 5 sessions (`zone_stats.EPISODE_GAP`; same rule as the statistics, `zone_stats.first_touches`). The 5-minute message only lists a symbol when at least one level it touches today opens a NEW episode; days spent inside the zone stay silent. The close status still covers every symbol that got a beat-1 message today. Touches are still stored (the list below needs them).
+2. **Report 06 "Đang ở vùng cảnh báo".** New registry entry in `ml/reports.py`, generic payload as 01–05. Rows = symbols whose latest price (today's last minute bar during the session, else the last daily close) is within zoneWidth of a level in the newest pre-session snapshot. Columns: Mã, Sàn, Giá, Vùng (loại + mức), Khoảng cách (ATR), Ngày bắt đầu đợt, Số phiên trong vùng, Nến hôm qua, Tỉ lệ đảo chiều (`zone_stats.render(zone_stats.lookup(...))`). Sort: newest episode first, then distance. During the session the live loop refreshes this snapshot every 5 minutes (one row in `report_snapshot` per session, overwritten); the page tab shows the snapshot time. No other report changes.
+3. **Zalo command.** The owner sends the bot `vung` (also accept `vùng`, `/vung`, `ds`): the bot replies with the report-06 list (one line per symbol: mã, vùng+mức, giá, số phiên trong vùng), split at the 2,000-char limit, plus the page link `https://stockvn.sankhau.pro.vn/reports?r=06`. `help`/`?` replies with the command list. Answer ONLY the owner's configured chat id (the one `zalo.send_message` uses by default); ignore and log everything else. Poll inbound messages with the existing `zalo.recent_chats`/`getUpdates` code: inside `ml.live` during the session (each loop, non-blocking: short timeout), and a small standalone loop `python -m ml.zalo_commands` for outside session hours, started by the existing Windows run scripts next to live. Remember the last processed update id in the DB so a restart never answers twice. Replies do not count against the 80/day alert cap (separate counter, cap 50/day).
+Tests: same symbol touching on 3 consecutive days → 1 message; touching again after 6 quiet sessions → new message; report 06 rows for a synthetic snapshot; command parsing (vung/vùng//vung/ds/help/unknown); non-owner chat ignored; restart does not re-answer (update id persisted); reply split at the limit.
+Acceptance: pytest, `npm.cmd run lint`, `npm.cmd run test`, `npm.cmd run build`; screenshot `/reports?r=06` at 1440 and 390 on a 3300 dev server (never 3200) with a dry-run snapshot; print the exact reply text for `vung` on the real DB copy. No real Zalo sends, no network downloads. Commit locally; append "R-3b" to `docs/R-3-RESULT.md`.
+Result (Codex):
+
+## Glossary (owner request 2026-11-11); StockVN repo, worktree D:/ActiveProject/StockVN-glossary, branch `codex/glossary`
+
+### G-1 (StockVN): Từ điển thuật ngữ `/thuat-ngu` + popup giải nghĩa khi rê chuột
+
+**Owner:** "lập 1 trang định nghĩa, chú thích các khái niệm dùng trong các báo cáo, hoặc sau này trong các trang có từ ngữ kỹ thuật chứng khoán. Ở đâu xuất hiện khái niệm đã định nghĩa thì rê chuột vào hiện popup giải thích nhanh (như từ điển). Chia bảng theo phương pháp (Ichimoku, Price Action, Minervini…). Sau này dựa vào đây mở slide dạy phương pháp cho người mới."
+
+All UI text Vietnamese. Owner date format dd/mm/yyyy. Do NOT change Python/ML code, report numbers, or table layout CSS. Claude is changing the `.report-scroll` / `.zone-alerts` widths in parallel on another branch, so touch only what this task needs.
+
+**1. One data source, lesson-shaped** (`src/lib/glossary/`, pure TS, no React):
+- `types.ts` defines three types:
+  - `Source {label, href}`.
+  - `Term {id, term, aliases, short, long, formula?, example?, sources, related}`:
+    - `id`: kebab slug. It is used in URLs, so keep it stable.
+    - `aliases: string[]`: the exact strings that appear in the UI, e.g. "POC", "Kijun-26", "VA thấp".
+    - `short`: 1–2 sentences, ≤ 220 chars. This is the popup text.
+    - `long: string[]`: paragraphs for the page or a slide.
+    - `sources: Source[]`.
+    - `related: string[]`: term ids.
+  - `Group {id, name, summary, lesson, sources, terms}`:
+    - `lesson: string[]`: a 3–6 bullet outline in teaching order, for future slides.
+    - `sources: Source[]`.
+    - `terms: Term[]`: in teaching order.
+- One file per group. `index.ts` exports `GLOSSARY: Group[]`, `TERM_BY_ID`, `findTerm(alias)`.
+- Groups, in teaching order, with their minimum terms:
+  1. `co-ban` Cơ bản: phiên, nến ngày, giá đóng cửa, khối lượng (KL), KL / TB20, GTGD TB20, sàn (HOSE/HNX/UPCOM), giá nghìn đồng, thay đổi %.
+  2. `xu-huong` Xu hướng & đường trung bình: MA (SMA), EMA, MA50/150/200, đỉnh/đáy sóng (pivot).
+  3. `ho-tro-khang-cu` Hỗ trợ / Kháng cự: hỗ trợ, kháng cự, vùng (±0,5 ATR), vùng cảnh báo, chạm vùng, bật lại, phá vùng, khoảng cách ATR, khoảng cách %.
+  4. `atr` Biến động: ATR14.
+  5. `volume-profile` Volume Profile: POC, vùng giá trị (VA cao / VA thấp), cân bằng / mất cân bằng, lấy lại cân bằng, tích lũy quanh cân bằng, phá xác nhận / yếu / kiểm tra lại.
+  6. `vwap` VWAP neo (Anchored VWAP).
+  7. `ichimoku` Ichimoku: Kijun-sen (Kijun-26), Tenkan-sen, mây Kumo (Senkou A/B), Chikou. Explain that only Kijun is used in reports today.
+  8. `price-action` Price Action & mô hình nến: every pattern name the app shows, plus nến trung tính and nến đảo chiều.
+     - Candle names: read them from `ml/candles.py` PATTERNS (`name_vi`).
+     - Chart patterns: read them from `ml/reports.py` `method_label` (Hai đỉnh, Hai đáy, Vai đầu vai, Cờ tăng/giảm, Tam giác…).
+  9. `minervini` Minervini Trend Template: Trend Template, 8 tiêu chí, RS (1–99, our stand-in for IBD), giai đoạn 2, vừa đạt 8/8, vừa rớt khỏi.
+  10. `macd` MACD: đường MACD, đường tín hiệu, histogram, cắt lên / cắt xuống, trên/dưới 0.
+  11. `thong-ke` Thống kê & dự kiến: Dự kiến (mũi tên), Khả năng, Đến vùng kế tiếp, tỉ lệ đảo chiều, nền, n, khoảng tin cậy 95% (Wilson), OOS/IS, lift, PASS / EVIDENCE / chưa đạt chuẩn, BH (FDR), nhất quán, Wilson LB.
+- Content: MOVE the existing texts into the glossary so there is one source of truth.
+  - Move the TERMS in `src/components/reports/report-legend.tsx`.
+  - Move the METHODS/SHARED entries (`how`, `why`, `sources`) in `src/components/backtest/zone-alerts.tsx`.
+  - Both components must read from the glossary afterwards. Rendering the same text as today is fine.
+  - Method facts must match `docs/METHODS.md` and the Python code. Read them; don't guess numbers (zone = 0.5 ATR, horizon 10 sessions, MIN_N 30, RS ≥ 70, etc.).
+- Sources: use ONLY URLs already present in the repo (zone-alerts.tsx, report-legend.tsx, docs/METHODS.md). Never invent a URL. If a term has no source from those, leave `sources: []` and list it in the Result.
+
+**2. Page `/thuat-ngu`** (`src/app/thuat-ngu/page.tsx`, same login gate as the other pages):
+- A header and a search box. Search filters terms by term, aliases and short text, and is accent-insensitive ("ho tro" finds "hỗ trợ").
+- Tabs or a left table of contents with one entry per group (owner: "chia bảng cho từng phương pháp").
+- Each group shows its summary, its lesson outline, then a table or list of terms. Each term row shows the term and its short text, and expands to show long text, formula, example, sources and related links.
+- Every term has an anchor `id={term.id}`. `/thuat-ngu#poc` scrolls to it and highlights it. `/thuat-ngu?nhom=ichimoku` opens that group.
+- Add "Thuật ngữ" to the nav of `/reports`, `/backtest` and the dashboard sidebar.
+- Works on desktop and at 390 px mobile, with no horizontal page overflow.
+
+**3. Popup `<Term id="poc">POC</Term>`** (`src/components/glossary/term.tsx`):
+- The term gets a dotted underline. Hover (desktop), focus (keyboard) or tap (touch) shows a small card with:
+  - the term name;
+  - the `short` text;
+  - a "Xem chi tiết →" link to `/thuat-ngu#<id>`, opening in a new tab (`target=_blank rel=noopener`). Owner rule: never lose the list.
+- Esc or a tap outside closes the card. Use `role="tooltip"` + `aria-describedby`.
+- Render the card in a portal with `position: fixed`, clamped to the viewport. It must never be clipped by the overflow containers `.report-scroll` / `.zone-alerts-scroll`, and must never cause horizontal scroll.
+- Helper `annotate(text): ReactNode` wraps known aliases found in plain text:
+  - longest alias first, whole words only;
+  - no nested wrapping;
+  - only the first occurrence of each term per cell, to avoid clutter.
+
+**4. Wire it in:**
+- `/reports` column headers: every header whose column key maps to a term gets the popup.
+  - The mapping lives in `src/lib/glossary/columns.ts` as `COLUMN_TERMS: Record<string, string>`. Examples:
+    - signal→du-kien, chance→kha-nang, target→den-vung-ke-tiep;
+    - poc→poc, value_low/value_high/valueArea→vung-gia-tri, vwap→vwap, kijun→kijun;
+    - atr→atr, distance→khoang-cach-atr;
+    - also volumeRatio, value, candle, history, rs, hit, lb, isHit, base, lift, net, fdr, status, consistent…
+  - The header keeps its sort button, and the popup trigger must not break sorting. Use a separate small trigger, or put the label inside the button and call `stopPropagation` on the popup.
+- `/reports` text: run `annotate` on the text columns `zone`, `event`, `candle`, `state`, `detail`, `targetLabel`, and on group notes and the report description.
+- The legend (`report-legend.tsx`) shows its terms from the glossary, with a link to `/thuat-ngu`.
+- `/backtest` lists (`zone-alerts.tsx`): headers and state/zone/candle cells use the same helpers. Method cards read from the glossary. Keep the `#pp-<key>` anchors working.
+
+**5. Tests / evidence:**
+- vitest `src/lib/glossary/glossary.test.ts` checks:
+  - ids and aliases are unique (no alias belongs to two terms);
+  - short is ≤ 220 chars;
+  - every `related` id and every `COLUMN_TERMS` value exists;
+  - every source href is https and appears in the allowed list (export it as `ALLOWED_SOURCES`);
+  - every candle `name_vi` in ml/candles.py has a term (parse the .py file in the test).
+- Component tests:
+  - `Term`: hover and focus open the card, Esc closes it, the link opens in a new tab.
+  - `annotate`: longest match wins, no double wrapping.
+- Browser audit `scripts/glossary-audit.mjs`. Follow the Chrome CDP pattern of `scripts/reports-sticky-audit.mjs`.
+  - Use YOUR dev server on port **3301** and Chrome debug port **9338**. Ports 3300/9337 belong to Claude, and 3200 is LIVE: never touch it.
+  - Check /thuat-ngu at 1440 and 390: no overflow, search "ho tro" finds Hỗ trợ, `#poc` scrolls.
+  - Check /reports?r=06: hovering a header shows the popup inside the viewport, not clipped.
+  - Check the popup in the /backtest list.
+  - Save screenshots to `docs/screenshots/glossary/`.
+- `npm run lint`, `npx tsc --noEmit` and `npx vitest run` all pass.
+- Dev setup:
+  - DB: copy `D:/ActiveProject/StockVN-dev/data/stockpilot.sqlite` into the worktree's `data/`. Do not touch `D:/ActiveProject/StockVN/data`.
+  - Start dev with `STOCKVN_API_TOKEN=reports-audit-token npx next dev -p 3301`.
+
+**Result:** write `docs/G-1-RESULT.md` in the worktree with:
+- files changed;
+- term count per group;
+- terms without a source;
+- test output;
+- the screenshot list;
+- anything you are unsure about.
+
+Commit on `codex/glossary`. Do not push, do not merge.
+
+## Horizons (owner request 2026-11-11); StockVN repo
+
+**Owner:** "Trên đây là phân tích nến ngày, là đầu tư trung hạn hay ngắn hạn? Tôi muốn có báo cáo cho Ngắn hạn, trung hạn và dài hạn (tương ứng nến ngày, tháng...). Sau này chỉ báo nào khớp cho cả ngắn, trung và dài hạn thì báo khẩn cấp trong 1 báo cáo."
+
+### H-1 (StockVN, Claude, branch `claude/timeframes`, DONE): the core
+
+Interface Codex builds on (read the code and docstrings):
+- `ml/timeframes.py`:
+  - `FRAMES` has three horizons:
+
+    | Key | Name | Bars | Outcome window | Level look-back |
+    |---|---|---|---|---|
+    | D | Ngắn hạn | nến ngày | 10 phiên | 120 |
+    | W | Trung hạn | nến tuần | 10 tuần | 120 |
+    | M | Dài hạn | nến tháng | 10 tháng | 60 |
+
+  - Each horizon has `name`, `bar`, `unit`, `horizon` and `lookback`.
+  - `ORDER = ("D","W","M")`.
+  - `resample(daily_g, frame)` returns that frame's bars. Columns stay the same. The last bar is the partial current week/month.
+- `ml/zone_stats.py`:
+  - `run(conn, symbols=None, frame="D")` writes rows next to the existing ones. Scope is `POOLED`/`<sym>` for D, and `W:POOLED`/`W:<sym>`, `M:...` for the others.
+  - `lookup(..., frame=)` and `lookup_none(conn, symbol, frame)` read them.
+  - CLI: `python -m ml.zone_stats --frame all`.
+- `ml/forecast.py` `forecast(conn, symbol, daily_g, price=None, frame="D")`:
+  - It resamples by itself and returns the same cells as before.
+  - It also returns `forecastZone` and `forecastMove` (`bounce`|`break`|`base`).
+  - `levels_now(g, lookback)`.
+- `ml/zones.levels(g, lookback=120)`, `ml/ai_common.next_zones(g, lookback=120)`.
+- `ml/consensus.py` `build(conn, fs, vn=None)` returns the **two groups of report 08** (Khẩn cấp).
+  - Its input is the daily `fs` list of `ml.reports.run` (`[{"row": {...}, "g": daily}]`).
+  - Columns: `symbol, signal(arrow), chance, D, W, M, close, change` for the zone group, and the same without chance for the MACD group.
+
+### H-2 (StockVN, Codex, worktree D:/ActiveProject/StockVN-frames, branch `codex/timeframes` from `claude/timeframes`): reports per horizon + report 08 + UI
+
+All UI text is Vietnamese. Dates are dd/mm/yyyy. Do NOT change the statistics rules in `ml/zone_stats.py`, `ml/forecast.py`, `ml/consensus.py` or `ml/timeframes.py`. If something there blocks you, write it in the Result instead.
+
+1. **Report engine per horizon** (`ml/reports.py`):
+   - `run(conn, only=None, frames=("D","W","M"))` computes:
+     - D: everything as today (01–07), with the same keys "01".."07".
+     - W and M: reports 01, 02, 03, 04 and 07, built on `timeframes.resample(g, frame)` with `lookback=timeframes.lookback(frame)` (pass it to `equilibrium.levels`, `next_zones` and anything else using 120 bars).
+       - Store them under keys `W01..W04, W07, M01..M04, M07`.
+       - Report 07 on W/M keeps only the MACD events: the Minervini Trend Template is defined on daily bars (MA50/150/200, 252 sessions). `ml/signal_report.py` needs a `frame` parameter, so that the history stats and targets use that frame's bars, its 10-bar outcome and its lookback.
+       - 05 (validation) and 06 (intraday zones) stay D only.
+     - Report "08" = `consensus.build(conn, fs)`, always (it needs the daily `fs`).
+   - Forecast cells (Dự kiến / Khả năng / Đến vùng kế tiếp) in W/M reports use `forecast.forecast(..., frame=frame)`.
+   - Payload: add `frame` ("D"/"W"/"M"; "08" uses "DWM"), `frameName` and `horizon` (the text from FRAMES).
+   - Descriptions and notes must say the unit: "phiên" for D, "tuần" for W, "tháng" for M. For example, the 01 description "tăng so với 5 phiên trước" becomes "… 5 tuần trước" on W.
+   - Registry titles stay the same.
+   - Report 05's `history` and the `validation` texts stay D only.
+2. **Pipeline** (`ml/pipeline.py`, daily branch):
+   - After the existing zone_stats step, add W and M zone_stats (`zone_stats.run(conn, frame="W")`, then M).
+   - The reports step runs all frames and 08.
+   - Each new step is optional (try/except + "Bỏ qua bước …", like signals/charts), so a failure never stops the close messages.
+   - Measure and report the added runtime in the Result.
+3. **API**:
+   - `/api/ai/reports/[key]` accepts `^(0[1-8]|[WM]0[1-7])$`.
+   - The list endpoint returns every stored key with its frame.
+   - Check `src/lib/ai/reports.ts` types (add `frame`, `frameName`, `horizon`).
+4. **/reports UI**:
+   - Top switch: **Ngắn hạn · nến ngày | Trung hạn · nến tuần | Dài hạn · nến tháng**, plus a separate red **⚠ Khẩn cấp · đồng thuận 3 khung (08)** tab, shown first when it has rows, with the row count.
+   - URL: `/reports?h=W&r=01`. Old links `/reports?r=06` still work (h defaults to D).
+   - Report tabs show only the reports that exist for the chosen horizon.
+   - The header shows: horizon, bar type, outcome window (from `horizon`), and "Kỳ: <last session dd/mm/yyyy>".
+   - Report 08 columns D/W/M are text cells (annotate them like other text cells).
+   - Keep the sticky headers, the desktop no-horizontal-scroll rules, the new-tab symbol links and the glossary popups working for every horizon. Run the existing audits (`scripts/reports-sticky-audit.mjs`, `scripts/no-hscroll-audit.mjs`, `scripts/glossary-audit.mjs`) adapted to also cover W/M and 08.
+5. **Glossary** (`src/lib/glossary/`): new group `khung-thoi-gian` "Khung thời gian đầu tư", first in teaching order after Cơ bản.
+   - Terms: ngắn hạn, trung hạn, dài hạn, nến tuần, nến tháng, xu hướng chính / thứ cấp / phụ (Dow), Triple Screen (Elder, hệ số 5), đồng thuận 3 khung (báo cáo 08), Khẩn cấp.
+   - Facts must come from the `ml/timeframes.py` and `ml/consensus.py` docstrings.
+   - New allowed sources, both verified 2026-11-11. Add them to `ALLOWED_SOURCES`:
+     - `https://chartschool.stockcharts.com/table-of-contents/market-analysis/dow-theory` (StockCharts ChartSchool — Dow Theory: primary moves last from a few months to many years, secondary moves from a few weeks to a few months, daily fluctuations usually not more than a week);
+     - `https://chartschool.stockcharts.com/table-of-contents/chart-analysis/chart-types/elder-impulse-system` (StockCharts ChartSchool — Elder Impulse System, Elder's work).
+   - No other new URLs.
+   - Map the new columns: `D`/`W`/`M` → ngắn/trung/dài hạn.
+6. **Tests/evidence**:
+   - pytest covers: per-frame report keys and payload `frame`; W/M report 07 without Minervini; pipeline steps optional; API key regex.
+   - vitest covers: the horizon switch and URL; glossary integrity (existing test).
+   - `npm run lint`, `npx tsc --noEmit`, `npx vitest run` and `.venv` pytest all pass.
+   - Dev DB: copy `D:/ActiveProject/StockVN-dev/data/stockpilot.sqlite`. It already has W/M zone stats; run `python -m ml.reports` there.
+   - Dev server port **3301**, Chrome debug **9338** (3300/9337 are Claude's, 3200 is LIVE: never touch it).
+   - Screenshots go to `docs/screenshots/horizons/`: D/W/M/08 at 1440 and 390.
+
+**Result:** `docs/H-2-RESULT.md` with:
+- files changed;
+- row counts per report and frame on the dev DB;
+- pipeline runtime added;
+- test output;
+- screenshots;
+- anything you are unsure about.
+
+Commit on `codex/timeframes`. Do not push, do not merge.
+
+## Zalo log (owner request 2026-11-11); StockVN repo
+
+**Owner:** "Hãy rút gọn luôn (tin Zalo), trên web thì hãy có màn hình lịch sử đầy đủ chú thích như trước. Và thêm mục log nội dung đã gửi zalo."
+
+### Z-1 (StockVN, Claude, branch `claude/zalo-log`): compact messages + the log table
+
+Every Zalo send writes one row per message part into `zalo_log`. The interface for Z-2:
+
+```sql
+CREATE TABLE IF NOT EXISTS zalo_log(
+  id INTEGER PRIMARY KEY,
+  sent_at TEXT NOT NULL,        -- ISO 8601 UTC
+  vn_day TEXT NOT NULL,         -- YYYY-MM-DD, Vietnam time
+  session TEXT,                 -- trading session the content is about (YYYY-MM-DD) or NULL
+  kind TEXT NOT NULL,           -- see the list below
+  symbols TEXT NOT NULL DEFAULT '',  -- comma list, e.g. 'CII,TCX'
+  sent_text TEXT NOT NULL,      -- exactly what Zalo received (compact)
+  detail TEXT NOT NULL DEFAULT '',   -- full explained version ("như trước"), newline separated; may be ''
+  status TEXT NOT NULL DEFAULT 'sent' -- 'sent' | 'skipped_cap' | 'error'
+);
+```
+
+`kind` values:
+- `intraday`: price entered a zone during the session;
+- `close`: zone status at the session close;
+- `followup`: a candle pattern that was forming finished (or did not);
+- `urgent`: report 08, Khẩn cấp;
+- `command`: a reply to the owner's Zalo commands vung/ds/help;
+- `legacy`: old trendline/model alerts;
+- `other`.
+
+Python helper: `ml/zalo_log.py` with `SCHEMA`, `record(conn, kind, sent_text, detail='', symbols=(), session=None, status='sent')` and `recent(conn, days=30, kind=None) -> list[dict]`.
+
+### Z-2 (StockVN, Codex, worktree D:/ActiveProject/StockVN-zalolog, branch `codex/zalo-log`): web screen "Nhật ký Zalo"
+
+All UI text is Vietnamese. Dates and times are dd/mm/yyyy HH:mm, Vietnam time. Do NOT touch any Python that sends Zalo messages (`ml/zone_messages.py`, `ml/consensus_zalo.py`, `ml/alerts.py`, `ml/zalo*.py`) or the statistics. Create `ml/zalo_log.py` ONLY if it does not exist yet. Claude writes it on another branch with the exact schema above. Your code must only read the table, and must treat a missing table as an empty log.
+
+1. **API** `GET /api/ai/zalo-log`:
+   - Same auth as `/api/ai/reports` (reuse its guard; read how the reports route opens the SQLite DB, through `src/lib/ai/*` / better-sqlite3).
+   - Query params: `days` (default 14, max 90), `kind` (optional, one of the kinds), `q` (optional symbol filter, case-insensitive, matched on `symbols`).
+   - Returns `{entries:[{id, sentAt, vnDay, session, kind, symbols:[...], sentText, detail, status}], kinds:{kind:count}}`, newest first, at most 500 entries.
+2. **Page `/zalo`**, titled "Nhật ký Zalo". Add a nav link "Nhật ký Zalo" next to "Thuật ngữ" in /reports, /backtest and the dashboard sidebar.
+   - Filters: kind chips with their counts (Vào vùng, Kết phiên, Theo dõi mô hình nến, Khẩn cấp, Trả lời lệnh, Cảnh báo cũ), a symbol search, and a day range (7 / 14 / 30 / 90 days).
+   - Entries are grouped by day (newest first). Each entry shows: the time, a kind badge (Khẩn cấp is red), symbol chips (each one opens `/chart/<sym>` in a new tab, per the owner rule), and the exact `sentText` in a monospace "Tin đã gửi" box (`white-space: pre-wrap`).
+   - The "Bản đầy đủ có chú thích" panel shows `detail`:
+     - expandable, open by default for `close` and `urgent`;
+     - every line runs through the glossary `annotate()` (`src/components/glossary/term.tsx`), so the terms get the hover popups;
+     - when `detail` is empty, show "Tin này không có bản đầy đủ."
+   - A status badge appears when status ≠ `sent`.
+   - An empty state for when there are no rows.
+   - Desktop: no horizontal scroll. Works at 390 px mobile.
+3. **Glossary** (`src/lib/glossary/`): add these terms to an existing group, only if missing:
+   - "Vào vùng";
+   - "Kết phiên" (the close status the system sends after the daily bar);
+   - "Giữ vùng / Đóng vượt vùng / Bật khỏi vùng". Check the Python `close_verdict` in `ml/zone_messages.py` for the exact verdict words and meanings, and use those words as aliases.
+   - Do not add new URLs.
+4. **Tests/evidence:**
+   - vitest for the API: empty or missing table, filters, the limit.
+   - vitest for the page: grouping, filter, detail panel.
+   - Browser audit `scripts/zalo-log-audit.mjs`:
+     - Use the Chrome CDP pattern of the existing audits, dev server port **3301**, Chrome debug **9338** (3300/9337 are Claude's, 3200 is LIVE: never touch it).
+     - Seed the dev DB copy with ~12 realistic rows of each kind. Put the seed script in `scripts/seed-zalo-log.mjs` and run it on the worktree copy only.
+     - Check 1440 and 390: no overflow, filters work, the popup works inside detail, the symbol link opens a new tab.
+     - Save screenshots to `docs/screenshots/zalo-log/`.
+   - `npm run lint`, `npx tsc --noEmit` and `npx vitest run` pass.
+   - Dev DB: copy `D:/ActiveProject/StockVN-dev/data/stockpilot.sqlite`. Start with `STOCKVN_API_TOKEN=reports-audit-token npx next dev -p 3301`.
+
+**Result:** `docs/Z-2-RESULT.md` with:
+- files changed;
+- test output;
+- screenshots;
+- anything you are unsure about.
+
+Commit on `codex/zalo-log`. Do not push, do not merge.
