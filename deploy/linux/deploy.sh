@@ -4,17 +4,25 @@
 #   bash deploy/linux/deploy.sh stockvn   [git-ref=master]
 # Chỉ gửi file trong git (không gửi .env.local, data, node_modules). Code cũ được thay bằng
 # rsync --delete trên VPS; giữ nguyên .env.local, .data, data/, .venv, node_modules.
+# Chạy ngay trên VPS (VS Code Remote-SSH, user cuong) cũng được: khi đó lệnh chạy tại chỗ bằng sudo.
 set -e
 app=${1:?allonline|stockvn}; ref=${2:-master}
+if [ "$(hostname)" = mhc-vps ]; then
+  on_vps() { sudo bash -c "$1"; }; on_vps_stdin() { sudo bash -s; }
+  default_stockvn=$HOME/work/StockVN
+else
+  on_vps() { ssh vps "$1"; }; on_vps_stdin() { ssh vps "bash -s"; }
+  default_stockvn=/d/ActiveProject/StockVN
+fi
 case $app in
   allonline) repo=$(cd "$(dirname "$0")/../.." && pwd); services="allonline" ;;
-  stockvn)   repo=${STOCKVN_REPO:-/d/ActiveProject/StockVN}; services="stockvn-web" ;;
+  stockvn)   repo=${STOCKVN_REPO:-$default_stockvn}; services="stockvn-web" ;;
   *) echo "app = allonline | stockvn"; exit 1 ;;
 esac
 rev=$(git -C "$repo" rev-parse --short "$ref")
 echo "== $app @ $rev"
-git -C "$repo" archive --format=tar "$ref" | ssh vps "rm -rf /srv/$app.src && mkdir -p /srv/$app.src && tar x -C /srv/$app.src"
-ssh vps "bash -s" <<EOF
+git -C "$repo" archive --format=tar "$ref" | on_vps "rm -rf /srv/$app.src && mkdir -p /srv/$app.src && tar x -C /srv/$app.src"
+on_vps_stdin <<EOF
 set -e
 cd /srv/$app
 lock_before=\$(sha256sum package-lock.json 2>/dev/null | cut -c1-64)
