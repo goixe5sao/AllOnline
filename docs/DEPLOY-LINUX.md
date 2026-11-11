@@ -61,7 +61,7 @@ DB StockVN (sao lưu online bằng `sqlite3 .backup`, kiểm `quick_check`, nén
 
 - Trên VPS: `/var/backups/sankhau/daily`, giữ 7 bản. Log: `/var/log/sankhau/backup.log`.
 - Ngoài VPS: Cloudflare R2, rclone remote `offsite`, bucket `allonline-backup`: `daily/` giữ 30 ngày, `monthly/`
-  (ngày 1) giữ 12 tháng. Chưa có remote `offsite` thì script chỉ lưu trên VPS và ghi cảnh báo vào log.
+  (ngày 1) giữ 6 tháng. Chưa có remote `offsite` thì script chỉ lưu trên VPS và ghi cảnh báo vào log.
 - Chạy tay: `ssh vps sankhau-backup`.
 
 Khôi phục DB StockVN:

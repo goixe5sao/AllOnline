@@ -4,7 +4,7 @@
 # Chạy tay: sankhau-backup
 #  - Trên VPS: /var/backups/sankhau/daily, giữ 7 bản.
 #  - Ngoài VPS: nếu có rclone remote "offsite" (Cloudflare R2), đẩy lên offsite:$BUCKET/daily (giữ 30 ngày)
-#    và mỗi ngày 1 của tháng thêm offsite:$BUCKET/monthly (giữ 12 tháng).
+#    và mỗi ngày 1 của tháng thêm offsite:$BUCKET/monthly (giữ 6 tháng).
 set -euo pipefail
 BUCKET=${SANKHAU_BACKUP_BUCKET:-allonline-backup}
 DIR=/var/backups/sankhau/daily
@@ -35,9 +35,29 @@ if rclone listremotes 2>/dev/null | grep -qx 'offsite:'; then
     [ "$(date +%d)" = 01 ] && rclone copyto --s3-no-check-bucket "$DIR/$f" "offsite:$BUCKET/monthly/$f"
   done
   rclone delete --min-age 30d "offsite:$BUCKET/daily" || true
-  rclone delete --min-age 370d "offsite:$BUCKET/monthly" || true
-  echo "offsite: OK ($(rclone size --json "offsite:$BUCKET" | tr -d '\n'))"
+  rclone delete --min-age 185d "offsite:$BUCKET/monthly" || true
+  r2_bytes=$(rclone size --json "offsite:$BUCKET" | grep -oP '"bytes":\K[0-9]+')
+  echo "offsite: OK ($((r2_bytes / 1048576)) MB on R2)"
 else
+  r2_bytes=0
   echo "offsite: CHUA CAU HINH (rclone remote 'offsite' chua co) - chi co ban tren VPS"
 fi
+
+# Cảnh báo dung lượng qua Zalo (tối đa 1 lần/tuần cho mỗi loại)
+warn() { # key, message
+  local stamp=/var/backups/sankhau/.warned-$1
+  if [ ! -f "$stamp" ] || [ -n "$(find "$stamp" -mtime +6)" ]; then
+    /usr/local/bin/sankhau-notify "⚠️ VPS mhc-vps dung lượng: $2" && touch "$stamp"
+  fi
+}
+R2_LIMIT_GB=${R2_WARN_GB:-9}       # R2 miễn phí 10 GB
+DISK_LIMIT_PCT=${DISK_WARN_PCT:-75}
+DB_LIMIT_GB=${DB_WARN_GB:-5}
+disk_pct=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+db_bytes=$(stat -c %s /srv/stockvn/data/stockpilot.sqlite)
+echo "size: disk ${disk_pct}%, DB $((db_bytes / 1048576)) MB, R2 $((r2_bytes / 1048576)) MB"
+[ "$r2_bytes" -gt $((R2_LIMIT_GB * 1073741824)) ] && warn r2 "R2 đã dùng $((r2_bytes / 1048576)) MB (miễn phí 10 GB). Nên giảm số bản sao lưu giữ lại."
+[ "$disk_pct" -ge "$DISK_LIMIT_PCT" ] && warn disk "ổ VPS đã dùng ${disk_pct}% (69 GB). Cần dọn hoặc nâng gói."
+[ "$db_bytes" -gt $((DB_LIMIT_GB * 1073741824)) ] && warn db "DB StockVN đã $((db_bytes / 1048576)) MB (ngưỡng ${DB_LIMIT_GB} GB)."
+true
 echo "[$(date '+%F %T')] done"

@@ -210,6 +210,24 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 U
+# --- báo lỗi qua bot Zalo StockVN (gửi tới ZALO_CHAT_ID của chủ) khi một job thất bại
+cat > /usr/local/bin/sankhau-notify <<'S'
+#!/bin/bash
+# sankhau-notify "nội dung"  -> gửi Zalo qua bot StockVN (ml.zalo.send_message)
+cd /srv/stockvn && sudo -u sankhau .venv/bin/python -c 'import sys; from ml import zalo; zalo.send_message(sys.argv[1])' "$1"
+S
+chmod 755 /usr/local/bin/sankhau-notify
+cat > /etc/systemd/system/sankhau-alert@.service <<'U'
+[Unit]
+Description=Zalo alert: %i failed
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'u="%i"; msg="⚠️ VPS mhc-vps: $u LỖI lúc $(date "+%%H:%%M %%d/%%m")"$'"'"'\n'"'"'"$(journalctl -u "$u" -n 6 --no-pager -o cat | cut -c1-150)"; /usr/local/bin/sankhau-notify "$msg"'
+U
+mkdir -p /etc/systemd/system/sankhau-backup.service.d /etc/systemd/system/stockvn-live.service.d
+printf "[Unit]\nOnFailure=sankhau-alert@%%n.service\n" > /etc/systemd/system/sankhau-backup.service.d/alert.conf
+printf "[Unit]\nOnFailure=sankhau-alert@%%n.service\n" > /etc/systemd/system/stockvn-live.service.d/alert.conf
 systemctl daemon-reload
 systemctl enable --now sankhau-backup.timer >/dev/null 2>&1
 
