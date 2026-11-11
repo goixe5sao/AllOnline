@@ -185,6 +185,34 @@ Wants=allonline.service stockvn-web.service stockvn-zalo.service cloudflared-san
 WantedBy=multi-user.target
 U
 
+# --- sao lưu hằng đêm (script được gửi kèm: ssh vps 'bash -s' < install.sh không mang theo file khác,
+#     nên deploy.sh / người vận hành chép deploy/linux/backup.sh thành /usr/local/bin/sankhau-backup)
+apt-get install -y -qq zstd rclone >/dev/null
+if [ -f /srv/allonline/deploy/linux/backup.sh ]; then install -m 755 /srv/allonline/deploy/linux/backup.sh /usr/local/bin/sankhau-backup; fi
+cat > /etc/systemd/system/sankhau-backup.service <<U
+[Unit]
+Description=Nightly backup: StockVN DB + AllOnline uploads (local + offsite R2)
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/usr/local/bin/sankhau-backup
+U
+cat > /etc/systemd/system/sankhau-backup.timer <<U
+[Unit]
+Description=Nightly backup 20:00
+
+[Timer]
+OnCalendar=*-*-* 20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+U
+systemctl daemon-reload
+systemctl enable --now sankhau-backup.timer >/dev/null 2>&1
+
 mkdir -p /var/log/sankhau && chown $APP_USER:$APP_USER /var/log/sankhau
 cat > /etc/logrotate.d/sankhau <<L
 /var/log/sankhau/*.log /srv/stockvn/data/logs/zalo-commands.log {

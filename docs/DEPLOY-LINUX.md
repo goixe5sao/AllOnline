@@ -53,3 +53,28 @@ Cài lại từ đầu / thêm dịch vụ: `ssh vps 'bash -s' < deploy/linux/in
 - API giá VCI, VNDirect, Entrade, VPS gọi được từ IP VPS; SSI iBoard 403 (chặn IP datacenter, chỉ là nguồn dự phòng).
 - Ổ NVMe ~5 GB/s tuần tự, ~99k IOPS ghi 4k; mạng ~180 Mbps xuống / ~134 Mbps lên; Supabase (Tokyo) ~65 ms.
 - Khởi động lại VPS: web trở lại sau ~15 s, tất cả dịch vụ tự bật.
+
+## Sao lưu và khôi phục
+
+`sankhau-backup.timer` chạy 20:00 mỗi ngày (`/usr/local/bin/sankhau-backup` = `deploy/linux/backup.sh`):
+DB StockVN (sao lưu online bằng `sqlite3 .backup`, kiểm `quick_check`, nén zstd ~95 MB) + file upload AllOnline.
+
+- Trên VPS: `/var/backups/sankhau/daily`, giữ 7 bản. Log: `/var/log/sankhau/backup.log`.
+- Ngoài VPS: Cloudflare R2, rclone remote `offsite`, bucket `sankhau-backup`: `daily/` giữ 30 ngày, `monthly/`
+  (ngày 1) giữ 12 tháng. Chưa có remote `offsite` thì script chỉ lưu trên VPS và ghi cảnh báo vào log.
+- Chạy tay: `ssh vps sankhau-backup`.
+
+Khôi phục DB StockVN:
+
+```bash
+ssh vps
+cd /var/backups/sankhau/daily && sha256sum -c SHA256-<stamp>
+systemctl stop stockvn-web stockvn-zalo stockvn-live
+zstd -d stockpilot-<stamp>.sqlite.zst -o /srv/stockvn/data/stockpilot.sqlite.restore
+cd /srv/stockvn/data && mv stockpilot.sqlite stockpilot.sqlite.broken && rm -f stockpilot.sqlite-wal stockpilot.sqlite-shm
+mv stockpilot.sqlite.restore stockpilot.sqlite && chown sankhau:sankhau stockpilot.sqlite
+systemctl start stockvn-web stockvn-zalo   # trong giờ phiên thêm: systemctl start stockvn-live
+```
+
+Lấy từ R2: `rclone copy offsite:sankhau-backup/daily/<file> .` Khôi phục thử ngày 2026-11-11: hash OK,
+`integrity_check` ok, số nến ngày khớp DB đang chạy, đủ file upload.
