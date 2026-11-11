@@ -76,5 +76,10 @@ mv stockpilot.sqlite.restore stockpilot.sqlite && chown sankhau:sankhau stockpil
 systemctl start stockvn-web stockvn-zalo   # trong giờ phiên thêm: systemctl start stockvn-live
 ```
 
+R2 bật từ 2026-11-11 12:08: token R2 `vps-backup` (Object Read & Write, chỉ bucket `allonline-backup`,
+chỉ IP VPS), cấu hình `/root/.config/rclone/rclone.conf`, bản gốc khóa ở `/root/secrets/r2.txt`.
+rclone của Ubuntu (1.60) báo `501 NotImplemented` ở lần thử đầu rồi tự thử lại thành công — bình thường.
+Sao lưu lỗi: `systemctl status sankhau-backup` báo failed và log ghi lỗi.
+
 Lấy từ R2: `rclone copy offsite:allonline-backup/daily/<file> .` Khôi phục thử ngày 2026-11-11: hash OK,
 `integrity_check` ok, số nến ngày khớp DB đang chạy, đủ file upload.
