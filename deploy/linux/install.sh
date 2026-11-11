@@ -187,7 +187,12 @@ U
 
 # --- sao lưu hằng đêm (script được gửi kèm: ssh vps 'bash -s' < install.sh không mang theo file khác,
 #     nên deploy.sh / người vận hành chép deploy/linux/backup.sh thành /usr/local/bin/sankhau-backup)
-apt-get install -y -qq zstd rclone >/dev/null
+apt-get install -y -qq zstd rclone postgresql-common >/dev/null
+# pg_dump phải cùng bản Postgres của Supabase (17); Ubuntu 24.04 chỉ có 16 -> kho chính thức PGDG
+if [ ! -x /usr/lib/postgresql/17/bin/pg_dump ]; then
+  /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null 2>&1
+  apt-get install -y -qq postgresql-client-17 >/dev/null
+fi
 if [ -f /srv/allonline/deploy/linux/backup.sh ]; then install -m 755 /srv/allonline/deploy/linux/backup.sh /usr/local/bin/sankhau-backup; fi
 cat > /etc/systemd/system/sankhau-backup.service <<U
 [Unit]

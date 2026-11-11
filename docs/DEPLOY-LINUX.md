@@ -57,7 +57,8 @@ Cài lại từ đầu / thêm dịch vụ: `ssh vps 'bash -s' < deploy/linux/in
 ## Sao lưu và khôi phục
 
 `sankhau-backup.timer` chạy 20:00 mỗi ngày (`/usr/local/bin/sankhau-backup` = `deploy/linux/backup.sh`):
-DB StockVN (sao lưu online bằng `sqlite3 .backup`, kiểm `quick_check`, nén zstd ~95 MB) + file upload AllOnline.
+DB StockVN (sao lưu online bằng `sqlite3 .backup`, kiểm `quick_check`, nén zstd ~95 MB) + DB chính AllOnline trên
+Supabase (`pg_dump` 17, schema app/auth/storage/public, ~1,5 MB) + file upload AllOnline.
 
 - Trên VPS: `/var/backups/sankhau/daily`, giữ 7 bản. Log: `/var/log/sankhau/backup.log`.
 - Ngoài VPS: Cloudflare R2, rclone remote `offsite`, bucket `allonline-backup`: `daily/` giữ 30 ngày, `monthly/`
@@ -80,6 +81,17 @@ R2 bật từ 2026-11-11 12:08: token R2 `vps-backup` (Object Read & Write, ch�
 chỉ IP VPS), cấu hình `/root/.config/rclone/rclone.conf`, bản gốc khóa ở `/root/secrets/r2.txt`.
 rclone của Ubuntu (1.60) báo `501 NotImplemented` ở lần thử đầu rồi tự thử lại thành công — bình thường.
 Sao lưu lỗi: `systemctl status sankhau-backup` báo failed và log ghi lỗi.
+
+Khôi phục DB Supabase (vào project Supabase mới hoặc Postgres 17 bất kỳ):
+
+```bash
+/usr/lib/postgresql/17/bin/pg_restore -l supabase-<stamp>.dump | head      # xem nội dung
+/usr/lib/postgresql/17/bin/pg_restore -d "<DATABASE_URL đích>" --no-owner --no-privileges -n app supabase-<stamp>.dump
+```
+
+Project Supabase mới đã có sẵn schema auth/storage: thường chỉ cần khôi phục `-n app` và dữ liệu bảng `auth.users`,
+`auth.identities` (`--data-only -t users -t identities -n auth`). Khôi phục thử 2026-11-11 vào Postgres 17 tạm:
+số dòng rooms/orders/payments/room_events/auth.users khớp Supabase.
 
 Lấy từ R2: `rclone copy offsite:allonline-backup/daily/<file> .` Khôi phục thử ngày 2026-11-11: hash OK,
 `integrity_check` ok, số nến ngày khớp DB đang chạy, đủ file upload.
