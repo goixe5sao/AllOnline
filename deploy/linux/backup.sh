@@ -3,8 +3,10 @@
 # Cài: deploy/linux/install.sh chép file này thành /usr/local/bin/sankhau-backup (timer 20:00 mỗi ngày).
 # Chạy tay: sankhau-backup
 #  - Trên VPS: /var/backups/sankhau/daily, giữ 7 bản.
-#  - Ngoài VPS: nếu có rclone remote "offsite" (Cloudflare R2), đẩy lên offsite:$BUCKET/daily (giữ 30 ngày)
-#    và mỗi ngày 1 của tháng thêm offsite:$BUCKET/monthly (giữ 6 tháng).
+#  - Ngoài VPS: nếu có rclone remote "offsite" (Cloudflare R2), đẩy lên offsite:$BUCKET/daily (giữ 7 ngày)
+#    và mỗi ngày 1 của tháng thêm offsite:$BUCKET/monthly (giữ 3 tháng).
+#  - CHẶN CỨNG (chủ dự án, 2026-11-12: không để phát sinh tiền): R2 miễn phí 10 GB. Nếu dung lượng
+#    trên R2 + bản mới > R2_MAX_GB (mặc định 9) thì KHÔNG đẩy lên R2 (bản trên VPS vẫn giữ) và báo Zalo.
 set -euo pipefail
 BUCKET=${SANKHAU_BACKUP_BUCKET:-allonline-backup}
 DIR=/var/backups/sankhau/daily
@@ -52,15 +54,26 @@ for pat in 'stockpilot-*.sqlite.zst' 'allonline-uploads-*.tar.zst' 'supabase-*.d
   ls -1t "$DIR"/$pat 2>/dev/null | tail -n +8 | xargs -r rm -f
 done
 
+R2_MAX_GB=${R2_MAX_GB:-9}   # chặn cứng, dưới mức miễn phí 10 GB của Cloudflare R2
+r2_skipped=0
 if rclone listremotes 2>/dev/null | grep -qx 'offsite:'; then
-  for f in "${files[@]}"; do
-    rclone copyto --s3-no-check-bucket "$DIR/$f" "offsite:$BUCKET/daily/$f"
-    [ "$(date +%d)" = 01 ] && rclone copyto --s3-no-check-bucket "$DIR/$f" "offsite:$BUCKET/monthly/$f"
-  done
-  rclone delete --min-age 30d "offsite:$BUCKET/daily" || true
-  rclone delete --min-age 185d "offsite:$BUCKET/monthly" || true
+  # Dọn bản cũ TRƯỚC khi tính dung lượng: 7 ngày + 3 tháng (~0,5 GB/bản -> ~5 GB).
+  rclone delete --min-age 7d "offsite:$BUCKET/daily" || true
+  rclone delete --min-age 95d "offsite:$BUCKET/monthly" || true
   r2_bytes=$(rclone size --json "offsite:$BUCKET" | grep -oP '"bytes":\K[0-9]+')
-  echo "offsite: OK ($((r2_bytes / 1048576)) MB on R2)"
+  new_bytes=$(cd "$DIR" && du -cb "${files[@]}" | tail -1 | cut -f1)
+  copies=1; [ "$(date +%d)" = 01 ] && copies=2
+  if [ $((r2_bytes + copies * new_bytes)) -gt $((R2_MAX_GB * 1073741824)) ]; then
+    r2_skipped=1
+    echo "offsite: BO QUA - R2 $((r2_bytes / 1048576)) MB + ban moi $((copies * new_bytes / 1048576)) MB > ${R2_MAX_GB} GB (tranh phat sinh phi)"
+  else
+    for f in "${files[@]}"; do
+      rclone copyto --s3-no-check-bucket "$DIR/$f" "offsite:$BUCKET/daily/$f"
+      [ "$(date +%d)" = 01 ] && rclone copyto --s3-no-check-bucket "$DIR/$f" "offsite:$BUCKET/monthly/$f"
+    done
+    r2_bytes=$(rclone size --json "offsite:$BUCKET" | grep -oP '"bytes":\K[0-9]+')
+    echo "offsite: OK ($((r2_bytes / 1048576)) MB on R2)"
+  fi
 else
   r2_bytes=0
   echo "offsite: CHUA CAU HINH (rclone remote 'offsite' chua co) - chi co ban tren VPS"
@@ -79,6 +92,7 @@ DB_LIMIT_GB=${DB_WARN_GB:-5}
 disk_pct=$(df --output=pcent / | tail -1 | tr -dc '0-9')
 db_bytes=$(stat -c %s /srv/stockvn/data/stockpilot.sqlite)
 echo "size: disk ${disk_pct}%, DB $((db_bytes / 1048576)) MB, R2 $((r2_bytes / 1048576)) MB"
+[ "$r2_skipped" = 1 ] && warn r2skip "KHÔNG đẩy backup lên R2 vì sẽ vượt ${R2_MAX_GB} GB (miễn phí 10 GB). Bản backup vẫn còn trên VPS. Cần giảm số bản giữ lại hoặc chấp nhận trả phí."
 [ "$r2_bytes" -gt $((R2_LIMIT_GB * 1073741824)) ] && warn r2 "R2 đã dùng $((r2_bytes / 1048576)) MB (miễn phí 10 GB). Nên giảm số bản sao lưu giữ lại."
 [ "$disk_pct" -ge "$DISK_LIMIT_PCT" ] && warn disk "ổ VPS đã dùng ${disk_pct}% (69 GB). Cần dọn hoặc nâng gói."
 [ "$db_bytes" -gt $((DB_LIMIT_GB * 1073741824)) ] && warn db "DB StockVN đã $((db_bytes / 1048576)) MB (ngưỡng ${DB_LIMIT_GB} GB)."
