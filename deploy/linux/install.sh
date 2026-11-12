@@ -160,6 +160,60 @@ ExecStart=/bin/systemctl start --no-block stockvn-live.service
 WantedBy=multi-user.target
 U
 
+# VPS tắt/khởi động lại khi job cuối ngày đang chạy (11/11/2026 15:32: quét AI dở dang ->
+# không có báo cáo 08 tối đó, không có cảnh báo trong phiên hôm sau). Khi khởi động và 19:30
+# T2-T6: nếu bản quét AI cũ hơn phiên giao dịch gần nhất (ngày có nến phút VNINDEX) thì chạy bù.
+cat > /usr/local/bin/stockvn-eod-catchup <<'S'
+#!/bin/bash
+cd /srv/stockvn || exit 0
+/usr/local/bin/stockvn-in-session && exit 0
+systemctl is-active --quiet stockvn-live.service && exit 0
+need=$(.venv/bin/python - <<'P'
+import json, sqlite3
+from datetime import datetime
+c = sqlite3.connect("file:data/stockpilot.sqlite?mode=ro", uri=True, timeout=60)
+now = datetime.now()
+cut = now.strftime("%Y-%m-%d") if now.strftime("%H%M") >= "1505" else now.strftime("%Y-%m-%d 00")
+session = c.execute("SELECT MAX(substr(ts,1,10)) FROM intraday_candles WHERE symbol='VNINDEX' AND ts < ?",
+                    (cut + " 99" if len(cut) == 10 else cut,)).fetchone()[0]
+row = c.execute("SELECT payload_json FROM ai_scan_snapshot ORDER BY as_of DESC LIMIT 1").fetchone()
+done = max((i.get("date", "") for i in json.loads(row[0])["items"]), default="") if row else ""
+print(session if session and done < session else "")
+P
+)
+[ -z "$need" ] && exit 0
+log=data/logs/live-$(date +%Y%m%d).log
+echo "[$(date +%T)] Chạy bù job cuối ngày cho phiên $need (bản quét AI còn thiếu)" >> "$log"
+.venv/bin/python -m ml.pipeline daily >> "$log" 2>&1
+S
+chmod 755 /usr/local/bin/stockvn-eod-catchup
+cat > /etc/systemd/system/stockvn-eod-catchup.service <<U
+[Unit]
+Description=StockVN end-of-day job catch-up (after a reboot during the job)
+After=network-online.target
+Wants=network-online.target
+OnFailure=sankhau-alert@%n.service
+
+[Service]
+Type=oneshot
+User=$APP_USER
+Environment=PYTHONIOENCODING=utf-8 PYTHONUNBUFFERED=1
+ExecStart=/usr/local/bin/stockvn-eod-catchup
+TimeoutStartSec=3h
+U
+cat > /etc/systemd/system/stockvn-eod-catchup.timer <<U
+[Unit]
+Description=StockVN end-of-day catch-up check: 5 min after boot and 19:30 Mon-Fri
+
+[Timer]
+OnBootSec=5min
+OnCalendar=Mon..Fri 19:30
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+U
+
 cat > /etc/systemd/system/cloudflared-sankhau.service <<U
 [Unit]
 Description=Cloudflare Tunnel sankhau.pro.vn
@@ -235,6 +289,7 @@ printf "[Unit]\nOnFailure=sankhau-alert@%%n.service\n" > /etc/systemd/system/san
 printf "[Unit]\nOnFailure=sankhau-alert@%%n.service\n" > /etc/systemd/system/stockvn-live.service.d/alert.conf
 systemctl daemon-reload
 systemctl enable --now sankhau-backup.timer >/dev/null 2>&1
+systemctl enable --now stockvn-eod-catchup.timer >/dev/null 2>&1
 
 mkdir -p /var/log/sankhau && chown $APP_USER:$APP_USER /var/log/sankhau
 cat > /etc/logrotate.d/sankhau <<L
