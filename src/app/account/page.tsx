@@ -9,6 +9,7 @@ import { AppShell } from "@/components/app-shell";
 import { api, ApiError, useApi, type Me } from "@/lib/api";
 
 interface Identities {
+  stockvnLinked: boolean;
   identities: { provider: "zalo" | "zalo_oa"; name: string | null; since: string }[];
   zaloLogin: boolean;
   bot: { url: string } | null;
@@ -139,6 +140,7 @@ function Account({ me }: { me: Me }) {
         </p>
         <div className="row">
           <Badge tone={oa ? "success" : "neutral"}>{oa ? "Bot Zalo đã liên kết" : "Bot Zalo: chưa liên kết"}</Badge>
+          {data?.stockvnLinked && <Badge tone="success">Đã liên kết StockVN</Badge>}
           {zalo && <Badge tone="success">Đăng nhập bằng Zalo</Badge>}
         </div>
         {!oa && (

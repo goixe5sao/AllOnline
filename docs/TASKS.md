@@ -588,3 +588,35 @@ All UI text is Vietnamese. Dates and times are dd/mm/yyyy HH:mm, Vietnam time. D
 - anything you are unsure about.
 
 Commit on `codex/zalo-log`. Do not push, do not merge.
+
+## StockVN accounts via Zalo + Sân Khấu Online link (owner request 2026-11-13)
+
+### U-2 (AllOnline, Codex, worktree `~/work/AllOnline-stockvnlink`, branch `codex/stockvn-link` from `master`)
+
+Pair task: U-1 in the StockVN repo (`~/work/StockVN/docs/U-1-TASK.md`) — read its "Link endpoint"
+section; that is the contract. Flow: a StockVN user answers CÓ on the StockVN bot and gets a 6-char
+code; they open the Sân Khấu Online bot and send `SV <code>`; this bot confirms and calls StockVN.
+
+Build (server/zalo/bot.ts command parser + handler, server/db.ts schema, tests in tests/zalo-bot.test.ts style):
+1. Command `SV <code>` (also `STOCKVN <code>`; accents/case-insensitive; code A–Z/2–9, 6 chars).
+   - Sender's bot identity (`zalo_oa`) must be linked to an account; otherwise reply how to get one:
+     "Nhắn ĐĂNG KÝ để tạo tài khoản Sân Khấu Online (hoặc LK <mã> nếu đã có), rồi gửi lại SV <mã>."
+   - Otherwise ask: "Liên kết tài khoản Sân Khấu Online «<display name>» với StockVN? Trả lời CÓ để xác
+     nhận, KHÔNG để hủy (5 phút)." Keep the pending confirmation in memory or DB keyed by account
+     (5 min; one pending per account). Make sure CÓ/KHÔNG do not collide with existing commands.
+2. On CÓ: `POST ${STOCKVN_BASE_URL}/api/integrations/sankhau/link` (default `http://127.0.0.1:3200`
+   on the VPS), `Authorization: Bearer ${SANKHAU_LINK_SECRET}`, body `{code, sankhauUserId, sankhauName}`,
+   10 s timeout. 200 → store `stockvn_links(user_id unique, stockvn_user_id, linked_at)` (create in
+   server/db.ts the same way other tables are created; upsert) and reply "Đã liên kết với StockVN.";
+   404 → "Mã không đúng hoặc đã hết hạn, lấy mã mới ở bot StockVN (nhắn LIÊN KẾT)."; 409 → "Tài khoản
+   StockVN này đã liên kết với tài khoản khác."; 429 → "Sai mã quá nhiều lần, lấy mã mới."; other/timeout →
+   "StockVN chưa phản hồi, thử lại sau." Missing env → reply that the link is not configured, log it.
+3. Account page (`src/app/account/page.tsx`): show "Đã liên kết StockVN" when a link exists (read via
+   the existing account API; add the field there).
+4. Help text: add `SV <mã> — liên kết với tài khoản StockVN`.
+5. Tests with a fake fetch: not-linked sender, confirm/cancel/timeout, each HTTP outcome, help text.
+   Run the repo's test/lint/typecheck commands; all must pass. Document `STOCKVN_BASE_URL`,
+   `SANKHAU_LINK_SECRET` in docs/ZALO-BOT.md.
+
+Do NOT deploy, do NOT touch `/srv`, no real Zalo/StockVN calls. Commit on `codex/stockvn-link`, do not
+push; write `docs/U-2-RESULT.md` (what changed, test output, open questions).

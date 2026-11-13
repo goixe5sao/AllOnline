@@ -18,6 +18,8 @@ export function plain(s: string) {
 }
 
 export type Command =
+  | { kind: "stockvn"; code: string }
+  | { kind: "stockvnConfirm"; yes: boolean }
   | { kind: "login" }
   /** Code shown on the web login page ("DN 123456", or just the 6 digits). */
   | { kind: "weblogin"; code: string }
@@ -30,6 +32,8 @@ export type Command =
 export function parseCommand(text: string): Command {
   const t = plain(text);
   let m: RegExpMatchArray | null;
+  if ((m = t.match(/^(?:sv|stockvn)\s+([a-z2-9]{6})$/))) return { kind: "stockvn", code: m[1].toUpperCase() };
+  if (/^(co|khong)$/.test(t)) return { kind: "stockvnConfirm", yes: t === "co" };
   if ((m = t.match(/^(?:lk|lien ket)\s*(\d{6})$/))) return { kind: "link", code: m[1] };
   if ((m = t.match(/^(?:(?:dn|dang nhap|login|ma)\s*)?(\d{6})$/))) return { kind: "weblogin", code: m[1] };
   if ((m = t.match(/^(huy nhac|bo nhac|nhac)\s+([a-z0-9]{6,12})$/))) return { kind: "remind", invite: m[2].toUpperCase(), on: m[1] === "nhac" };
@@ -44,6 +48,7 @@ const HELP = [
   "• DN 123456 — đăng nhập trang web đang mở (mã hiện ở trang Đăng nhập → Zalo)",
   "• ĐĂNG KÝ hoặc ĐĂNG NHẬP — nhận link đăng nhập (không cần mật khẩu)",
   "• LK 123456 — liên kết tài khoản trên web với Zalo (lấy mã ở trang Tài khoản)",
+  "• SV <mã> — liên kết với tài khoản StockVN",
   "• NHẮC <mã mời> — nhắc bạn trước giờ sự kiện; HỦY NHẮC <mã mời> để bỏ",
   "• LỊCH — các sự kiện bạn đã đăng ký nhắc",
   "• ĐƠN — đơn chờ thanh toán và nội dung chuyển khoản",
@@ -73,6 +78,7 @@ export class ZaloBot {
   private linkCodes = new Map<string, { userId: string; exp: number }>();
   /** One-time login links already used. */
   private usedLogins = new Set<string>();
+  private stockvnPending = new Map<string, { code: string; exp: number }>();
   /**
    * Web login codes: the login page shows the code, the person sends it to the bot, the page
    * (holding the secret claim) is signed in. code → claim, expiry, account once confirmed.
@@ -163,6 +169,51 @@ export class ZaloBot {
     const cmd = parseCommand(text);
     const db = this.deps.db;
     switch (cmd.kind) {
+      case "stockvn": {
+        const user = await this.account(oaUid);
+        if (!user) return this.say(chatId, "Nhắn ĐĂNG KÝ để tạo tài khoản Sân Khấu Online (hoặc LK <mã> nếu đã có), rồi gửi lại SV <mã>.");
+        for (const [id, pending] of this.stockvnPending) {
+          if (pending.exp <= Date.now()) this.stockvnPending.delete(id);
+        }
+        this.stockvnPending.set(user.id, { code: cmd.code, exp: Date.now() + 5 * 60_000 });
+        return this.say(chatId, `Liên kết tài khoản Sân Khấu Online «${user.display_name}» với StockVN? Trả lời CÓ để xác nhận, KHÔNG để hủy (5 phút).`);
+      }
+      case "stockvnConfirm": {
+        const user = await this.account(oaUid);
+        const pending = user && this.stockvnPending.get(user.id);
+        if (!user || !pending) return this.say(chatId, HELP);
+        // Consume before awaiting HTTP so duplicate confirmations cannot submit twice.
+        this.stockvnPending.delete(user.id);
+        if (pending.exp <= Date.now()) return this.say(chatId, "Xác nhận đã hết hạn. Gửi lại SV <mã> để liên kết.");
+        if (!cmd.yes) return this.say(chatId, "Đã hủy liên kết StockVN.");
+        const { stockvnBaseUrl, sankhauLinkSecret } = this.deps.cfg;
+        if (!sankhauLinkSecret) {
+          console.error("[stockvn] link is not configured: missing SANKHAU_LINK_SECRET");
+          return this.say(chatId, "Liên kết StockVN chưa được cấu hình.");
+        }
+        let reply = "StockVN chưa phản hồi, thử lại sau.";
+        try {
+          const res = await fetch(`${(stockvnBaseUrl ?? "http://127.0.0.1:3200").replace(/\/+$/, "")}/api/integrations/sankhau/link`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${sankhauLinkSecret}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ code: pending.code, sankhauUserId: user.id, sankhauName: user.display_name }),
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (res.status === 200) {
+            const result: unknown = await res.json();
+            const id = result && typeof result === "object" && "stockvnUserId" in result ? result.stockvnUserId : null;
+            if ((typeof id !== "string" || !id.trim()) && (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0)) throw new Error("Invalid StockVN response");
+            await db.query("insert into app.stockvn_links(user_id, stockvn_user_id, linked_at) values($1,$2,now()) on conflict(user_id) do update set stockvn_user_id=excluded.stockvn_user_id, linked_at=excluded.linked_at", [user.id, String(id)]);
+            reply = "Đã liên kết với StockVN.";
+          } else if (res.status === 404) reply = "Mã không đúng hoặc đã hết hạn, lấy mã mới ở bot StockVN (nhắn LIÊN KẾT).";
+          else if (res.status === 409) reply = "Tài khoản StockVN này đã liên kết với tài khoản khác.";
+          else if (res.status === 429) reply = "Sai mã quá nhiều lần, lấy mã mới.";
+        } catch {
+          // Never log the bearer, code, response body, or fetch error containing credentials.
+          console.error("[stockvn] link request failed");
+        }
+        return this.say(chatId, reply);
+      }
       case "login": {
         let user = await this.account(oaUid);
         let created = false;

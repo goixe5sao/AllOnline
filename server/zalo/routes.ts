@@ -157,6 +157,7 @@ export function zaloRoutes(route: Route, deps: { cfg: Config; db: Db; auth: Auth
     const u = needUser(ctx);
     return {
       identities: (await identitiesOf(db, u.id)).map((i) => ({ provider: i.provider, name: i.display_name, since: i.created_at })),
+      stockvnLinked: (await db.query("select 1 from app.stockvn_links where user_id=$1", [u.id])).rows.length > 0,
       zaloLogin: !!(cfg.zaloAppId && cfg.zaloAppSecret),
       bot: botInfo(cfg),
       simulator: cfg.mode === "demo",

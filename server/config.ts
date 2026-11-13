@@ -53,6 +53,9 @@ export interface Config {
   zaloAppSecret?: string;
   /** Zalo domain verification meta tag value. */
   zaloSiteVerification?: string;
+  /** StockVN server integration; shared secret stays server-side. */
+  stockvnBaseUrl?: string;
+  sankhauLinkSecret?: string;
   /** Zalo Bot Platform (bot.zapps.me) — replaces the OA bot. Token from Zalo Bot Creator. */
   zaloBotToken?: string;
   /** Bot account_name (e.g. bot.JwUidOjZ), resolved via getMe at startup for public links. */
@@ -115,6 +118,8 @@ export function readConfig(): Config {
     turnKeyToken: env("REALTIME_TURN_KEY_TOKEN"),
     zaloAppSecret: env("ZALO_APP_SECRET"),
     zaloSiteVerification: env("ZALO_SITE_VERIFICATION"),
+    stockvnBaseUrl: env("STOCKVN_BASE_URL") ?? "http://127.0.0.1:3200",
+    sankhauLinkSecret: env("SANKHAU_LINK_SECRET"),
     zaloBotToken: env("ZALO_BOT_TOKEN"),
     zaloBotId: env("ZALO_BOT_ID"),
     zaloBotUrl: env("ZALO_BOT_URL"),

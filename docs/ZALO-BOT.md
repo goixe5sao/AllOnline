@@ -76,3 +76,20 @@ npx.cmd vitest run tests/zalo-bot.test.ts tests/zalo-pay.test.ts --silent
 npm.cmd run lint
 npx.cmd tsc --noEmit
 ```
+
+### Liên kết StockVN (SV)
+
+Người đã có tài khoản Sân Khấu Online gắn với danh tính bot gửi
+`SV <mã>` (hoặc `STOCKVN <mã>`) rồi trả lời CÓ trong 5 phút; KHÔNG hủy yêu cầu.
+Mã lấy từ bot StockVN bằng lệnh LIÊN KẾT. Mỗi tài khoản có một yêu cầu chờ;
+mã mới thay mã cũ. Yêu cầu chờ lưu trong bộ nhớ, mất khi khởi động lại.
+
+Cấu hình phía server (không đưa vào biến NEXT_PUBLIC):
+- `STOCKVN_BASE_URL`: địa chỉ StockVN, mặc định `http://127.0.0.1:3200`.
+- `SANKHAU_LINK_SECRET`: bí mật dùng chung với StockVN cho bearer auth.
+  Nếu thiếu, bot báo chưa cấu hình và không gửi HTTP.
+
+Sau xác nhận, server POST `/api/integrations/sankhau/link` với timeout 10 giây.
+Thành công lưu liên kết vào `app.stockvn_links`; trang Tài khoản hiển thị
+“Đã liên kết StockVN”. Không tự thử lại: nếu lỗi hoặc hết hạn xác nhận,
+người dùng gửi lại SV; nếu mã StockVN đã dùng/hết hạn, lấy mã mới ở bot StockVN.
