@@ -92,7 +92,9 @@ it("keeps real and fixture queues separate when the configured provider changes"
 });
 it("ignores future alerts and does not queue deliveries for guests", async () => {
   await db.query('update app.users set is_guest=true where id=$1',[uid]);
-  const s=service(); await s.tick(Date.parse('2026-11-09T04:00:00Z'));
+  const s=service();
+  vi.spyOn(s.provider, 'load').mockResolvedValueOnce(fixtureAlerts(now));
+  await s.tick(Date.parse('2026-11-09T04:00:00Z'));
   expect((await s.feed(VIP)).alerts).toHaveLength(1);
   expect((await db.query('select * from app.stock_alert_deliveries')).rows).toHaveLength(0);
 });

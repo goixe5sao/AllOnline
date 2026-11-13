@@ -104,4 +104,11 @@ export async function migrate(db: Db, dir = path.join(process.cwd(), "db", "migr
     }
     console.log(`[db] migrated ${file}`);
   }
+  await db.exec(`
+    create table if not exists app.stockvn_links (
+      user_id uuid primary key references app.users(id) on delete cascade,
+      stockvn_user_id text not null,
+      linked_at timestamptz not null default now()
+    );
+  `);
 }
