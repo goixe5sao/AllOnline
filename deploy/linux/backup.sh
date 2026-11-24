@@ -68,6 +68,40 @@ for pat in 'stockpilot-*.sqlite.zst' 'allonline-uploads-*.tar.zst' 'vaultwarden-
   ls -1t "$DIR"/$pat 2>/dev/null | tail -n +8 | xargs -r rm -f
 done
 
+# Cấu hình + file bí mật của VPS (để dựng lại máy khi cần): toàn bộ /etc (systemd, cloudflared, wireguard,
+# goixe5sao, vaultwarden, youtube…), .env.local của các app, /root (rclone, secrets), khoá SSH, script
+# /usr/local/bin, crontab + bảng kê gói/dịch vụ/tường lửa. CHỈ để trên VPS (giữ 7) và NAS ở nhà kéo về
+# (rsync module sankhau-config) — KHÔNG đẩy lên R2. File gồm mật khẩu dạng rõ: quyền 600, thư mục 700.
+CFG_DIR=/var/backups/sankhau/config
+install -d -m 700 "$CFG_DIR"
+cfg="$tmp/cfg"; mkdir -p "$cfg"
+{
+  echo "host: $(hostname)  date: $(date -Is)"; uname -a; lsb_release -ds 2>/dev/null
+  echo "node $(node -v 2>/dev/null)  python $(python3 -V 2>&1)"
+  for a in /srv/*/; do echo "app $a: $(cat "$a/.deployed" 2>/dev/null || stat -c %y "$a")"; done
+} > "$cfg/MANIFEST.txt"
+dpkg --get-selections > "$cfg/dpkg-selections.txt" 2>/dev/null || true
+apt-mark showmanual > "$cfg/apt-manual.txt" 2>/dev/null || true
+systemctl list-unit-files --state=enabled --no-pager > "$cfg/systemd-enabled.txt" 2>/dev/null || true
+ufw status numbered > "$cfg/ufw-status.txt" 2>/dev/null || true
+for u in root cuong; do crontab -l -u "$u" > "$cfg/crontab-$u.txt" 2>/dev/null || true; done
+paths=(/etc /root /usr/local/bin /var/spool/cron /home/cuong/.ssh /home/cuong/.gitconfig /home/cuong/.config/gh
+       /home/cuong/yt-hoc-vien/state.json /home/cuong/yt-hoc-vien/state.uploads.json /home/cuong/yt-hoc-vien/uploader.sh)
+for e in /srv/*/.env.local /srv/*/.env; do [ -f "$e" ] && paths+=("$e"); done
+existing=(); for x in "${paths[@]}"; do [ -e "$x" ] && existing+=("$x"); done
+if tar --warning=no-file-changed --ignore-failed-read -cf - \
+     --exclude=/root/.vscode-server --exclude=/root/.cache --exclude=/root/.npm --exclude=/root/snap \
+     --exclude=/usr/local/bin/cloudflared --exclude='/etc/ssl/certs/*.0' \
+     -C "$cfg" . "${existing[@]}" 2>/dev/null | zstd -q -T0 -19 -o "$CFG_DIR/config-$STAMP.tar.zst"; then
+  chmod 600 "$CFG_DIR/config-$STAMP.tar.zst"
+  (cd "$CFG_DIR" && sha256sum "config-$STAMP.tar.zst" > "config-$STAMP.sha256")
+  echo "config: $(du -h "$CFG_DIR/config-$STAMP.tar.zst" | cut -f1)"
+else
+  echo "LOI: backup cau hinh that bai"
+fi
+ls -1t "$CFG_DIR"/config-*.tar.zst 2>/dev/null | tail -n +8 | xargs -r rm -f
+ls -1t "$CFG_DIR"/config-*.sha256 2>/dev/null | tail -n +8 | xargs -r rm -f
+
 R2_MAX_GB=${R2_MAX_GB:-9}   # chặn cứng, dưới mức miễn phí 10 GB của Cloudflare R2
 r2_skipped=0
 if rclone listremotes 2>/dev/null | grep -qx 'offsite:'; then

@@ -62,6 +62,14 @@ timeout = 600
   list = yes
   hosts allow = $NAS_IP
   hosts deny = *
+
+[sankhau-config]
+  comment = VPS config + secrets (read-only; NAS peer only; never on R2)
+  path = /var/backups/sankhau/config
+  read only = yes
+  list = yes
+  hosts allow = $NAS_IP
+  hosts deny = *
 EOF
 install -d /etc/systemd/system/rsync.service.d
 cat > /etc/systemd/system/rsync.service.d/wg.conf <<'EOF'
