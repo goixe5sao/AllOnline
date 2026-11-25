@@ -1,0 +1,24 @@
+#!/bin/bash
+# Switch the sites to the home standby. FIRST stop cloudflared-sankhau on the VPS (if the VPS is still alive):
+# two connectors on the same tunnel would split visitors between the VPS and home.
+#   standby-up --yes            full failover: web + vault + Zalo bot + live data timers (VPS is DOWN)
+#   standby-up --yes --web-only drill: web + vault through the tunnel; Zalo bot and data jobs stay on the VPS
+set -euo pipefail
+ST=/var/lib/standby
+[ "${1:-}" = --yes ] || { sed -n '2,6p' "$0"; exit 1; }
+mode=${2:-full}
+mkdir -p "$ST"
+echo "$(date -Is) $mode" > "$ST/ACTIVE"                     # nightly sync now skips: data written here is kept
+systemctl start vaultwarden stockvn-web allonline stockvn-heatmap stockvn-sim stockvn-vnsim stockvn-sim-analysis
+if [ "$mode" != --web-only ]; then
+  systemctl start stockvn-zalo stockvn-live.timer stockvn-eod-catchup.timer
+  /usr/local/bin/stockvn-in-session 2>/dev/null && systemctl start stockvn-live.service || true
+fi
+for i in $(seq 1 45); do
+  curl -fsS -o /dev/null http://127.0.0.1:3200/gioi-thieu && curl -fsS -o /dev/null http://127.0.0.1:3000/ && break; sleep 2
+done
+systemctl start cloudflared-sankhau
+sleep 5
+for u in vaultwarden stockvn-web allonline cloudflared-sankhau stockvn-zalo; do printf '%-22s %s\n' "$u" "$(systemctl is-active $u)"; done
+for p in 3000/ 3200/gioi-thieu 8222/alive; do printf 'local :%-14s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$p)"; done
+echo "Standby ACTIVE ($mode). Check https://sankhau.pro.vn https://broker.pro.vn https://pass.sankhau.pro.vn"

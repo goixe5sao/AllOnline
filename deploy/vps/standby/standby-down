@@ -1,0 +1,13 @@
+#!/bin/bash
+# Stop serving from the home standby (after the VPS is back and its cloudflared-sankhau is started again).
+# Data written here while ACTIVE (StockVN DBs, vault, uploads) must be copied back to the VPS BEFORE the VPS
+# serves again — see docs/STANDBY-NAS.md "Quay về VPS". Pass --discard to confirm nothing needs copying (drills).
+set -euo pipefail
+ST=/var/lib/standby
+[ "${1:-}" = --discard ] || [ "${1:-}" = --copied ] || { sed -n '2,4p' "$0"; exit 1; }
+systemctl stop cloudflared-sankhau
+systemctl stop stockvn-zalo stockvn-live.timer stockvn-eod-catchup.timer stockvn-live.service 2>/dev/null || true
+systemctl stop allonline stockvn-web stockvn-heatmap stockvn-sim stockvn-vnsim stockvn-sim-analysis vaultwarden
+systemctl reset-failed 2>/dev/null || true
+mv -f "$ST/ACTIVE" "$ST/last-active" 2>/dev/null || true
+echo "Standby stopped ($1). Nightly sync resumes."

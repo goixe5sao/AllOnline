@@ -26,6 +26,16 @@ zstd -q -T0 -10 "$tmp/stockpilot.sqlite" -o "$DIR/stockpilot-$STAMP.sqlite.zst"
 tar -C /srv/allonline/.data -cf - uploads | zstd -q -T0 -o "$DIR/allonline-uploads-$STAMP.tar.zst"
 files=("stockpilot-$STAMP.sqlite.zst" "allonline-uploads-$STAMP.tar.zst")
 
+# StockVN: DB phụ (Sàn ảo + danh mục ảo VN: sim.sqlite, sao lưu online) + file trạng thái nhỏ trong data/
+# (biên lai thanh toán, bố cục heatmap, ảnh chụp trang giới thiệu; data/academy 160 MB tạo lại được nên bỏ qua). Không gồm stockpilot (ở trên) và logs.
+mkdir -p "$tmp/state"
+[ -f /srv/stockvn/data/sim.sqlite ] && sqlite3 /srv/stockvn/data/sim.sqlite ".backup '$tmp/state/sim.sqlite'"
+(cd /srv/stockvn/data && find . -maxdepth 1 \( -name '*.json' -o -name 'payment-receipts' \) -print0 \
+  | xargs -0 -r cp -a -t "$tmp/state/")
+tar -C "$tmp/state" -cf - . | zstd -q -T0 -o "$DIR/stockvn-state-$STAMP.tar.zst"
+chmod 600 "$DIR/stockvn-state-$STAMP.tar.zst"
+files+=("stockvn-state-$STAMP.tar.zst")
+
 # Kho mật khẩu gia đình (Vaultwarden, pass.sankhau.pro.vn): DB SQLite (sao lưu online) + khoá RSA + file đính kèm.
 # Dữ liệu đã mã hoá đầu-cuối trên thiết bị người dùng, nên bản sao lưu không lộ mật khẩu.
 if [ -f /srv/vaultwarden/data/db.sqlite3 ]; then
@@ -64,7 +74,7 @@ files+=("SHA256-$STAMP")
 echo "local: $(du -sh "$DIR/stockpilot-$STAMP.sqlite.zst" | cut -f1) StockVN, $(du -sh "$DIR/supabase-$STAMP.dump" 2>/dev/null | cut -f1) Supabase"
 
 # giữ 7 bản trên VPS
-for pat in 'stockpilot-*.sqlite.zst' 'allonline-uploads-*.tar.zst' 'vaultwarden-*.tar.zst' 'supabase-*.dump' 'SHA256-*'; do
+for pat in 'stockpilot-*.sqlite.zst' 'stockvn-state-*.tar.zst' 'allonline-uploads-*.tar.zst' 'vaultwarden-*.tar.zst' 'supabase-*.dump' 'SHA256-*'; do
   ls -1t "$DIR"/$pat 2>/dev/null | tail -n +8 | xargs -r rm -f
 done
 
