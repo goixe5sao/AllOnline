@@ -60,7 +60,7 @@ timeout = 600
   path = /var/backups/sankhau/daily
   read only = yes
   list = yes
-  hosts allow = $NAS_IP
+  hosts allow = $NAS_IP 10.66.0.5
   hosts deny = *
 
 [sankhau-config]
@@ -68,8 +68,11 @@ timeout = 600
   path = /var/backups/sankhau/config
   read only = yes
   list = yes
-  hosts allow = $NAS_IP
+  hosts allow = $NAS_IP 10.66.0.5
   hosts deny = *
+
+# home standby modules (deploy/vps/standby-setup.sh)
+&include /etc/rsyncd.d
 EOF
 install -d /etc/systemd/system/rsync.service.d
 cat > /etc/systemd/system/rsync.service.d/wg.conf <<'EOF'

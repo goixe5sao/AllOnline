@@ -1,0 +1,90 @@
+#!/bin/bash
+# Home warm standby: pull production from the VPS into this VM and keep every service STOPPED.
+# Runs nightly (standby-sync.timer 21:30) on the Linux VM on the home NAS. Never runs while the standby is ACTIVE
+# (sites switched here), so live data written here is never overwritten. See docs/STANDBY-NAS.md.
+set -uo pipefail
+R=rsync://10.66.0.1
+ST=/var/lib/standby
+LOG=$ST/sync.log
+UNITS_WEB="vaultwarden stockvn-web allonline stockvn-heatmap stockvn-sim stockvn-vnsim stockvn-sim-analysis"
+UNITS_JOBS="stockvn-zalo stockvn-live.timer stockvn-eod-catchup.timer stockvn-live.service"
+mkdir -p "$ST"/{backup,config,tmp}
+if [ -e "$ST/ACTIVE" ]; then echo "$(date -Is) ACTIVE — sync skipped" >> "$LOG"; exit 0; fi
+exec > >(tee -a "$LOG") 2>&1
+echo "== $(date -Is) standby-sync start"
+fail() { echo "FAIL: $*"; printf '{"time":"%s","ok":false,"error":"%s"}\n' "$(date -Is)" "$*" > "$ST/status.json"; exit 1; }
+
+# 0) everything stays stopped on the standby; log dirs the units need
+install -d -o sankhau -g sankhau -m 755 /var/log/sankhau
+install -d -o vaultwarden -g vaultwarden -m 750 /var/log/vaultwarden
+systemctl stop cloudflared-sankhau $UNITS_JOBS $UNITS_WEB 2>/dev/null || true
+
+# 1) code + production builds + small state files (DBs come from consistent backups below)
+for app in allonline stockvn; do
+  rsync -aH --delete --exclude=/releases/ --exclude=/data/logs/ --exclude='/data/*.sqlite*' \
+    "$R/standby-srv/$app/" "/srv/$app/" || fail "rsync $app"
+done
+rsync -a --delete "$R/standby-opt/" /opt/vaultwarden/ || fail "rsync vaultwarden binary"
+rsync -a "$R/standby-bin/cloudflared" /usr/bin/cloudflared || fail "rsync cloudflared"
+
+# 2) config bundle (latest): systemd units, cloudflared tunnel, env files, helper scripts
+cfg=$(rsync "$R/sankhau-config/" | awk '{print $NF}' | grep -E '^config-.*\.tar\.zst$' | sort | tail -1)
+[ -n "$cfg" ] || fail "no config bundle"
+rsync -a "$R/sankhau-config/$cfg" "$R/sankhau-config/${cfg%.tar.zst}.sha256" "$ST/config/" || fail "rsync config"
+(cd "$ST/config" && sha256sum -c --quiet "${cfg%.tar.zst}.sha256") || fail "config checksum"
+find "$ST/config" -name 'config-*' ! -name "${cfg%.tar.zst}*" -delete
+rm -rf "$ST/tmp/cfg" && mkdir -p "$ST/tmp/cfg"
+zstd -dc "$ST/config/$cfg" | tar -x -C "$ST/tmp/cfg" \
+  --wildcards 'etc/systemd/system/allonline.service' 'etc/systemd/system/stockvn-*' 'etc/systemd/system/vaultwarden.service' \
+  'etc/systemd/system/cloudflared-sankhau.service' 'etc/systemd/system/sankhau-alert@.service' \
+  'etc/cloudflared/*' 'etc/sankhau/*' 'etc/vaultwarden.env' \
+  'usr/local/bin/stockvn-*' 'usr/local/bin/sankhau-notify' || fail "extract config"
+rm -f "$ST"/tmp/cfg/etc/systemd/system/stockvn-yt-upload.service   # YouTube uploads stay on the VPS
+cp -a "$ST"/tmp/cfg/etc/systemd/system/. /etc/systemd/system/
+mkdir -p /etc/cloudflared /etc/sankhau
+cp -a "$ST"/tmp/cfg/etc/cloudflared/. /etc/cloudflared/
+cp -a "$ST"/tmp/cfg/etc/sankhau/. /etc/sankhau/
+cp -a "$ST"/tmp/cfg/etc/vaultwarden.env /etc/vaultwarden.env
+cp -a "$ST"/tmp/cfg/usr/local/bin/. /usr/local/bin/
+rm -rf "$ST/tmp/cfg"
+systemctl daemon-reload
+
+# 3) nightly backups (latest set, checksum-verified): StockVN DB + family vault
+stamp=$(rsync "$R/sankhau-backup/" | awk '{print $NF}' | sed -nE 's/^stockpilot-(.*)\.sqlite\.zst$/\1/p' | sort | tail -1)
+[ -n "$stamp" ] || fail "no StockVN backup"
+want=("stockpilot-$stamp.sqlite.zst" "vaultwarden-$stamp.tar.zst" "SHA256-$stamp")
+for f in "${want[@]}"; do rsync -a "$R/sankhau-backup/$f" "$ST/backup/" || fail "rsync $f"; done
+(cd "$ST/backup" && grep -E "stockpilot-$stamp|vaultwarden-$stamp" "SHA256-$stamp" | sha256sum -c --quiet) || fail "backup checksum $stamp"
+find "$ST/backup" -type f ! -name "*$stamp*" -delete
+
+if [ "$(cat "$ST/restored-stamp" 2>/dev/null)" != "$stamp" ] || [ ! -s /srv/stockvn/data/stockpilot.sqlite ]; then
+  zstd -dqf "$ST/backup/stockpilot-$stamp.sqlite.zst" -o /srv/stockvn/data/stockpilot.sqlite.new || fail "unzstd stockpilot"
+  [ "$(sqlite3 /srv/stockvn/data/stockpilot.sqlite.new 'PRAGMA quick_check;')" = ok ] || fail "stockpilot quick_check"
+  rm -f /srv/stockvn/data/stockpilot.sqlite-wal /srv/stockvn/data/stockpilot.sqlite-shm
+  mv -f /srv/stockvn/data/stockpilot.sqlite.new /srv/stockvn/data/stockpilot.sqlite
+  rm -rf /srv/vaultwarden/data.new && mkdir -p /srv/vaultwarden/data.new
+  zstd -dc "$ST/backup/vaultwarden-$stamp.tar.zst" | tar -x -C /srv/vaultwarden/data.new || fail "vaultwarden extract"
+  rm -rf /srv/vaultwarden/data && mv /srv/vaultwarden/data.new /srv/vaultwarden/data
+  echo "$stamp" > "$ST/restored-stamp"
+fi
+# small live DBs: consistent snapshots written on the VPS at 21:05
+rsync -a "$R/standby-snap/sim.sqlite" /srv/stockvn/data/sim.sqlite.new || fail "rsync sim.sqlite"
+[ "$(sqlite3 /srv/stockvn/data/sim.sqlite.new 'PRAGMA quick_check;')" = ok ] || fail "sim quick_check"
+rm -f /srv/stockvn/data/sim.sqlite-wal /srv/stockvn/data/sim.sqlite-shm
+mv -f /srv/stockvn/data/sim.sqlite.new /srv/stockvn/data/sim.sqlite
+chown -R sankhau:sankhau /srv/stockvn/data
+chown -R vaultwarden:vaultwarden /srv/vaultwarden
+
+# 4) smoke test on localhost only (StockVN web reads its local copy; AllOnline is NOT started: it writes to Supabase)
+systemctl start vaultwarden stockvn-web
+ok=1
+for i in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:3200/gioi-thieu && break; sleep 2; done
+curl -fsS -o /dev/null http://127.0.0.1:3200/gioi-thieu || ok=0
+curl -fsS -o /dev/null http://127.0.0.1:8222/alive || ok=0
+systemctl stop stockvn-web vaultwarden
+[ $ok = 1 ] || fail "smoke test (stockvn-web :3200 or vaultwarden :8222)"
+
+db_date=$(sqlite3 /srv/stockvn/data/stockpilot.sqlite "select max(trade_date) from daily_candles" 2>/dev/null)
+printf '{"time":"%s","ok":true,"backup":"%s","config":"%s","last_daily_candle":"%s"}\n' \
+  "$(date -Is)" "$stamp" "$cfg" "$db_date" > "$ST/status.json"
+echo "== $(date -Is) standby-sync OK backup=$stamp config=$cfg last_candle=$db_date"
